@@ -31,16 +31,70 @@ app.get('/', (req, res) => {
     status: 'ok', 
     message: 'Discord Bot - VTuber School',
     timestamp: new Date().toISOString(),
-    version: '4.0.0',
+    version: '5.0.0',
     features: {
       slash_commands: true,
       button_interactions: true,
-      n8n_integration: true
+      static_responses: true,
+      ai_responses: 'coming_soon'
     }
   });
 });
 
-// Discord webhook - ハイブリッド処理
+// ボタン応答生成関数
+function generateButtonResponse(customId) {
+  switch (customId) {
+    case 'payment_consultation':
+      return {
+        type: 4,
+        data: {
+          content: "申し訳ございません。お支払いに関してはここでは相談できません。\\n💡 **管理者の方へ**：ここに適切な担当者のメンションを設定してください。\\n\\n例：<@USER_ID>にご相談ください。"
+        }
+      };
+    
+    case 'private_consultation':
+      return {
+        type: 4,
+        data: {
+          content: "申し訳ございません。プライベートなご相談については\\nここでは回答できません。\\n\\n🎓 **担任の先生に直接ご相談ください。**"
+        }
+      };
+    
+    case 'lesson_question':
+      return {
+        type: 4,
+        data: {
+          content: "📚 **レッスンについてのご質問ですね！**\\n\\n🤖 AI回答機能は現在準備中です。\\nもうしばらくお待ちください。\\n\\n📝 **一時的な対応**：\\n• 具体的なレッスン番号と質問内容を教えてください\\n• 担任の先生にご相談いただくことも可能です"
+        }
+      };
+    
+    case 'sns_consultation':
+      return {
+        type: 4,
+        data: {
+          content: "📱 **X・YouTubeの運用相談ですね！**\\n\\n🤖 AI回答機能は現在準備中です。\\nもうしばらくお待ちください。\\n\\n📝 **一時的な対応**：\\n• どのような運用でお困りですか？\\n• 担任の先生にご相談いただくことも可能です"
+        }
+      };
+    
+    case 'mission_submission':
+      return {
+        type: 4,
+        data: {
+          content: "📋 **ミッションの提出ですね！**\\n\\n🤖 AI回答機能は現在準備中です。\\nもうしばらくお待ちください。\\n\\n📝 **一時的な対応**：\\n• どちらのミッションでしょうか？\\n• 担任の先生にご相談いただくことも可能です"
+        }
+      };
+    
+    default:
+      return {
+        type: 4,
+        data: {
+          content: "❌ 申し訳ございません。認識できない選択肢です。\\n再度メニューから選択してください。"
+        }
+      };
+  }
+}
+
+// Discord webhook処理
 app.post('/discord', async (req, res) => {
   console.log('=== Discord Interaction 受信 ===');
   console.log('Time:', new Date().toISOString());
@@ -81,28 +135,28 @@ app.post('/discord', async (req, res) => {
     
     const userId = body.member?.user?.id || body.user?.id;
     const response = {
-      type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
+      type: 4,
       data: {
         content: `こんにちは <@${userId}>さん！\\nどのようなご相談でしょうか？以下から選択してください：`,
         components: [
           {
-            type: 1, // Action Row
+            type: 1,
             components: [
               {
-                type: 2, // Button
-                style: 1, // Primary (Blue)
+                type: 2,
+                style: 1,
                 label: "お支払いに関する相談",
                 custom_id: "payment_consultation"
               },
               {
                 type: 2,
-                style: 2, // Secondary (Gray)
+                style: 2,
                 label: "プライベートなご相談",
                 custom_id: "private_consultation"
               },
               {
                 type: 2,
-                style: 3, // Success (Green)
+                style: 3,
                 label: "レッスンについての質問",
                 custom_id: "lesson_question"
               }
@@ -133,39 +187,22 @@ app.post('/discord', async (req, res) => {
     return res.json(response);
   }
   
-  // ボタンクリック - n8nに転送
+  // ボタンクリック - Render.comで即座応答
   if (body.type === 3) {
-    console.log('🔘 ボタンクリック - n8n転送');
+    console.log('🔘 ボタンクリック - Render.com即座応答');
     console.log('Button ID:', body.data?.custom_id);
     
-    try {
-      const n8nUrl = process.env.N8N_WEBHOOK_URL || 'https://kyo10310405.app.n8n.cloud/webhook/053be54b-55c7-4c3e-8eb7-4f9b6c63656d';
-      
-      const response = await axios.post(n8nUrl, body, {
-        headers: { 
-          'Content-Type': 'application/json',
-          'User-Agent': 'Discord-Bot-Render/4.0'
-        },
-        timeout: 2500 // 2.5秒でタイムアウト
-      });
-      
-      console.log('✅ n8n応答受信:', response.status);
-      return res.json(response.data);
-      
-    } catch (error) {
-      console.error('❌ n8n転送エラー:', error.message);
-      
-      // エラー時のフォールバック応答
-      const fallbackResponse = {
-        type: 4,
-        data: {
-          content: "申し訳ございません。一時的にサービスが利用できません。\\nしばらく経ってから再度お試しください。",
-          flags: 64 // ephemeral - 本人のみ表示
-        }
-      };
-      
-      return res.json(fallbackResponse);
+    const response = generateButtonResponse(body.data?.custom_id);
+    console.log('✅ ボタン応答送信:', body.data?.custom_id);
+    
+    // 将来のAI機能用にn8nに非同期通知（応答は待たない）
+    const aiButtons = ['lesson_question', 'sns_consultation', 'mission_submission'];
+    if (aiButtons.includes(body.data?.custom_id)) {
+      console.log('🤖 AI機能対象ボタン - 将来の拡張用');
+      // 将来ここでn8nに非同期通知を送信予定
     }
+    
+    return res.json(response);
   }
   
   // その他の未対応タイプ
@@ -174,9 +211,9 @@ app.post('/discord', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School Started ===');
+  console.log('=== Discord Bot VTuber School v5.0 ===');
   console.log(`📍 Port: ${PORT}`);
-  console.log(`🔗 N8N URL: ${process.env.N8N_WEBHOOK_URL || 'Default'}`);
-  console.log('✅ Ready for hybrid processing');
-  console.log('==========================================');
+  console.log('✅ All responses handled by Render.com');
+  console.log('🤖 AI features: Coming Soon');
+  console.log('=====================================');
 });
