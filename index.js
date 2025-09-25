@@ -1,10 +1,28 @@
 const express = require('express');
+const nacl = require('tweetnacl');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// JSON parser
+// Discord署名検証関数
+function verifyDiscordSignature(signature, timestamp, body, publicKey) {
+  try {
+    const timestampBuffer = Buffer.from(timestamp, 'utf8');
+    const bodyBuffer = Buffer.from(body);
+    const message = Buffer.concat([timestampBuffer, bodyBuffer]);
+    
+    const signatureBuffer = Buffer.from(signature, 'hex');
+    const publicKeyBuffer = Buffer.from(publicKey, 'hex');
+    
+    return nacl.sign.detached.verify(message, signatureBuffer, publicKeyBuffer);
+  } catch (error) {
+    console.error('署名検証エラー:', error);
+    return false;
+  }
+}
+
+// Raw body parser for Discord webhook
+app.use('/discord', express.raw({ type: 'application/json' }));
 app.use(express.json());
-app.use(express.raw({ type: 'application/json' }));
 
 // Health check
 app.get('/', (req, res) => {
@@ -16,18 +34,37 @@ app.get('/', (req, res) => {
   });
 });
 
-// Discord webhook endpoint
+// Discord webhook endpoint with signature verification
 app.post('/discord', (req, res) => {
   console.log('=== Discord Request Received ===');
   console.log('Time:', new Date().toISOString());
-  console.log('Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('Body:', req.body);
-  console.log('===============================');
+  
+  const signature = req.headers['x-signature-ed25519'];
+  const timestamp = req.headers['x-signature-timestamp'];
+  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+  
+  console.log('Signature:', signature);
+  console.log('Timestamp:', timestamp);
+  console.log('Public Key:', publicKey ? 'Set' : 'Not Set');
+  
+  // Signature verification
+  if (!publicKey) {
+    console.error('DISCORD_PUBLIC_KEY environment variable not set');
+    return res.status(500).json({ error: 'Public key not configured' });
+  }
+  
+  const isValid = verifyDiscordSignature(signature, timestamp, req.body, publicKey);
+  console.log('Signature verification result:', isValid);
+  
+  if (!isValid) {
+    console.error('Signature verification failed');
+    return res.status(401).json({ error: 'Invalid signature' });
+  }
   
   let body;
   try {
-    // Parse body if it's raw
-    body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+    body = JSON.parse(req.body.toString());
+    console.log('Request Type:', body.type);
   } catch (error) {
     console.error('JSON Parse Error:', error);
     return res.status(400).json({ error: 'Invalid JSON' });
@@ -144,5 +181,6 @@ app.listen(PORT, () => {
   console.log('=== Server Started ===');
   console.log(`Port: ${PORT}`);
   console.log(`Time: ${new Date().toISOString()}`);
+  console.log(`Discord Public Key: ${process.env.DISCORD_PUBLIC_KEY ? 'Set' : 'Not Set'}`);
   console.log('====================');
 });
