@@ -41,14 +41,14 @@ app.get('/', (req, res) => {
   });
 });
 
-// ボタン応答生成関数
+// ボタン応答生成関数 - 改行修正版
 function generateButtonResponse(customId) {
   switch (customId) {
     case 'payment_consultation':
       return {
         type: 4,
         data: {
-          content: "申し訳ございません。お支払いに関してはここでは相談できません。\\n💡 **管理者の方へ**：ここに適切な担当者のメンションを設定してください。\\n\\n例：<@USER_ID>にご相談ください。"
+          content: "申し訳ございません。お支払いに関してはここでは相談できません。\n💡 **管理者の方へ**：ここに適切な担当者のメンションを設定してください。\n\n例：<@USER_ID>にご相談ください。"
         }
       };
     
@@ -56,7 +56,7 @@ function generateButtonResponse(customId) {
       return {
         type: 4,
         data: {
-          content: "申し訳ございません。プライベートなご相談については\\nここでは回答できません。\\n\\n🎓 **担任の先生に直接ご相談ください。**"
+          content: "申し訳ございません。プライベートなご相談については\nここでは回答できません。\n\n🎓 **担任の先生に直接ご相談ください。**"
         }
       };
     
@@ -64,7 +64,7 @@ function generateButtonResponse(customId) {
       return {
         type: 4,
         data: {
-          content: "📚 **レッスンについてのご質問ですね！**\\n\\n🤖 AI回答機能は現在準備中です。\\nもうしばらくお待ちください。\\n\\n📝 **一時的な対応**：\\n• 具体的なレッスン番号と質問内容を教えてください\\n• 担任の先生にご相談いただくことも可能です"
+          content: "📚 **レッスンについてのご質問ですね！**\n\n🤖 AI回答機能は現在準備中です。\nもうしばらくお待ちください。\n\n📝 **一時的な対応**：\n• 具体的なレッスン番号と質問内容を教えてください\n• 担任の先生にご相談いただくことも可能です"
         }
       };
     
@@ -72,7 +72,7 @@ function generateButtonResponse(customId) {
       return {
         type: 4,
         data: {
-          content: "📱 **X・YouTubeの運用相談ですね！**\\n\\n🤖 AI回答機能は現在準備中です。\\nもうしばらくお待ちください。\\n\\n📝 **一時的な対応**：\\n• どのような運用でお困りですか？\\n• 担任の先生にご相談いただくことも可能です"
+          content: "📱 **X・YouTubeの運用相談ですね！**\n\n🤖 AI回答機能は現在準備中です。\nもうしばらくお待ちください。\n\n📝 **一時的な対応**：\n• どのような運用でお困りですか？\n• 担任の先生にご相談いただくことも可能です"
         }
       };
     
@@ -80,7 +80,7 @@ function generateButtonResponse(customId) {
       return {
         type: 4,
         data: {
-          content: "📋 **ミッションの提出ですね！**\\n\\n🤖 AI回答機能は現在準備中です。\\nもうしばらくお待ちください。\\n\\n📝 **一時的な対応**：\\n• どちらのミッションでしょうか？\\n• 担任の先生にご相談いただくことも可能です"
+          content: "📋 **ミッションの提出ですね！**\n\n🤖 AI回答機能は現在準備中です。\nもうしばらくお待ちください。\n\n📝 **一時的な対応**：\n• どちらのミッションでしょうか？\n• 担任の先生にご相談いただくことも可能です"
         }
       };
     
@@ -88,7 +88,7 @@ function generateButtonResponse(customId) {
       return {
         type: 4,
         data: {
-          content: "❌ 申し訳ございません。認識できない選択肢です。\\n再度メニューから選択してください。"
+          content: "❌ 申し訳ございません。認識できない選択肢です。\n再度メニューから選択してください。"
         }
       };
   }
@@ -134,10 +134,12 @@ app.post('/discord', async (req, res) => {
     console.log('⚡ /soudan コマンド - Render.com即座応答');
     
     const userId = body.member?.user?.id || body.user?.id;
-    const response = {
-      type: 4,
-      data: {
-        content: `こんにちは <@${userId}>さん！\\nどのようなご相談でしょうか？以下から選択してください：`,
+    // /soudan スラッシュコマンド応答も修正
+const response = {
+  type: 4,
+  data: {
+    content: `こんにちは <@${userId}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
+    // 以下components部分は変更なし
         components: [
           {
             type: 1,
