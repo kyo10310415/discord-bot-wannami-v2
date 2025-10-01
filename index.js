@@ -4,14 +4,14 @@ const nacl = require('tweetnacl');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 🆕 AI対象ボタンの定義
+// AI対象ボタンの定義
 const AI_TARGET_BUTTONS = {
   lesson_question: true,      // ③レッスン質問
   sns_consultation: true,     // ④SNS運用相談
   mission_submission: true    // ⑤ミッション提出
 };
 
-// 🆕 n8n Webhook URL
+// n8n Webhook URL
 const N8N_WEBHOOK_URL = 'https://kyo10310405.app.n8n.cloud/webhook/053be54b-55c7-4c3e-8eb7-4f9b6c63656d';
 
 // Discord署名検証関数
@@ -41,46 +41,77 @@ app.get('/', (req, res) => {
     status: 'ok', 
     message: 'Discord Bot - VTuber School',
     timestamp: new Date().toISOString(),
-    version: '6.0.0', // 🆕 Version更新
+    version: '6.1.0', // 質問入力システム追加版
     features: {
       slash_commands: true,
       button_interactions: true,
       static_responses: true,
-      ai_responses: 'phase_1_active', // 🆕 AI機能Phase 1
+      ai_responses: 'phase_1_5_active',
+      question_input_system: true,
       ai_target_buttons: ['lesson_question', 'sns_consultation', 'mission_submission']
     }
   });
 });
 
-// 🆕 AI処理中の初期応答メッセージ
-const AI_PROCESSING_RESPONSES = {
-  lesson_question: `🤖 **わなみさんがAI分析中です...** 📚
+// 🆕 AI応答ボタンの質問入力要求メッセージ
+const AI_QUESTION_PROMPTS = {
+  lesson_question: {
+    title: "📚 レッスンについての質問",
+    content: `**レッスンに関するご質問をお聞かせください！**
 
-あなたのレッスンに関するご質問を分析しています！
-知識ベースから最適な回答を検索中です✨
+🔹 **質問例**
+• 「OBSの設定方法を教えてください」
+• 「Live2Dの表情設定がうまくいきません」
+• 「配信で音声が聞こえない時の対処法は？」
+• 「コラボ配信の準備手順を教えて」
 
-⏱️ **少々お待ちください（約30秒程度）**
-詳細な回答をお届けします💕`,
+💡 **質問のコツ**
+• 具体的な状況や症状を教えてください
+• 使用しているソフトウェア名があれば記載してください
+• エラーメッセージがあれば教えてください
 
-  sns_consultation: `🤖 **わなみさんのAI戦略分析中...** 📱
+**📝 この下にあなたの質問を入力してください ⬇️**`
+  },
+  
+  sns_consultation: {
+    title: "📱 SNS運用のご相談",
+    content: `**SNS運用に関するご相談をお聞かせください！**
 
-あなたのSNS運用状況を分析して、
-個別の戦略提案を準備しています🚀
+🔹 **相談例**
+• 「Twitterでフォロワーを増やすコツは？」
+• 「YouTube配信の企画アイデアを教えて」
+• 「TikTokでバズる動画の作り方は？」
+• 「Instagram活用方法を知りたい」
 
-⏱️ **少々お待ちください（約45秒程度）**
-カスタマイズされたアドバイスをお届けします✨`,
+💡 **相談のコツ**
+• 現在のフォロワー数や状況を教えてください
+• 目標（フォロワー数、再生数など）があれば記載してください
+• 困っている具体的な内容を詳しく書いてください
 
-  mission_submission: `🤖 **わなみさんのAIフィードバック生成中...** 🎯
+**📝 この下にあなたのご相談内容を入力してください ⬇️**`
+  },
+  
+  mission_submission: {
+    title: "🎯 ミッションの提出",
+    content: `**ミッション提出に関してお聞かせください！**
 
-あなたのミッション内容を詳細に分析して、
-成長につながるフィードバックを作成中です📈
+🔹 **提出・相談例**
+• 「ミッション001を完了しました」
+• 「配信企画ミッションのフィードバックください」
+• 「今週のミッションで困っています」
+• 「提出方法がわからない」
 
-⏱️ **少々お待ちください（約60秒程度）**
-個別の成長アドバイスをお届けします💕`
+💡 **記載のコツ**
+• ミッション番号があれば記載してください
+• 完了報告の場合は取り組み内容を教えてください
+• 質問の場合は具体的に何に困っているか書いてください
+
+**📝 この下にミッション関連の内容を入力してください ⬇️**`
+  }
 };
 
-// 🆕 n8n Webhookにデータ送信する関数
-async function sendToN8N(buttonId, interaction) {
+// n8n Webhookにデータ送信する関数
+async function sendToN8N(buttonId, interaction, questionText = null) {
   try {
     const payload = {
       button_id: buttonId,
@@ -90,7 +121,8 @@ async function sendToN8N(buttonId, interaction) {
       channel_id: interaction.channel_id,
       timestamp: new Date().toISOString(),
       ai_request: true,
-      phase: 1
+      phase: questionText ? '1.5_with_question' : '1.5_prompt_only',
+      question_text: questionText // ユーザーの質問内容
     };
 
     console.log('🚀 n8nにAI処理依頼送信中:', payload);
@@ -108,24 +140,25 @@ async function sendToN8N(buttonId, interaction) {
   }
 }
 
-// ボタン応答生成関数 - 改行修正版 + AI機能対応
+// ボタン応答生成関数 - 質問入力要求版
 function generateButtonResponse(customId, interaction = null) {
-  // 🆕 AI対象ボタンの判定
+  // AI対象ボタンの判定
   if (AI_TARGET_BUTTONS[customId]) {
-    console.log(`🤖 AI処理対象ボタン: ${customId}`);
+    console.log(`🤖 AI処理対象ボタン: ${customId} - 質問入力要求`);
     
-    // AI処理をn8nに非同期依頼（応答は待たない）
+    // n8nに質問入力要求として送信
     if (interaction) {
       sendToN8N(customId, interaction).catch(error => {
         console.error('n8n送信失敗:', error);
       });
     }
     
-    // AI処理中の初期応答を返す
+    // 質問入力を促すメッセージを返す
+    const promptData = AI_QUESTION_PROMPTS[customId];
     return {
       type: 4,
       data: {
-        content: AI_PROCESSING_RESPONSES[customId],
+        content: `✨ **${promptData.title}** ✨\n\n${promptData.content}`
       }
     };
   }
@@ -136,7 +169,7 @@ function generateButtonResponse(customId, interaction = null) {
       return {
         type: 4,
         data: {
-          content: "申し訳ございません。お支払いに関してはここでは相談できません。\n💡 **管理者の方へ**：ここに適切な担当者のメンションを設定してください。\n\n例：<@USER_ID>にご相談ください。",
+          content: "申し訳ございません。お支払いに関してはここでは相談できません。\n💡 **管理者の方へ**：ここに適切な担当者のメンションを設定してください。\n\n例：<@USER_ID>にご相談ください。"
         }
       };
     
@@ -144,7 +177,7 @@ function generateButtonResponse(customId, interaction = null) {
       return {
         type: 4,
         data: {
-          content: "申し訳ございません。プライベートなご相談については\nここでは回答できません。\n\n🎓 **担任の先生に直接ご相談ください。**",
+          content: "申し訳ございません。プライベートなご相談については\nここでは回答できません。\n\n🎓 **担任の先生に直接ご相談ください。**"
         }
       };
     
@@ -152,7 +185,7 @@ function generateButtonResponse(customId, interaction = null) {
       return {
         type: 4,
         data: {
-          content: "❌ 申し訳ございません。認識できない選択肢です。\n再度メニューから選択してください。",
+          content: "❌ 申し訳ございません。認識できない選択肢です。\n再度メニューから選択してください。"
         }
       };
   }
@@ -251,17 +284,16 @@ app.post('/discord', async (req, res) => {
     return res.json(response);
   }
   
-  // ボタンクリック - Render.comで即座応答 + AI機能対応
+  // ボタンクリック - 質問入力要求対応
   if (body.type === 3) {
     const buttonId = body.data?.custom_id;
-    console.log('🔘 ボタンクリック - Render.com即座応答');
+    console.log('🔘 ボタンクリック - 質問入力要求対応');
     console.log('Button ID:', buttonId);
     
-    // 🆕 AI対象ボタンの場合、interaction情報も渡す
     const response = generateButtonResponse(buttonId, body);
     
     if (AI_TARGET_BUTTONS[buttonId]) {
-      console.log('🤖 AI処理開始 - 初期応答送信 + n8n通知');
+      console.log('📝 質問入力要求送信 + n8n通知');
     } else {
       console.log('📝 静的応答送信:', buttonId);
     }
@@ -275,10 +307,10 @@ app.post('/discord', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School v6.0 ===');
+  console.log('=== Discord Bot VTuber School v6.1 ===');
   console.log(`📍 Port: ${PORT}`);
   console.log('✅ Static responses: Render.com');
-  console.log('🤖 AI responses: Phase 1 Active');
+  console.log('📝 AI Question Input System: Active');
   console.log(`🔗 n8n Webhook: ${N8N_WEBHOOK_URL}`);
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
   console.log('=====================================');
