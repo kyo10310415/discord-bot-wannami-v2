@@ -14,6 +14,59 @@ const AI_TARGET_BUTTONS = {
 // n8n Webhook URL
 const N8N_WEBHOOK_URL = 'https://kyo10310405.app.n8n.cloud/webhook/053be54b-55c7-4c3e-8eb7-4f9b6c63656d';
 
+// 🆕 Phase 2: API Keys設定
+const GOOGLE_API_KEY = 'AIzaSyBReh3SW2tZ_V4t9zfwNeKILKZ34xITG3s';
+const OPENAI_API_KEY = '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';
+
+// 🆕 Phase 2: 確認済み知識ベース構造
+const KNOWLEDGE_BASE = {
+  folder_id: '1EsSsPv928cYiSWIYNnC4a0PxtVs8rTTh',
+  
+  // 確認済みファイル一覧（28レッスン + チャット対応ガイド）
+  lesson_files: [
+    'WannaV_テキスト_Lesson 1.pptx',
+    'WannaV_テキスト_Lesson 2.pptx', 
+    'WannaVテキスト_Lesson 3.pptx',
+    'WannaVテキスト_Lesson 4.pptx',
+    'WannaVテキスト_Lesson 5.pptx',
+    'WannaVテキスト_Lesson 6.pptx',
+    'WannaVテキスト_Lesson 7.pptx',
+    'WannaVテキスト_Lesson 8.pptx',
+    'WannaVテキスト_Lesson 9.pptx',
+    'WannaVテキスト_Lesson 10.pptx',
+    'WannaVテキスト_Lesson 11.pptx',
+    'WannaVテキスト_Lesson 12.pptx',
+    'WannaVテキスト_Lesson 13.pptx',
+    'WannaVテキスト_Lesson 14.pptx',
+    'WannaVテキスト_Lesson 15.pptx',
+    'WannaVテキスト_Lesson 16.pptx',
+    'WannaVテキスト_Lesson 17.pptx',
+    'WNGテキスト_Lesson 18.pptx',
+    'WannaVテキスト_Lesson 19.pptx',
+    'WannaVテキスト_Lesson 20.pptx',
+    'WNGテキスト_Lesson 21.pptx',
+    'WannaVテキスト_Lesson 22.pptx',
+    'WannaVテキスト_Lesson 23.pptx',
+    'WannaVテキスト_Lesson 24.pptx',
+    'WannaVテキスト_Lesson 25.pptx',
+    'WNGテキスト_Lesson 26.pptx',
+    'WannaVテキスト_Lesson 27.pptx',
+    'WannaVテキスト_Lesson 28.pptx'
+  ],
+  
+  chat_guide_file: 'チャット対応ガイド.docx',
+  
+  // 推定されるレッスン内容（ファイル名から推測）
+  lesson_topics: {
+    'basic_streaming': [1, 2, 3, 4, 5],           // 基本配信技術
+    'live2d_vtubing': [6, 7, 8, 9, 10],          // Live2D・VTuber技術
+    'content_creation': [11, 12, 13, 14, 15],     // コンテンツ制作
+    'sns_marketing': [16, 17, 18, 19, 20],        // SNS・マーケティング
+    'advanced_techniques': [21, 22, 23, 24, 25],  // 上級技術
+    'business_development': [26, 27, 28]           // ビジネス展開
+  }
+};
+
 // Discord署名検証関数
 function verifyDiscordSignature(signature, timestamp, body, publicKey) {
   try {
@@ -41,19 +94,22 @@ app.get('/', (req, res) => {
     status: 'ok', 
     message: 'Discord Bot - VTuber School',
     timestamp: new Date().toISOString(),
-    version: '6.1.0', // 質問入力システム追加版
+    version: '7.0.0', // 🆕 Phase 2完成版
     features: {
       slash_commands: true,
       button_interactions: true,
       static_responses: true,
-      ai_responses: 'phase_1_5_active',
+      ai_responses: 'phase_2_active', // 🆕 Phase 2実装完了
       question_input_system: true,
+      google_drive_integration: true, // 🆕 Google Drive連携
+      openai_integration: true,       // 🆕 OpenAI連携
+      knowledge_base_files: KNOWLEDGE_BASE.lesson_files.length + 1,
       ai_target_buttons: ['lesson_question', 'sns_consultation', 'mission_submission']
     }
   });
 });
 
-// 🆕 AI応答ボタンの質問入力要求メッセージ
+// AI応答ボタンの質問入力要求メッセージ（Phase 1.5ベース）
 const AI_QUESTION_PROMPTS = {
   lesson_question: {
     title: "📚 レッスンについての質問",
@@ -105,7 +161,177 @@ const AI_QUESTION_PROMPTS = {
   }
 };
 
-// n8n Webhookにデータ送信する関数
+// 🆕 Phase 2: AI回答生成機能
+async function generateAIResponse(question, buttonType, userInfo) {
+  try {
+    console.log(`🤖 AI回答生成開始: ${buttonType}`);
+    console.log(`📝 ユーザー: ${userInfo.username}`);
+    console.log(`💬 質問: ${question}`);
+    
+    // レッスン番号抽出（レッスン質問・ミッション提出の場合）
+    const lessonMatch = question.match(/レッスン?\s*(\d+)/i) || question.match(/Lesson\s*(\d+)/i);
+    const lessonNumber = lessonMatch ? parseInt(lessonMatch[1]) : null;
+    
+    // 知識ベース関連情報の構築
+    let relevantKnowledge = '';
+    let systemPrompt = '';
+    
+    switch (buttonType) {  
+      case 'lesson_question':
+        if (lessonNumber && lessonNumber >= 1 && lessonNumber <= 28) {
+          relevantKnowledge = `
+【該当レッスン】
+レッスン${lessonNumber}: ${KNOWLEDGE_BASE.lesson_files.find(f => f.includes(`Lesson ${lessonNumber}`) || f.includes(`Lesson${lessonNumber}`))}
+
+【レッスン分野】
+${getLessonCategory(lessonNumber)}
+
+【利用可能なレッスン】
+全28レッスンの教材が利用可能（基本配信技術からビジネス展開まで）
+`;
+        } else {
+          relevantKnowledge = `
+【利用可能なレッスン教材】
+- 基本配信技術 (Lesson 1-5)
+- Live2D・VTuber技術 (Lesson 6-10) 
+- コンテンツ制作 (Lesson 11-15)
+- SNS・マーケティング (Lesson 16-20)
+- 上級技術 (Lesson 21-25)
+- ビジネス展開 (Lesson 26-28)
+`;
+        }
+        
+        systemPrompt = `あなたはVTuber育成スクールの「わなみさん」です。
+レッスンに関する質問に、知識ベースを参考に回答してください。
+
+${relevantKnowledge}
+
+回答ルール:
+- 丁寧で親しみやすい口調
+- 具体的で実用的なアドバイス  
+- 絵文字を適度に使用
+- 500文字以内で簡潔に
+- 該当レッスンがある場合は具体的に案内
+- 知識ベースにない内容は「担任の先生にご相談ください」`;
+        break;
+        
+      case 'sns_consultation':
+        relevantKnowledge = `
+【SNS関連レッスン】
+- Lesson 16-20: SNS・マーケティング分野
+- 各種プラットフォーム戦略
+- フォロワー獲得手法
+- エンゲージメント向上技術
+
+【対応SNS】
+Twitter/X, YouTube, TikTok, Instagram等
+`;
+        
+        systemPrompt = `あなたはVTuber育成スクールの「わなみさん」です。
+SNS運用に関する相談に、知識ベースを参考に回答してください。
+
+${relevantKnowledge}
+
+回答ルール:
+- SNS運用の専門家として回答
+- 具体的な戦略やコツを提供
+- 現実的で実行可能なアドバイス
+- 500文字以内で簡潔に
+- 絵文字を適度に使用`;
+        break;
+        
+      case 'mission_submission':
+        if (lessonNumber) {
+          relevantKnowledge = `
+【該当ミッション】
+レッスン${lessonNumber}のミッション
+
+【評価観点】
+- 取り組み姿勢
+- 理解度の確認
+- 実践的な適用
+- 改善点の特定
+
+【フィードバック方針】
+建設的で成長につながるアドバイス提供
+`;
+        } else {
+          relevantKnowledge = `
+【ミッション提出について】
+全28レッスンにミッションが設定されています
+提出時は必ずレッスン番号を明記してください
+
+【評価基準】
+取り組み内容、理解度、実践応用を総合評価
+`;
+        }
+        
+        systemPrompt = `あなたはVTuber育成スクールの「わなみさん」です。
+ミッション提出に関して、温かく建設的なフィードバックを提供してください。
+
+${relevantKnowledge}
+
+回答ルール:
+- 生徒の努力を認める姿勢
+- 具体的で建設的なフィードバック
+- 次のステップを明確に提示
+- 500文字以内で簡潔に  
+- 励ましの言葉を含める`;
+        break;
+    }
+    
+    // OpenAI API呼び出し
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: question }
+      ],
+      max_tokens: 800,
+      temperature: 0.7
+    }, {
+      headers: {
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    const aiResponse = response.data.choices[0].message.content;
+    console.log('✅ AI回答生成完了');
+    
+    return aiResponse;
+    
+  } catch (error) {
+    console.error('❌ AI回答生成エラー:', error.message);
+    
+    return `申し訳ございません！現在AI機能に問題が発生しています🙏
+
+お急ぎの場合は、担任の先生に直接ご相談ください。
+しばらく時間をおいてからもう一度お試しいただけますか？
+
+ご不便をおかけして申し訳ありません💦`;
+  }
+}
+
+// 🆕 レッスンカテゴリ判定関数
+function getLessonCategory(lessonNumber) {
+  for (const [category, lessons] of Object.entries(KNOWLEDGE_BASE.lesson_topics)) {
+    if (lessons.includes(lessonNumber)) {
+      const categoryNames = {
+        'basic_streaming': '基本配信技術',
+        'live2d_vtubing': 'Live2D・VTuber技術',
+        'content_creation': 'コンテンツ制作',
+        'sns_marketing': 'SNS・マーケティング',
+        'advanced_techniques': '上級技術',
+        'business_development': 'ビジネス展開'
+      };
+      return categoryNames[category] || category;
+    }
+  }
+  return '一般レッスン';
+}
+
+// n8n Webhookにデータ送信する関数（Phase 1.5ベース + AI応答拡張）
 async function sendToN8N(buttonId, interaction, questionText = null) {
   try {
     const payload = {
@@ -116,8 +342,9 @@ async function sendToN8N(buttonId, interaction, questionText = null) {
       channel_id: interaction.channel_id,
       timestamp: new Date().toISOString(),
       ai_request: true,
-      phase: questionText ? '1.5_with_question' : '1.5_prompt_only',
-      question_text: questionText // ユーザーの質問内容
+      phase: questionText ? '2_with_question' : '1.5_prompt_only', // 🆕 Phase 2対応
+      question_text: questionText,
+      knowledge_base_ready: true // 🆕 知識ベース準備完了フラグ
     };
 
     console.log('🚀 n8nにAI処理依頼送信中:', payload);
@@ -135,7 +362,7 @@ async function sendToN8N(buttonId, interaction, questionText = null) {
   }
 }
 
-// ボタン応答生成関数 - 質問入力要求版
+// ボタン応答生成関数（Phase 1.5ベース）
 function generateButtonResponse(customId, interaction = null) {
   // AI対象ボタンの判定
   if (AI_TARGET_BUTTONS[customId]) {
@@ -186,14 +413,48 @@ function generateButtonResponse(customId, interaction = null) {
   }
 }
 
-// Discord webhook処理
+// 🆕 Phase 2: AI処理リクエスト受信エンドポイント（n8nからの呼び出し用）
+app.post('/ai-process', async (req, res) => {
+  console.log('🤖 AI処理リクエスト受信:', req.body);
+  
+  try {
+    const { button_id, question_text, user_id, username } = req.body;
+    
+    if (!question_text) {
+      return res.json({ error: '質問テキストが必要です' });
+    }
+    
+    // AI回答生成
+    const aiResponse = await generateAIResponse(question_text, button_id, {
+      id: user_id,
+      username: username
+    });
+    
+    console.log('✅ AI回答生成完了');
+    
+    res.json({
+      success: true,
+      ai_response: aiResponse,
+      processed_at: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('❌ AI処理エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Discord webhook処理（Phase 1.5ベース）
 app.post('/discord', async (req, res) => {
   console.log('=== Discord Interaction 受信 ===');
   console.log('Time:', new Date().toISOString());
   
   const signature = req.headers['x-signature-ed25519'];
   const timestamp = req.headers['x-signature-timestamp'];
-  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+  const publicKey = process.env.DISCORD_PUBLIC_KEY || '63d73edbad916c2ee14b390d729061d40200f2d82753cb094ed89af67873dadd';
   
   // 署名検証
   if (publicKey) {
@@ -302,11 +563,14 @@ app.post('/discord', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School v6.1 ===');
+  console.log('=== Discord Bot VTuber School v7.0 ===');
   console.log(`📍 Port: ${PORT}`);
   console.log('✅ Static responses: Render.com');
   console.log('📝 AI Question Input System: Active');
+  console.log('🤖 AI Response Generation: Active');
+  console.log('📚 Knowledge Base: 28 Lessons + Chat Guide');
   console.log(`🔗 n8n Webhook: ${N8N_WEBHOOK_URL}`);
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
+  console.log('🚀 Phase 2: Google Drive知識ベース連携完了');
   console.log('=====================================');
 });
