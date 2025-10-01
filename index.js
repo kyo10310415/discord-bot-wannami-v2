@@ -126,7 +126,6 @@ function generateButtonResponse(customId, interaction = null) {
       type: 4,
       data: {
         content: AI_PROCESSING_RESPONSES[customId],
-        flags: 64 // EPHEMERAL - 本人のみ表示
       }
     };
   }
@@ -138,7 +137,6 @@ function generateButtonResponse(customId, interaction = null) {
         type: 4,
         data: {
           content: "申し訳ございません。お支払いに関してはここでは相談できません。\n💡 **管理者の方へ**：ここに適切な担当者のメンションを設定してください。\n\n例：<@USER_ID>にご相談ください。",
-          flags: 64 // EPHEMERAL
         }
       };
     
@@ -147,7 +145,6 @@ function generateButtonResponse(customId, interaction = null) {
         type: 4,
         data: {
           content: "申し訳ございません。プライベートなご相談については\nここでは回答できません。\n\n🎓 **担任の先生に直接ご相談ください。**",
-          flags: 64 // EPHEMERAL
         }
       };
     
@@ -156,7 +153,6 @@ function generateButtonResponse(customId, interaction = null) {
         type: 4,
         data: {
           content: "❌ 申し訳ございません。認識できない選択肢です。\n再度メニューから選択してください。",
-          flags: 64 // EPHEMERAL
         }
       };
   }
