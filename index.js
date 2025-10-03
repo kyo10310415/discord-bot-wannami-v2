@@ -14,9 +14,13 @@ const AI_TARGET_BUTTONS = {
 // n8n Webhook URL
 const N8N_WEBHOOK_URL = 'https://kyo10310405.app.n8n.cloud/webhook/053be54b-55c7-4c3e-8eb7-4f9b6c63656d';
 
-// 🆕 Phase 2: API Keys設定
-const GOOGLE_API_KEY = 'AIzaSyBReh3SW2tZ_V4t9zfwNeKILKZ34xITG3s';
-const OPENAI_API_KEY = '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';
+// 🆕 Phase 2: API Keys設定 - 環境変数使用版
+const GOOGLE_API_KEY = process.env.GOOGLE_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+
+// デバッグ用：起動時確認
+console.log('🔧 OpenAI API Key configured:', OPENAI_API_KEY ? 'Yes' : 'No');
+console.log('🔧 Google API Key configured:', GOOGLE_API_KEY ? 'Yes' : 'No');
 
 // 🆕 Phase 2: 確認済み知識ベース構造
 const KNOWLEDGE_BASE = {
