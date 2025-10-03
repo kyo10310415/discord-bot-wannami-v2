@@ -1,8 +1,6 @@
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
-const { google } = require('googleapis');
-const OpenAI = require('openai');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,6 +8,52 @@ const PORT = process.env.PORT || 3000;
 // Middleware
 app.use(express.json());
 app.use(express.raw({ type: 'application/json' }));
+
+// Google Drive設定（遅延初期化）
+let drive = null;
+let openai = null;
+
+// 初期化を遅延実行
+function initializeServices() {
+  if (!drive && process.env.GOOGLE_CLIENT_EMAIL) {
+    try {
+      const { google } = require('googleapis');
+      drive = google.drive({
+        version: 'v3',
+        auth: new google.auth.GoogleAuth({
+          credentials: {
+            type: 'service_account',
+            project_id: process.env.GOOGLE_PROJECT_ID,
+            private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+            private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            client_email: process.env.GOOGLE_CLIENT_EMAIL,
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+            token_uri: 'https://oauth2.googleapis.com/token',
+            auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+            client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GOOGLE_CLIENT_EMAIL?.replace('@', '%40')}`
+          },
+          scopes: ['https://www.googleapis.com/auth/drive.readonly']
+        })
+      });
+      console.log('Google Drive initialized');
+    } catch (error) {
+      console.error('Google Drive initialization failed:', error.message);
+    }
+  }
+
+  if (!openai && process.env.OPENAI_API_KEY) {
+    try {
+      const OpenAI = require('openai');
+      openai = new OpenAI({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+      console.log('OpenAI initialized');
+    } catch (error) {
+      console.error('OpenAI initialization failed:', error.message);
+    }
+  }
+}
 
 // Discord署名検証
 function verifyDiscordRequest(req) {
@@ -58,7 +102,7 @@ app.post('/', (req, res) => {
     return res.json({ type: 1 });
   }
 
-  // スラッシュコマンド処理
+  // スラッシュコマンド処理（軽量化）
   if (type === 2) {
     console.log('Processing slash command:', data.name);
 
@@ -122,7 +166,7 @@ app.post('/', (req, res) => {
     }
   }
 
-  // ボタンインタラクション処理
+  // ボタンインタラクション処理（軽量化）
   if (type === 3) {
     console.log('Processing button interaction:', data.custom_id);
     
@@ -182,34 +226,14 @@ function getButtonLabel(buttonId) {
   return labels[buttonId] || buttonId;
 }
 
-// Google Drive設定
-const drive = google.drive({
-  version: 'v3',
-  auth: new google.auth.GoogleAuth({
-    credentials: {
-      type: 'service_account',
-      project_id: process.env.GOOGLE_PROJECT_ID,
-      private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      client_email: process.env.GOOGLE_CLIENT_EMAIL,
-      client_id: process.env.GOOGLE_CLIENT_ID,
-      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-      token_uri: 'https://oauth2.googleapis.com/token',
-      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
-      client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GOOGLE_CLIENT_EMAIL?.replace('@', '%40')}`
-    },
-    scopes: ['https://www.googleapis.com/auth/drive.readonly']
-  })
-});
-
-// OpenAI設定
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
-// 知識ベース読み込み関数
+// 知識ベース読み込み関数（遅延初期化対応）
 async function loadKnowledgeBase() {
   try {
+    if (!drive) {
+      console.log('Google Drive not initialized, skipping knowledge base');
+      return null;
+    }
+    
     console.log('Loading knowledge base from Google Drive...');
     
     const folderId = '1kCKhCZG9XwbU1fRNIz6jQNVbmJPl7kMI';
@@ -250,9 +274,14 @@ async function loadKnowledgeBase() {
   }
 }
 
-// AI回答生成関数
+// AI回答生成関数（遅延初期化対応）
 async function generateAIResponse(question, buttonId, knowledgeBase) {
   try {
+    if (!openai) {
+      console.log('OpenAI not initialized');
+      return 'すみません、現在AI回答システムに問題が発生しています。後ほど再度お試しいただくか、直接わなみさんまでご連絡ください。';
+    }
+    
     console.log(`Generating AI response for button: ${buttonId}`);
     
     let systemPrompt = `あなたはVTuber育成スクール「わなみさん」のAIアシスタントです。
@@ -300,12 +329,14 @@ ${knowledgeBase || '知識ベースが利用できません。一般的な回答
   }
 }
 
-// AI処理用エンドポイント（n8nから呼び出される）
+// AI処理用エンドポイント（遅延初期化対応）
 app.post('/ai-process', async (req, res) => {
   try {
     console.log('AI processing request received:', JSON.stringify(req.body, null, 2));
     
-    // パラメータ名を修正：question_text → message_content
+    // サービス初期化（必要時のみ）
+    initializeServices();
+    
     const { button_id, message_content, user_id, username } = req.body;
     
     if (!message_content) {
@@ -358,7 +389,7 @@ app.post('/ai-process', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     status: 'OK', 
-    message: 'わなみさん Discord Bot API v7.0.0',
+    message: 'わなみさん Discord Bot API v7.0.1 - Optimized',
     timestamp: new Date().toISOString()
   });
 });
