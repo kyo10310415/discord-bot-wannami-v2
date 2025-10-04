@@ -25,13 +25,19 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 // Google APIs設定
 let drive = null;
 let sheets = null;
+let docs = null;
+let slides = null;
+let auth = null;
 let openai = null;
 
-// 初期化を遅延実行
+// 🔧 修正：Google認証オブジェクトの統一初期化
 function initializeServices() {
-  if (!drive && process.env.GOOGLE_CLIENT_EMAIL) {
+  if (!auth && process.env.GOOGLE_CLIENT_EMAIL) {
     try {
-      const auth = new google.auth.GoogleAuth({
+      console.log('🔐 Google認証初期化開始...');
+      
+      // 🆕 統一認証オブジェクト作成
+      auth = new google.auth.GoogleAuth({
         credentials: {
           type: 'service_account',
           project_id: process.env.GOOGLE_PROJECT_ID,
@@ -44,6 +50,7 @@ function initializeServices() {
           auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
           client_x509_cert_url: `https://www.googleapis.com/robot/v1/metadata/x509/${process.env.GOOGLE_CLIENT_EMAIL?.replace('@', '%40')}`
         },
+        // 🔧 修正：全必要スコープを追加
         scopes: [
           'https://www.googleapis.com/auth/drive.readonly',
           'https://www.googleapis.com/auth/spreadsheets.readonly',
@@ -52,11 +59,21 @@ function initializeServices() {
         ]
       });
 
+      // 🔧 修正：統一認証オブジェクトを使用してAPI初期化
       drive = google.drive({ version: 'v3', auth });
       sheets = google.sheets({ version: 'v4', auth });
-      console.log('Google APIs initialized');
+      docs = google.docs({ version: 'v1', auth });
+      slides = google.slides({ version: 'v1', auth });
+      
+      console.log('✅ Google APIs初期化成功');
+      console.log('📊 Sheets API: Ready');
+      console.log('💾 Drive API: Ready');
+      console.log('📄 Docs API: Ready');
+      console.log('📽️ Slides API: Ready');
+      
     } catch (error) {
-      console.error('Google APIs initialization failed:', error.message);
+      console.error('❌ Google APIs初期化失敗:', error.message);
+      console.error('詳細:', error);
     }
   }
 
@@ -64,9 +81,9 @@ function initializeServices() {
     try {
       const OpenAI = require('openai');
       openai = new OpenAI({ apiKey: OPENAI_API_KEY });
-      console.log('OpenAI initialized');
+      console.log('🤖 OpenAI初期化成功');
     } catch (error) {
-      console.error('OpenAI initialization failed:', error.message);
+      console.error('❌ OpenAI初期化失敗:', error.message);
     }
   }
 }
@@ -96,11 +113,11 @@ app.use(express.json());
 async function loadUrlListFromSpreadsheet() {
   try {
     if (!sheets) {
-      console.log('Google Sheets not initialized');
+      console.log('❌ Google Sheets not initialized');
       return [];
     }
 
-    console.log('Loading URL list from spreadsheet...');
+    console.log('📊 スプレッドシートからURL一覧読み込み開始...');
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: KNOWLEDGE_SPREADSHEET_ID,
@@ -118,27 +135,35 @@ async function loadUrlListFromSpreadsheet() {
         range: row[4] || ''
       }));
 
-    console.log(`Found ${urlList.length} URLs in spreadsheet`);
+    console.log(`✅ スプレッドシートから${urlList.length}個のURL発見`);
     return urlList;
 
   } catch (error) {
-    console.error('Error loading spreadsheet:', error);
+    console.error('❌ スプレッドシート読み込みエラー:', error.message);
     return [];
   }
 }
 
-// 🆕 Google Slidesの内容を読み込む関数
+// 🔧 修正：Google Slidesの内容を読み込む関数
 async function loadGoogleSlides(url, fileName) {
   try {
+    if (!slides) {
+      console.log('❌ Google Slides API not initialized');
+      return `${fileName}: Google Slides API初期化エラー`;
+    }
+
+    console.log(`📽️ Google Slides読み込み開始: ${fileName}`);
+    
     // URLからプレゼンテーションIDを抽出
     const match = url.match(/\/presentation\/d\/([a-zA-Z0-9-_]+)/);
     if (!match) {
-      throw new Error('Invalid Google Slides URL');
+      throw new Error('Invalid Google Slides URL format');
     }
     
     const presentationId = match[1];
-    const slides = google.slides({ version: 'v1', auth: drive.auth });
+    console.log(`🔍 Presentation ID: ${presentationId}`);
     
+    // 🔧 修正：統一認証オブジェクトを明示的に使用
     const presentation = await slides.presentations.get({
       presentationId: presentationId,
     });
@@ -165,27 +190,36 @@ async function loadGoogleSlides(url, fileName) {
       });
     }
 
-    console.log(`Loaded Google Slides: ${fileName} (${content.length} chars)`);
+    console.log(`✅ Google Slides読み込み成功: ${fileName} (${content.length}文字)`);
     return content;
 
   } catch (error) {
-    console.error(`Error loading Google Slides ${fileName}:`, error.message);
+    console.error(`❌ Google Slides読み込み失敗 ${fileName}:`, error.message);
+    console.error('詳細:', error);
     return `${fileName}: 読み込みエラー - ${error.message}`;
   }
 }
 
-// 🆕 Google Docsの内容を読み込む関数
+// 🔧 修正：Google Docsの内容を読み込む関数
 async function loadGoogleDocs(url, fileName) {
   try {
+    if (!docs) {
+      console.log('❌ Google Docs API not initialized');
+      return `${fileName}: Google Docs API初期化エラー`;
+    }
+
+    console.log(`📄 Google Docs読み込み開始: ${fileName}`);
+    
     // URLからドキュメントIDを抽出
     const match = url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
     if (!match) {
-      throw new Error('Invalid Google Docs URL');
+      throw new Error('Invalid Google Docs URL format');
     }
     
     const documentId = match[1];
-    const docs = google.docs({ version: 'v1', auth: drive.auth });
+    console.log(`🔍 Document ID: ${documentId}`);
     
+    // 🔧 修正：統一認証オブジェクトを明示的に使用
     const document = await docs.documents.get({
       documentId: documentId,
     });
@@ -205,11 +239,12 @@ async function loadGoogleDocs(url, fileName) {
       });
     }
 
-    console.log(`Loaded Google Docs: ${fileName} (${content.length} chars)`);
+    console.log(`✅ Google Docs読み込み成功: ${fileName} (${content.length}文字)`);
     return content;
 
   } catch (error) {
-    console.error(`Error loading Google Docs ${fileName}:`, error.message);
+    console.error(`❌ Google Docs読み込み失敗 ${fileName}:`, error.message);
+    console.error('詳細:', error);
     return `${fileName}: 読み込みエラー - ${error.message}`;
   }
 }
@@ -225,14 +260,14 @@ async function loadContentFromUrl(urlInfo) {
       return await loadGoogleDocs(url, fileName);
     } else if (url.includes('notion.so')) {
       // Notionは公開URLの場合、通常のHTTPリクエストで読み込み
-      console.log(`Notion URL detected: ${fileName} - スキップ中`);
+      console.log(`📝 Notion URL検出: ${fileName} - 現在スキップ中`);
       return `${fileName}: Notion連携は今後実装予定`;
     } else {
-      console.log(`Unknown URL type: ${fileName}`);
+      console.log(`❓ 未知のURL形式: ${fileName}`);
       return `${fileName}: 未対応のURL形式`;
     }
   } catch (error) {
-    console.error(`Error loading content from ${fileName}:`, error.message);
+    console.error(`❌ コンテンツ読み込み失敗 ${fileName}:`, error.message);
     return `${fileName}: 読み込みエラー - ${error.message}`;
   }
 }
@@ -240,11 +275,11 @@ async function loadContentFromUrl(urlInfo) {
 // 🆕 統合知識ベース構築関数
 async function buildKnowledgeBase() {
   try {
-    console.log('Building knowledge base from spreadsheet...');
+    console.log('📚 知識ベース構築開始...');
     
     const urlList = await loadUrlListFromSpreadsheet();
     if (urlList.length === 0) {
-      console.log('No URLs found in spreadsheet');
+      console.log('❌ スプレッドシートにURLが見つかりません');
       return null;
     }
 
@@ -253,18 +288,19 @@ async function buildKnowledgeBase() {
 
     // 各URLの内容を読み込み
     for (const urlInfo of urlList) {
+      console.log(`📖 読み込み中: ${urlInfo.fileName}`);
       const content = await loadContentFromUrl(urlInfo);
       knowledgeBase += `\n\n${content}\n`;
       
       // APIレート制限対策で少し待機
-      await new Promise(resolve => setTimeout(resolve, 100));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    console.log(`Knowledge base built successfully. Total length: ${knowledgeBase.length} characters`);
+    console.log(`✅ 知識ベース構築完了 - 総文字数: ${knowledgeBase.length}`);
     return knowledgeBase;
 
   } catch (error) {
-    console.error('Error building knowledge base:', error);
+    console.error('❌ 知識ベース構築エラー:', error);
     return null;
   }
 }
@@ -277,7 +313,7 @@ async function generateAIResponse(question, buttonType, userInfo) {
     console.log(`💬 質問: ${question}`);
     
     if (!openai) {
-      console.log('OpenAI not initialized');
+      console.log('❌ OpenAI not initialized');
       return 'すみません、現在AI回答システムに問題が発生しています。担任の先生にご相談ください。';
     }
 
@@ -526,10 +562,21 @@ app.post('/ai-process', async (req, res) => {
   }
 });
 
-// 🆕 知識ベーステスト用エンドポイント
+// 🔧 修正：知識ベーステスト用エンドポイント（詳細デバッグ情報追加）
 app.get('/test-knowledge-base', async (req, res) => {
   try {
     initializeServices();
+    
+    // 各APIの初期化状態確認
+    const apiStatus = {
+      auth_initialized: !!auth,
+      sheets_initialized: !!sheets,
+      drive_initialized: !!drive,
+      docs_initialized: !!docs,
+      slides_initialized: !!slides
+    };
+    
+    console.log('🔍 API初期化状態:', apiStatus);
     
     const knowledgeBase = await buildKnowledgeBase();
     const urlList = await loadUrlListFromSpreadsheet();
@@ -539,12 +586,20 @@ app.get('/test-knowledge-base', async (req, res) => {
       urls_found: urlList.length,
       knowledge_base_length: knowledgeBase ? knowledgeBase.length : 0,
       preview: knowledgeBase ? knowledgeBase.substring(0, 1000) : null,
-      url_list: urlList.slice(0, 5) // 最初の5個のURL情報
+      url_list: urlList.slice(0, 5), // 最初の5個のURL情報
+      api_status: apiStatus,
+      environment_vars: {
+        google_project_id: process.env.GOOGLE_PROJECT_ID ? 'Set' : 'Not Set',
+        google_client_email: process.env.GOOGLE_CLIENT_EMAIL || 'Not Set',
+        google_private_key_length: process.env.GOOGLE_PRIVATE_KEY ? process.env.GOOGLE_PRIVATE_KEY.length : 0
+      }
     });
   } catch (error) {
+    console.error('❌ 知識ベーステストエラー:', error);
     res.json({
       success: false,
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
   }
 });
@@ -555,7 +610,7 @@ app.get('/', (req, res) => {
     status: 'ok', 
     message: 'Discord Bot - VTuber School with Spreadsheet Knowledge Base',
     timestamp: new Date().toISOString(),
-    version: '8.0.0', // 🆕 スプレッドシート統合版
+    version: '8.1.0', // 🔧 修正版
     features: {
       slash_commands: true,
       button_interactions: true,
@@ -680,7 +735,7 @@ app.post('/discord', async (req, res) => {
   res.status(400).json({ error: 'Unsupported interaction type' });
 });
 
-// 🆕 デバッグ用エンドポイント（ここに追加）
+// 🔧 修正：デバッグ用エンドポイント（詳細情報追加）
 app.get('/debug-google-auth', (req, res) => {
   res.json({
     google_project_id: process.env.GOOGLE_PROJECT_ID ? 'Set' : 'Not Set',
@@ -689,13 +744,18 @@ app.get('/debug-google-auth', (req, res) => {
     google_client_email: process.env.GOOGLE_CLIENT_EMAIL ? process.env.GOOGLE_CLIENT_EMAIL : 'Not Set',
     google_client_id: process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Not Set',
     openai_api_key: process.env.OPENAI_API_KEY ? 'Set' : 'Not Set',
-    sheets_initialized: !!sheets,
-    drive_initialized: !!drive
+    api_objects: {
+      auth_initialized: !!auth,
+      sheets_initialized: !!sheets,
+      drive_initialized: !!drive,
+      docs_initialized: !!docs,
+      slides_initialized: !!slides
+    }
   });
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School v8.0 ===');
+  console.log('=== Discord Bot VTuber School v8.1 ===');
   console.log(`📍 Port: ${PORT}`);
   console.log('✅ Static responses: Render.com');
   console.log('📝 AI Question Input System: Active');
@@ -704,6 +764,9 @@ app.listen(PORT, () => {
   console.log(`📚 Knowledge Source: ${KNOWLEDGE_SPREADSHEET_ID}`);
   console.log(`🔗 n8n Webhook: ${N8N_WEBHOOK_URL}`);
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
-  console.log('🚀 Phase 3: スプレッドシート知識ベース統合完了');
+  console.log('🚀 Phase 3: スプレッドシート知識ベース統合完了（修正版）');
   console.log('=====================================');
+  
+  // 起動時に初期化実行
+  initializeServices();
 });
