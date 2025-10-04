@@ -680,6 +680,20 @@ app.post('/discord', async (req, res) => {
   res.status(400).json({ error: 'Unsupported interaction type' });
 });
 
+// 🆕 デバッグ用エンドポイント（ここに追加）
+app.get('/debug-google-auth', (req, res) => {
+  res.json({
+    google_project_id: process.env.GOOGLE_PROJECT_ID ? 'Set' : 'Not Set',
+    google_private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID ? 'Set' : 'Not Set',
+    google_private_key: process.env.GOOGLE_PRIVATE_KEY ? 'Set (length: ' + process.env.GOOGLE_PRIVATE_KEY.length + ')' : 'Not Set',
+    google_client_email: process.env.GOOGLE_CLIENT_EMAIL ? process.env.GOOGLE_CLIENT_EMAIL : 'Not Set',
+    google_client_id: process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Not Set',
+    openai_api_key: process.env.OPENAI_API_KEY ? 'Set' : 'Not Set',
+    sheets_initialized: !!sheets,
+    drive_initialized: !!drive
+  });
+});
+
 app.listen(PORT, () => {
   console.log('=== Discord Bot VTuber School v8.0 ===');
   console.log(`📍 Port: ${PORT}`);
