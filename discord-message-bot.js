@@ -10,6 +10,7 @@ const client = new Client({
 });
 
 const BOT_USER_ID = '1420328163497607199';
+const ROLE_ID = '1420336261817831464'; // わなみさんロールID
 
 client.on('ready', () => {
   console.log(`✅ ${client.user.tag} メッセージ監視開始`);
@@ -24,13 +25,22 @@ client.on('messageCreate', async (message) => {
     return;
   }
   
-  // メンション検出
-  const isMentioned = message.mentions.users.has(BOT_USER_ID) || 
-                     message.content.includes(`<@${BOT_USER_ID}>`) ||
-                     message.content.includes(`<@!${BOT_USER_ID}>`);
+  // メンション検出（ユーザーメンション + ロールメンション）
+  const botUserMentioned = message.mentions.users.has(BOT_USER_ID) || 
+                          message.content.includes(`<@${BOT_USER_ID}>`) ||
+                          message.content.includes(`<@!${BOT_USER_ID}>`);
+  
+  const roleMentioned = message.mentions.roles.has(ROLE_ID);
+  
+  const isMentioned = botUserMentioned || roleMentioned;
   
   if (isMentioned) {
-    console.log(`🏷️ メンション検出: ${message.author.username} - "${message.content}"`);
+    // ログ出力を詳細化
+    if (botUserMentioned) {
+      console.log(`👤 Bot直接メンション検出: ${message.author.username} - "${message.content}"`);
+    } else if (roleMentioned) {
+      console.log(`🎭 ロールメンション検出: ${message.author.username} - "${message.content}"`);
+    }
     
     try {
       // Discord APIで選択肢メニューを直接送信
@@ -95,9 +105,6 @@ client.on('messageCreate', async (message) => {
 client.on('error', error => {
   console.error('❌ Discord Client エラー:', error);
 });
-
-// Discord Botログイン
-client.login(process.env.DISCORD_TOKEN);
 
 // Discord Botログイン（デバッグ付き）
 const token = process.env.DISCORD_TOKEN;
