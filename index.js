@@ -6,6 +6,9 @@ const { google } = require('googleapis');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 🆕 Bot User ID（Discord Developer Portalで確認）
+const BOT_USER_ID = process.env.BOT_USER_ID || '1420328163497607199'; // Application IDと同じ場合が多い
+
 // AI対象ボタンの定義
 const AI_TARGET_BUTTONS = {
   lesson_question: true,      // ③レッスン質問
@@ -103,6 +106,35 @@ function verifyDiscordSignature(signature, timestamp, body, publicKey) {
     console.error('署名検証エラー:', error);
     return false;
   }
+}
+
+// 🆕 メンション検出関数
+function isBotMentioned(content, mentions) {
+  if (!content || !mentions) return false;
+  
+  // メンション配列からBot IDを検索
+  const botMentioned = mentions.some(mention => mention.id === BOT_USER_ID);
+  
+  // コンテンツ内でのメンション文字列チェック（バックアップ）
+  const mentionInContent = content.includes(`<@${BOT_USER_ID}>`) || content.includes(`<@!${BOT_USER_ID}>`);
+  
+  console.log(`🏷️ メンション検出: ${botMentioned || mentionInContent ? 'あり' : 'なし'}`);
+  console.log(`📝 メッセージ内容: "${content}"`);
+  
+  return botMentioned || mentionInContent;
+}
+
+// 🆕 メンションからコンテンツを抽出する関数
+function extractContentFromMention(content) {
+  if (!content) return '';
+  
+  // @わなみさん部分を除去
+  let cleanContent = content
+    .replace(new RegExp(`<@!?${BOT_USER_ID}>`, 'g'), '')
+    .trim();
+  
+  console.log(`📝 メンション除去後: "${cleanContent}"`);
+  return cleanContent;
 }
 
 // Raw body parser for Discord webhook
@@ -305,7 +337,71 @@ async function buildKnowledgeBase() {
   }
 }
 
-// 🆕 専門AI回答生成関数（知識ベース統合版）
+// 🆕 メンション対応AI回答生成関数
+async function generateMentionAIResponse(question, userInfo) {
+  try {
+    console.log(`🤖 メンションAI回答生成開始`);
+    console.log(`📝 ユーザー: ${userInfo.username}`);
+    console.log(`💬 質問: ${question}`);
+    
+    if (!openai) {
+      console.log('❌ OpenAI not initialized');
+      return 'すみません、現在AI回答システムに問題が発生しています。担任の先生にご相談ください。';
+    }
+
+    // 知識ベース読み込み
+    const knowledgeBase = await buildKnowledgeBase();
+    
+    if (!knowledgeBase) {
+      return 'すみません、現在知識ベースにアクセスできません。担任の先生に直接ご相談ください。';
+    }
+
+    // メンション対応システムプロンプト
+    const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の専門AIアシスタントです。
+
+以下の知識ベースを参考に、生徒からの質問に親切で具体的な回答をしてください。
+
+【知識ベース】
+${knowledgeBase}
+
+【回答ルール】
+- 丁寧で親しみやすい口調で回答してください
+- 具体的で実用的なアドバイスを提供してください
+- 絵文字を適度に使用してください
+- 500文字以内で簡潔にまとめてください
+- 知識ベースにない内容は「担任の先生にご相談ください」と案内してください
+- レッスン、SNS運用、ミッション提出など幅広い質問に対応してください
+- 質問の内容に応じて適切なカテゴリで回答してください`;
+
+    // OpenAI API呼び出し
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: question }
+      ],
+      max_tokens: 1000,
+      temperature: 0.7,
+    });
+
+    const aiResponse = completion.choices[0].message.content;
+    console.log('✅ メンションAI回答生成完了');
+    
+    return aiResponse;
+
+  } catch (error) {
+    console.error('❌ メンションAI回答生成エラー:', error.message);
+    
+    return `申し訳ございません！現在AI機能に問題が発生しています🙏
+
+お急ぎの場合は、担任の先生に直接ご相談ください。
+しばらく時間をおいてからもう一度お試いいただけますか？
+
+ご不便をおかけして申し訳ありません💦`;
+  }
+}
+
+// 🆕 専門AI回答生成関数（知識ベース統合版）- ボタン対応
 async function generateAIResponse(question, buttonType, userInfo) {
   try {
     console.log(`🤖 専門AI回答生成開始: ${buttonType}`);
@@ -388,7 +484,7 @@ ${knowledgeBase}
     return `申し訳ございません！現在AI機能に問題が発生しています🙏
 
 お急ぎの場合は、担任の先生に直接ご相談ください。
-しばらく時間をおいてからもう一度お試しいただけますか？
+しばらく時間をおいてからもう一度お試いいただけますか？
 
 ご不便をおかけして申し訳ありません💦`;
   }
@@ -445,6 +541,38 @@ const AI_QUESTION_PROMPTS = {
 **📝 この下にミッション関連の内容を入力してください ⬇️**`
   }
 };
+
+// 🆕 メンション対応n8n送信関数
+async function sendMentionToN8N(interaction, questionText) {
+  try {
+    const payload = {
+      button_id: 'mention_direct',
+      user_id: interaction.author?.id || interaction.user?.id,
+      username: interaction.author?.username || interaction.user?.username,
+      guild_id: interaction.guild_id,
+      channel_id: interaction.channel?.id || interaction.channel_id,
+      timestamp: new Date().toISOString(),
+      ai_request: true,
+      phase: 'mention_direct',
+      question_text: questionText,
+      knowledge_base_ready: true,
+      trigger_type: 'mention'
+    };
+
+    console.log('🚀 n8nにメンションAI処理依頼送信中:', payload);
+    
+    const response = await axios.post(N8N_WEBHOOK_URL, payload, {
+      timeout: 5000,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('✅ n8nメンション送信成功:', response.status);
+  } catch (error) {
+    console.error('❌ n8nメンション送信エラー:', error.message);
+  }
+}
 
 // n8n Webhookにデータ送信する関数（従来通り）
 async function sendToN8N(buttonId, interaction, questionText = null) {
@@ -524,7 +652,46 @@ function generateButtonResponse(customId, interaction = null) {
   }
 }
 
-// 🆕 専門AI処理リクエスト受信エンドポイント（知識ベース統合版）
+// 🆕 メンション対応AI処理リクエスト受信エンドポイント
+app.post('/ai-process-mention', async (req, res) => {
+  console.log('🏷️ メンションAI処理リクエスト受信:', req.body);
+  
+  try {
+    // サービス初期化
+    initializeServices();
+    
+    const { message_content, user_id, username } = req.body;
+    
+    if (!message_content) {
+      return res.json({ error: '質問テキストが必要です' });
+    }
+    
+    // メンション対応AI回答生成
+    const aiResponse = await generateMentionAIResponse(message_content, {
+      id: user_id,
+      username: username
+    });
+    
+    console.log('✅ メンションAI回答生成完了');
+    
+    res.json({
+      success: true,
+      ai_response: aiResponse,
+      processed_at: new Date().toISOString(),
+      knowledge_base_used: true,
+      trigger_type: 'mention'
+    });
+    
+  } catch (error) {
+    console.error('❌ メンションAI処理エラー:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// 🆕 専門AI処理リクエスト受信エンドポイント（知識ベース統合版）- ボタン対応
 app.post('/ai-process', async (req, res) => {
   console.log('🤖 専門AI処理リクエスト受信:', req.body);
   
@@ -608,11 +775,12 @@ app.get('/test-knowledge-base', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'Discord Bot - VTuber School with Spreadsheet Knowledge Base',
+    message: 'Discord Bot - VTuber School with Mention Support',
     timestamp: new Date().toISOString(),
-    version: '8.1.0', // 🔧 修正版
+    version: '9.0.0', // 🆕 メンション対応版
     features: {
       slash_commands: true,
+      mention_support: true, // 🆕
       button_interactions: true,
       static_responses: true,
       ai_responses: 'spreadsheet_knowledge_base_active',
@@ -620,12 +788,13 @@ app.get('/', (req, res) => {
       spreadsheet_integration: true,
       google_slides_docs_support: true,
       knowledge_base_urls: KNOWLEDGE_SPREADSHEET_ID,
-      ai_target_buttons: ['lesson_question', 'sns_consultation', 'mission_submission']
+      ai_target_buttons: ['lesson_question', 'sns_consultation', 'mission_submission'],
+      bot_user_id: BOT_USER_ID
     }
   });
 });
 
-// Discord webhook処理（従来通り）
+// 🆕 Discord webhook処理（メンション対応版）
 app.post('/discord', async (req, res) => {
   console.log('=== Discord Interaction 受信 ===');
   console.log('Time:', new Date().toISOString());
@@ -656,6 +825,100 @@ app.post('/discord', async (req, res) => {
   if (body.type === 1) {
     console.log('🏓 PING認証 - 直接応答');
     return res.json({ type: 1 });
+  }
+  
+  // 🆕 メッセージタイプ（type: 0）の処理を追加
+  if (body.type === 0) {
+    console.log('💬 メッセージ受信 - メンション確認中...');
+    
+    const content = body.content;
+    const mentions = body.mentions || [];
+    
+    // メンション検出
+    if (isBotMentioned(content, mentions)) {
+      console.log('🏷️ @わなみさん メンション検出！');
+      
+      // メンション部分を除去して質問内容を抽出
+      const questionContent = extractContentFromMention(content);
+      
+      if (!questionContent || questionContent.length < 3) {
+        // 質問内容が空または短すぎる場合は選択肢メニューを表示
+        console.log('📝 質問内容なし - 選択肢メニュー表示');
+        
+        const userId = body.author?.id;
+        const response = {
+          type: 4,
+          data: {
+            content: `こんにちは <@${userId}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
+            components: [
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 2,
+                    style: 1,
+                    label: "お支払いに関する相談",
+                    custom_id: "payment_consultation"
+                  },
+                  {
+                    type: 2,
+                    style: 2,
+                    label: "プライベートなご相談",
+                    custom_id: "private_consultation"
+                  },
+                  {
+                    type: 2,
+                    style: 3,
+                    label: "レッスンについての質問",
+                    custom_id: "lesson_question"
+                  }
+                ]
+              },
+              {
+                type: 1,
+                components: [
+                  {
+                    type: 2,
+                    style: 3,
+                    label: "SNS運用相談",
+                    custom_id: "sns_consultation"
+                  },
+                  {
+                    type: 2,
+                    style: 1,
+                    label: "ミッションの提出",
+                    custom_id: "mission_submission"
+                  }
+                ]
+              }
+            ]
+          }
+        };
+        
+        return res.json(response);
+      } else {
+        // 質問内容がある場合はn8nに送信してAI処理
+        console.log('🤖 メンション質問をn8nに送信');
+        
+        sendMentionToN8N(body, questionContent).catch(error => {
+          console.error('n8nメンション送信失敗:', error);
+        });
+        
+        // 即座に受付確認を返す
+        const response = {
+          type: 4,
+          data: {
+            content: `📝 **ご質問ありがとうございます！**\n\n「${questionContent}」\n\n知識ベースを確認して回答を準備中です。少々お待ちください... 🤖✨`
+          }
+        };
+        
+        return res.json(response);
+      }
+    } else {
+      // メンションではない通常メッセージは無視
+      console.log('📝 通常メッセージ（メンションなし）- 処理スキップ');
+      return res.status(200).json({ message: 'Message ignored' });
+    }
   }
   
   if (body.type === 2 && body.data?.name === 'soudan') {
@@ -744,6 +1007,7 @@ app.get('/debug-google-auth', (req, res) => {
     google_client_email: process.env.GOOGLE_CLIENT_EMAIL ? process.env.GOOGLE_CLIENT_EMAIL : 'Not Set',
     google_client_id: process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Not Set',
     openai_api_key: process.env.OPENAI_API_KEY ? 'Set' : 'Not Set',
+    bot_user_id: BOT_USER_ID,
     api_objects: {
       auth_initialized: !!auth,
       sheets_initialized: !!sheets,
@@ -755,16 +1019,18 @@ app.get('/debug-google-auth', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School v8.1 ===');
+  console.log('=== Discord Bot VTuber School v9.0 ===');
   console.log(`📍 Port: ${PORT}`);
+  console.log(`🤖 Bot User ID: ${BOT_USER_ID}`);
   console.log('✅ Static responses: Render.com');
+  console.log('🏷️ Mention Support: @わなみさん Active');
   console.log('📝 AI Question Input System: Active');
   console.log('🤖 専門AI Response Generation: Active');
   console.log('📊 Spreadsheet Knowledge Base: Active');
   console.log(`📚 Knowledge Source: ${KNOWLEDGE_SPREADSHEET_ID}`);
   console.log(`🔗 n8n Webhook: ${N8N_WEBHOOK_URL}`);
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
-  console.log('🚀 Phase 3: スプレッドシート知識ベース統合完了（修正版）');
+  console.log('🚀 Phase 4: @わなみさん メンション対応完了');
   console.log('=====================================');
   
   // 起動時に初期化実行
