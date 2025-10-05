@@ -1032,7 +1032,13 @@ app.listen(PORT, () => {
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
   console.log('🚀 Phase 4: @わなみさん メンション対応完了');
   console.log('=====================================');
-  
+
   // 起動時に初期化実行
   initializeServices();
 });
+
+// 🆕 メッセージ監視Bot並行実行
+if (process.env.ENABLE_MESSAGE_BOT === 'true') {
+  console.log('🤖 Discord Message Bot 起動中...');
+  require('./discord-message-bot.js');
+}
