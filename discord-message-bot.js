@@ -98,3 +98,14 @@ client.on('error', error => {
 
 // Discord Botログイン
 client.login(process.env.DISCORD_TOKEN);
+
+// Discord Botログイン（デバッグ付き）
+const token = process.env.DISCORD_TOKEN;
+console.log('🔑 Discord Token確認:', token ? `設定済み (${token.length}文字)` : '未設定');
+
+if (!token) {
+  console.error('❌ DISCORD_TOKEN環境変数が設定されていません');
+  process.exit(1);
+}
+
+client.login(token);
