@@ -137,6 +137,36 @@ function extractContentFromMention(content) {
   return cleanContent;
 }
 
+// 🖼️ 新機能：画像添付検出関数
+function hasImageAttachments(attachments) {
+  if (!attachments || !Array.isArray(attachments)) return false;
+  
+  return attachments.some(attachment => {
+    const isImage = attachment.content_type && attachment.content_type.startsWith('image/');
+    if (isImage) {
+      console.log(`🖼️ 画像添付検出: ${attachment.filename} (${attachment.content_type})`);
+    }
+    return isImage;
+  });
+}
+
+// 🖼️ 新機能：画像URL抽出関数
+function extractImageUrls(attachments) {
+  if (!attachments || !Array.isArray(attachments)) return [];
+  
+  const imageUrls = attachments
+    .filter(attachment => attachment.content_type && attachment.content_type.startsWith('image/'))
+    .map(attachment => ({
+      url: attachment.url,
+      filename: attachment.filename,
+      content_type: attachment.content_type,
+      size: attachment.size
+    }));
+    
+  console.log(`🖼️ 抽出された画像URL数: ${imageUrls.length}`);
+  return imageUrls;
+}
+
 // Raw body parser for Discord webhook
 app.use('/discord', express.raw({ type: 'application/json' }));
 app.use(express.json());
@@ -337,8 +367,108 @@ async function buildKnowledgeBase() {
   }
 }
 
-// 🆕 メンション対応AI回答生成関数
-async function generateMentionAIResponse(question, userInfo) {
+// 🖼️ 新機能：画像対応メンションAI回答生成関数
+async function generateMentionAIResponseWithImages(question, imageUrls, userInfo) {
+  try {
+    console.log(`🤖🖼️ 画像対応メンションAI回答生成開始`);
+    console.log(`📝 ユーザー: ${userInfo.username}`);
+    console.log(`💬 質問: ${question}`);
+    console.log(`🖼️ 画像数: ${imageUrls.length}`);
+    
+    if (!openai) {
+      console.log('❌ OpenAI not initialized');
+      return 'すみません、現在AI回答システムに問題が発生しています。担任の先生にご相談ください。';
+    }
+
+    // 知識ベース読み込み
+    const knowledgeBase = await buildKnowledgeBase();
+    
+    if (!knowledgeBase) {
+      return 'すみません、現在知識ベースにアクセスできません。担任の先生に直接ご相談ください。';
+    }
+
+    // 🖼️ 画像対応システムプロンプト
+    const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の専門AIアシスタントです。
+
+以下の知識ベースを参考に、生徒からの質問に親切で具体的な回答をしてください。
+
+【知識ベース】
+${knowledgeBase}
+
+【画像対応回答ルール】
+- 添付された画像の内容を詳細に分析してください
+- 画像に基づいた具体的なアドバイスやフィードバックを提供してください
+- 画像の技術的な問題があれば指摘し、改善方法を提案してください
+- 配信設定、デザイン、SNS投稿など、VTuber活動に関連する画像は特に詳しく解説してください
+- 丁寧で親しみやすい口調で回答してください
+- 具体的で実用的なアドバイスを提供してください
+- 絵文字を適度に使用してください
+- 800文字以内で簡潔にまとめてください
+- 知識ベースにない内容は「担任の先生にご相談ください」と案内してください`;
+
+    // 🖼️ メッセージ配列を構築（画像対応）
+    const messages = [
+      { role: "system", content: systemPrompt }
+    ];
+
+    // ユーザーメッセージに画像を含める
+    const userMessage = {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: question || "この画像について教えてください"
+        }
+      ]
+    };
+
+    // 画像URLを追加
+    imageUrls.forEach(imageInfo => {
+      userMessage.content.push({
+        type: "image_url",
+        image_url: {
+          url: imageInfo.url,
+          detail: "high" // 高解像度で分析
+        }
+      });
+      console.log(`🖼️ 画像追加: ${imageInfo.filename}`);
+    });
+
+    messages.push(userMessage);
+
+    // OpenAI API呼び出し（GPT-4 Vision）
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o", // 画像対応モデル
+      messages: messages,
+      max_tokens: 1500,
+      temperature: 0.7,
+    });
+
+    const aiResponse = completion.choices[0].message.content;
+    console.log('✅ 画像対応メンションAI回答生成完了');
+    
+    return aiResponse;
+
+  } catch (error) {
+    console.error('❌ 画像対応メンションAI回答生成エラー:', error.message);
+    
+    return `申し訳ございません！現在画像解析AI機能に問題が発生しています🙏
+
+画像の内容について詳しくお聞かせいただけますか？
+または担任の先生に直接ご相談ください。
+
+ご不便をおかけして申し訳ありません💦`;
+  }
+}
+
+// 🆕 メンション対応AI回答生成関数（画像対応版に更新）
+async function generateMentionAIResponse(question, userInfo, imageUrls = []) {
+  // 🖼️ 画像がある場合は画像対応版を使用
+  if (imageUrls && imageUrls.length > 0) {
+    return await generateMentionAIResponseWithImages(question, imageUrls, userInfo);
+  }
+
+  // 以下は従来のテキストのみ版
   try {
     console.log(`🤖 メンションAI回答生成開始`);
     console.log(`📝 ユーザー: ${userInfo.username}`);
@@ -401,8 +531,132 @@ ${knowledgeBase}
   }
 }
 
-// 🆕 専門AI回答生成関数（知識ベース統合版）- ボタン対応
-async function generateAIResponse(question, buttonType, userInfo) {
+// 🖼️ 新機能：画像対応専門AI回答生成関数
+async function generateAIResponseWithImages(question, buttonType, imageUrls, userInfo) {
+  try {
+    console.log(`🤖🖼️ 画像対応専門AI回答生成開始: ${buttonType}`);
+    console.log(`📝 ユーザー: ${userInfo.username}`);
+    console.log(`💬 質問: ${question}`);
+    console.log(`🖼️ 画像数: ${imageUrls.length}`);
+    
+    if (!openai) {
+      console.log('❌ OpenAI not initialized');
+      return 'すみません、現在AI回答システムに問題が発生しています。担任の先生にご相談ください。';
+    }
+
+    // 知識ベース読み込み
+    const knowledgeBase = await buildKnowledgeBase();
+    
+    if (!knowledgeBase) {
+      return 'すみません、現在知識ベースにアクセスできません。担任の先生に直接ご相談ください。';
+    }
+
+    // ボタンタイプ別システムプロンプト（画像対応版）
+    let systemPrompt = `あなたはVTuber育成スクール「わなみさん」の専門AIアシスタントです。
+
+以下の知識ベースを参考に、生徒からの質問に親切で具体的な回答をしてください。
+
+【知識ベース】
+${knowledgeBase}
+
+【画像対応回答ルール】
+- 添付された画像の内容を詳細に分析してください
+- 画像に基づいた具体的なアドバイスやフィードバックを提供してください
+- 画像の技術的な問題があれば指摘し、改善方法を提案してください
+- 丁寧で親しみやすい口調で回答してください
+- 具体的で実用的なアドバイスを提供してください
+- 絵文字を適度に使用してください
+- 800文字以内で簡潔にまとめてください
+- 知識ベースにない内容は「担任の先生にご相談ください」と案内してください`;
+
+    switch (buttonType) {
+      case 'lesson_question':
+        systemPrompt += `\n\n【特別指示：レッスン質問 + 画像分析】
+- レッスン内容に関する質問として回答してください
+- 画像が配信設定やソフトウェア画面の場合、設定方法を詳しく説明してください
+- 技術的な内容は段階的に説明してください
+- 画像に写っているエラーや問題があれば解決方法を提案してください`;
+        break;
+        
+      case 'sns_consultation':
+        systemPrompt += `\n\n【特別指示：SNS運用相談 + 画像分析】
+- X(Twitter)やYouTubeの運用に関する相談として回答してください
+- 画像がSNS投稿、サムネイル、デザインの場合、改善点を具体的に指摘してください
+- フォロワー獲得やエンゲージメント向上の観点から画像を評価してください
+- デザインの改善点や魅力的な要素について言及してください`;
+        break;
+        
+      case 'mission_submission':
+        systemPrompt += `\n\n【特別指示：ミッション提出 + 画像分析】
+- ミッション提出に関する質問として回答してください
+- 画像がミッション成果物の場合、詳細なフィードバックを提供してください
+- 良い点を褒めつつ、改善可能な部分も建設的に指摘してください
+- 次のステップや発展的なアドバイスを含めてください`;
+        break;
+    }
+
+    // 🖼️ メッセージ配列を構築（画像対応）
+    const messages = [
+      { role: "system", content: systemPrompt }
+    ];
+
+    // ユーザーメッセージに画像を含める
+    const userMessage = {
+      role: "user",
+      content: [
+        {
+          type: "text",
+          text: question || "この画像について教えてください"
+        }
+      ]
+    };
+
+    // 画像URLを追加
+    imageUrls.forEach(imageInfo => {
+      userMessage.content.push({
+        type: "image_url",
+        image_url: {
+          url: imageInfo.url,
+          detail: "high" // 高解像度で分析
+        }
+      });
+    });
+
+    messages.push(userMessage);
+
+    // OpenAI API呼び出し（GPT-4 Vision）
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o", // 画像対応モデル
+      messages: messages,
+      max_tokens: 1500,
+      temperature: 0.7,
+    });
+
+    const aiResponse = completion.choices[0].message.content;
+    console.log('✅ 画像対応専門AI回答生成完了');
+    
+    return aiResponse;
+
+  } catch (error) {
+    console.error('❌ 画像対応専門AI回答生成エラー:', error.message);
+    
+    return `申し訳ございません！現在画像解析AI機能に問題が発生しています🙏
+
+画像の内容について詳しくお聞かせいただけますか？
+または担任の先生に直接ご相談ください。
+
+ご不便をおかけして申し訳ありません💦`;
+  }
+}
+
+// 🆕 専門AI回答生成関数（知識ベース統合版）- ボタン対応（画像対応版に更新）
+async function generateAIResponse(question, buttonType, userInfo, imageUrls = []) {
+  // 🖼️ 画像がある場合は画像対応版を使用
+  if (imageUrls && imageUrls.length > 0) {
+    return await generateAIResponseWithImages(question, buttonType, imageUrls, userInfo);
+  }
+
+  // 以下は従来のテキストのみ版
   try {
     console.log(`🤖 専門AI回答生成開始: ${buttonType}`);
     console.log(`📝 ユーザー: ${userInfo.username}`);
@@ -506,6 +760,7 @@ const AI_QUESTION_PROMPTS = {
 • 使用しているソフトウェア名があれば記載してください
 • エラーメッセージがあれば教えてください
 • レッスン番号を記載してください
+• 🖼️ **画像添付可能**：配信設定画面やエラー画面があれば添付してください
 
 **📝 この下にあなたの質問を入力してください ⬇️**
 ※質問内容は1分以内に送信してください！
@@ -525,6 +780,7 @@ const AI_QUESTION_PROMPTS = {
 • 目標（フォロワー数、再生数など）があれば記載してください
 • 困っている具体的な内容を詳しく書いてください
 • XアカウントやチャンネルURLを教えていただけるとより良いアドバイスができる可能性があります
+• 🖼️ **画像添付可能**：サムネイル、投稿画像、アナリティクス画面など添付してください
 
 **📝 この下にあなたのご相談内容を入力してください ⬇️**
 ※質問内容は1分以内に送信してください！
@@ -543,15 +799,15 @@ const AI_QUESTION_PROMPTS = {
 • レッスン番号を記載してください
 • 完了報告の場合は取り組み内容を教えてください
 • 質問の場合は具体的に何に困っているか書いてください
+• 🖼️ **画像添付可能**：成果物のスクリーンショット、作業画面など添付してください
 
 **📝 この下にミッション関連の内容を入力してください ⬇️**
-※質問内容は1分以内に送信してください！
-　回答まで1分半ほどかかります！`
+※質問内容は1分以内に送信してください！　回答まで1分半ほどかかります！`
   }
 };
 
-// 🆕 メンション対応n8n送信関数
-async function sendMentionToN8N(interaction, questionText) {
+// 🖼️ 新機能：メンション対応n8n送信関数（画像対応版）
+async function sendMentionToN8N(interaction, questionText, imageUrls = []) {
   try {
     const payload = {
       button_id: 'mention_direct',
@@ -564,7 +820,11 @@ async function sendMentionToN8N(interaction, questionText) {
       phase: 'mention_direct',
       question_text: questionText,
       knowledge_base_ready: true,
-      trigger_type: 'mention'
+      trigger_type: 'mention',
+      // 🖼️ 画像情報を追加
+      has_images: imageUrls.length > 0,
+      image_count: imageUrls.length,
+      image_urls: imageUrls
     };
 
     console.log('🚀 n8nにメンションAI処理依頼送信中:', payload);
@@ -582,8 +842,8 @@ async function sendMentionToN8N(interaction, questionText) {
   }
 }
 
-// n8n Webhookにデータ送信する関数（従来通り）
-async function sendToN8N(buttonId, interaction, questionText = null) {
+// 🖼️ 新機能：n8n Webhookにデータ送信する関数（画像対応版）
+async function sendToN8N(buttonId, interaction, questionText = null, imageUrls = []) {
   try {
     const payload = {
       button_id: buttonId,
@@ -595,7 +855,11 @@ async function sendToN8N(buttonId, interaction, questionText = null) {
       ai_request: true,
       phase: questionText ? '2_with_question' : '1.5_prompt_only',
       question_text: questionText,
-      knowledge_base_ready: true
+      knowledge_base_ready: true,
+      // 🖼️ 画像情報を追加
+      has_images: imageUrls.length > 0,
+      image_count: imageUrls.length,
+      image_urls: imageUrls
     };
 
     console.log('🚀 n8nにAI処理依頼送信中:', payload);
@@ -660,7 +924,7 @@ function generateButtonResponse(customId, interaction = null) {
   }
 }
 
-// 🆕 メンション対応AI処理リクエスト受信エンドポイント
+// 🖼️ 新機能：メンション対応AI処理リクエスト受信エンドポイント（画像対応版）
 app.post('/ai-process-mention', async (req, res) => {
   console.log('🏷️ メンションAI処理リクエスト受信:', req.body);
   
@@ -668,17 +932,17 @@ app.post('/ai-process-mention', async (req, res) => {
     // サービス初期化
     initializeServices();
     
-    const { message_content, user_id, username } = req.body;
+    const { message_content, user_id, username, image_urls = [] } = req.body;
     
-    if (!message_content) {
-      return res.json({ error: '質問テキストが必要です' });
+    if (!message_content && (!image_urls || image_urls.length === 0)) {
+      return res.json({ error: '質問テキストまたは画像が必要です' });
     }
     
-    // メンション対応AI回答生成
+    // 🖼️ 画像対応メンションAI回答生成
     const aiResponse = await generateMentionAIResponse(message_content, {
       id: user_id,
       username: username
-    });
+    }, image_urls);
     
     console.log('✅ メンションAI回答生成完了');
     
@@ -687,7 +951,9 @@ app.post('/ai-process-mention', async (req, res) => {
       ai_response: aiResponse,
       processed_at: new Date().toISOString(),
       knowledge_base_used: true,
-      trigger_type: 'mention'
+      trigger_type: 'mention',
+      has_images: image_urls.length > 0,
+      image_count: image_urls.length
     });
     
   } catch (error) {
@@ -699,7 +965,7 @@ app.post('/ai-process-mention', async (req, res) => {
   }
 });
 
-// 🆕 専門AI処理リクエスト受信エンドポイント（知識ベース統合版）- ボタン対応
+// 🖼️ 新機能：専門AI処理リクエスト受信エンドポイント（画像対応版）
 app.post('/ai-process', async (req, res) => {
   console.log('🤖 専門AI処理リクエスト受信:', req.body);
   
@@ -707,17 +973,17 @@ app.post('/ai-process', async (req, res) => {
     // サービス初期化
     initializeServices();
     
-    const { button_id, message_content, user_id, username } = req.body;
+    const { button_id, message_content, user_id, username, image_urls = [] } = req.body;
     
-    if (!message_content) {
-      return res.json({ error: '質問テキストが必要です' });
+    if (!message_content && (!image_urls || image_urls.length === 0)) {
+      return res.json({ error: '質問テキストまたは画像が必要です' });
     }
     
-    // 専門AI回答生成（知識ベース統合）
+    // 🖼️ 画像対応専門AI回答生成
     const aiResponse = await generateAIResponse(message_content, button_id, {
       id: user_id,
       username: username
-    });
+    }, image_urls);
     
     console.log('✅ 専門AI回答生成完了');
     
@@ -725,7 +991,9 @@ app.post('/ai-process', async (req, res) => {
       success: true,
       ai_response: aiResponse,
       processed_at: new Date().toISOString(),
-      knowledge_base_used: true
+      knowledge_base_used: true,
+      has_images: image_urls.length > 0,
+      image_count: image_urls.length
     });
     
   } catch (error) {
@@ -783,12 +1051,13 @@ app.get('/test-knowledge-base', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'Discord Bot - VTuber School with Mention Support',
+    message: 'Discord Bot - VTuber School with Mention Support & Image Analysis',
     timestamp: new Date().toISOString(),
-    version: '9.0.0', // 🆕 メンション対応版
+    version: '10.0.0', // 🖼️ 画像対応版
     features: {
       slash_commands: true,
-      mention_support: true, // 🆕
+      mention_support: true,
+      image_support: true, // 🖼️ 新機能
       button_interactions: true,
       static_responses: true,
       ai_responses: 'spreadsheet_knowledge_base_active',
@@ -797,12 +1066,13 @@ app.get('/', (req, res) => {
       google_slides_docs_support: true,
       knowledge_base_urls: KNOWLEDGE_SPREADSHEET_ID,
       ai_target_buttons: ['lesson_question', 'sns_consultation', 'mission_submission'],
-      bot_user_id: BOT_USER_ID
+      bot_user_id: BOT_USER_ID,
+      gpt4_vision: true // 🖼️ GPT-4 Vision対応
     }
   });
 });
 
-// 🆕 Discord webhook処理（メンション対応版）
+// 🖼️ 新機能：Discord webhook処理（画像対応版）
 app.post('/discord', async (req, res) => {
   console.log('=== Discord Interaction 受信 ===');
   console.log('Time:', new Date().toISOString());
@@ -835,12 +1105,21 @@ app.post('/discord', async (req, res) => {
     return res.json({ type: 1 });
   }
   
-  // 🆕 メッセージタイプ（type: 0）の処理を追加
+  // 🖼️ 画像対応：メッセージタイプ（type: 0）の処理を更新
   if (body.type === 0) {
     console.log('💬 メッセージ受信 - メンション確認中...');
     
     const content = body.content;
     const mentions = body.mentions || [];
+    const attachments = body.attachments || [];
+    
+    // 🖼️ 画像添付チェック
+    const hasImages = hasImageAttachments(attachments);
+    const imageUrls = hasImages ? extractImageUrls(attachments) : [];
+    
+    if (hasImages) {
+      console.log(`🖼️ 画像添付検出: ${imageUrls.length}個`);
+    }
     
     // メンション検出
     if (isBotMentioned(content, mentions)) {
@@ -849,9 +1128,9 @@ app.post('/discord', async (req, res) => {
       // メンション部分を除去して質問内容を抽出
       const questionContent = extractContentFromMention(content);
       
-      if (!questionContent || questionContent.length < 3) {
-        // 質問内容が空または短すぎる場合は選択肢メニューを表示
-        console.log('📝 質問内容なし - 選択肢メニュー表示');
+      if ((!questionContent || questionContent.length < 3) && !hasImages) {
+        // 質問内容も画像もない場合は選択肢メニューを表示
+        console.log('📝 質問内容・画像なし - 選択肢メニュー表示');
         
         const userId = body.author?.id;
         const response = {
@@ -905,18 +1184,31 @@ app.post('/discord', async (req, res) => {
         
         return res.json(response);
       } else {
-        // 質問内容がある場合はn8nに送信してAI処理
+        // 質問内容または画像がある場合はn8nに送信してAI処理
         console.log('🤖 メンション質問をn8nに送信');
         
-        sendMentionToN8N(body, questionContent).catch(error => {
+        // 🖼️ 画像対応版のn8n送信
+        sendMentionToN8N(body, questionContent, imageUrls).catch(error => {
           console.error('n8nメンション送信失敗:', error);
         });
         
-        // 即座に受付確認を返す
+        // 🖼️ 画像対応の受付確認メッセージ
+        let confirmationMessage = `📝 **ご質問ありがとうございます！**\n\n`;
+        
+        if (questionContent) {
+          confirmationMessage += `「${questionContent}」\n\n`;
+        }
+        
+        if (hasImages) {
+          confirmationMessage += `🖼️ **画像 ${imageUrls.length}枚を確認しました**\n\n`;
+        }
+        
+        confirmationMessage += `知識ベースを確認して回答を準備中です。少々お待ちください... 🤖✨`;
+        
         const response = {
           type: 4,
           data: {
-            content: `📝 **ご質問ありがとうございます！**\n\n「${questionContent}」\n\n知識ベースを確認して回答を準備中です。少々お待ちください... 🤖✨`
+            content: confirmationMessage
           }
         };
         
@@ -1027,18 +1319,19 @@ app.get('/debug-google-auth', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School v9.0 ===');
+  console.log('=== Discord Bot VTuber School v10.0 ===');
   console.log(`📍 Port: ${PORT}`);
   console.log(`🤖 Bot User ID: ${BOT_USER_ID}`);
   console.log('✅ Static responses: Render.com');
   console.log('🏷️ Mention Support: @わなみさん Active');
+  console.log('🖼️ Image Analysis: GPT-4 Vision Active'); // 🖼️ 新ログ
   console.log('📝 AI Question Input System: Active');
   console.log('🤖 専門AI Response Generation: Active');
   console.log('📊 Spreadsheet Knowledge Base: Active');
   console.log(`📚 Knowledge Source: ${KNOWLEDGE_SPREADSHEET_ID}`);
   console.log(`🔗 n8n Webhook: ${N8N_WEBHOOK_URL}`);
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
-  console.log('🚀 Phase 4: @わなみさん メンション対応完了');
+  console.log('🚀 Phase 5: 🖼️ 画像読み込み機能完了'); // 🖼️ 新ログ
   console.log('=====================================');
 
   // 起動時に初期化実行
