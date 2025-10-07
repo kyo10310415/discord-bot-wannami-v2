@@ -33,6 +33,9 @@ let slides = null;
 let auth = null;
 let openai = null;
 
+// 🖼️ 文書内画像保存用グローバル変数
+let documentImages = [];
+
 // 🔧 修正：Google認証オブジェクトの統一初期化
 function initializeServices() {
   if (!auth && process.env.GOOGLE_CLIENT_EMAIL) {
@@ -206,7 +209,7 @@ async function loadUrlListFromSpreadsheet() {
   }
 }
 
-// 🔧 修正：Google Slidesの内容を読み込む関数
+// 🖼️ 修正：Google Slides画像対応版
 async function loadGoogleSlides(url, fileName) {
   try {
     if (!slides) {
@@ -214,7 +217,7 @@ async function loadGoogleSlides(url, fileName) {
       return `${fileName}: Google Slides API初期化エラー`;
     }
 
-    console.log(`📽️ Google Slides読み込み開始: ${fileName}`);
+    console.log(`📽️ Google Slides読み込み開始（画像対応）: ${fileName}`);
     
     // URLからプレゼンテーションIDを抽出
     const match = url.match(/\/presentation\/d\/([a-zA-Z0-9-_]+)/);
@@ -225,20 +228,21 @@ async function loadGoogleSlides(url, fileName) {
     const presentationId = match[1];
     console.log(`🔍 Presentation ID: ${presentationId}`);
     
-    // 🔧 修正：統一認証オブジェクトを明示的に使用
     const presentation = await slides.presentations.get({
       presentationId: presentationId,
     });
 
     let content = `${fileName}\n${'='.repeat(50)}\n`;
+    let extractedImages = [];
     
-    // 各スライドのテキストを抽出
+    // 各スライドのテキストと画像を抽出
     if (presentation.data.slides) {
       presentation.data.slides.forEach((slide, index) => {
         content += `\n--- スライド ${index + 1} ---\n`;
         
         if (slide.pageElements) {
           slide.pageElements.forEach(element => {
+            // テキスト処理
             if (element.shape && element.shape.text && element.shape.text.textElements) {
               element.shape.text.textElements.forEach(textElement => {
                 if (textElement.textRun && textElement.textRun.content) {
@@ -246,13 +250,49 @@ async function loadGoogleSlides(url, fileName) {
                 }
               });
             }
+            
+            // 🖼️ 画像処理追加
+            if (element.image) {
+              let imageUrl = null;
+              
+              // 画像URLの取得（複数のプロパティを確認）
+              if (element.image.contentUrl) {
+                imageUrl = element.image.contentUrl;
+              } else if (element.image.sourceUrl) {
+                imageUrl = element.image.sourceUrl;
+              }
+              
+              if (imageUrl) {
+                const imageInfo = {
+                  source: 'google_slides',
+                  fileName: fileName,
+                  slide: index + 1,
+                  url: imageUrl,
+                  description: `${fileName} - スライド${index + 1}の画像`,
+                  type: 'embedded_image'
+                };
+                
+                extractedImages.push(imageInfo);
+                documentImages.push(imageInfo);
+                content += `\n[🖼️ 画像: ${imageInfo.description}]\n`;
+                console.log(`🖼️ 画像検出: ${imageInfo.description} - ${imageUrl}`);
+              }
+            }
           });
         }
         content += '\n';
       });
     }
+    
+    // 画像情報を追記
+    if (extractedImages.length > 0) {
+      content += `\n\n--- 含まれる画像一覧 (${extractedImages.length}枚) ---\n`;
+      extractedImages.forEach((img, index) => {
+        content += `${index + 1}. ${img.description}\n   URL: ${img.url}\n`;
+      });
+    }
 
-    console.log(`✅ Google Slides読み込み成功: ${fileName} (${content.length}文字)`);
+    console.log(`✅ Google Slides読み込み成功: ${fileName} (${content.length}文字, ${extractedImages.length}枚の画像)`);
     return content;
 
   } catch (error) {
@@ -262,7 +302,7 @@ async function loadGoogleSlides(url, fileName) {
   }
 }
 
-// 🔧 修正：Google Docsの内容を読み込む関数
+// 🖼️ 修正：Google Docs画像対応版
 async function loadGoogleDocs(url, fileName) {
   try {
     if (!docs) {
@@ -270,7 +310,7 @@ async function loadGoogleDocs(url, fileName) {
       return `${fileName}: Google Docs API初期化エラー`;
     }
 
-    console.log(`📄 Google Docs読み込み開始: ${fileName}`);
+    console.log(`📄 Google Docs読み込み開始（画像対応）: ${fileName}`);
     
     // URLからドキュメントIDを抽出
     const match = url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
@@ -281,27 +321,63 @@ async function loadGoogleDocs(url, fileName) {
     const documentId = match[1];
     console.log(`🔍 Document ID: ${documentId}`);
     
-    // 🔧 修正：統一認証オブジェクトを明示的に使用
     const document = await docs.documents.get({
       documentId: documentId,
     });
 
     let content = `${fileName}\n${'='.repeat(50)}\n`;
+    let extractedImages = [];
     
     // ドキュメントの内容を抽出
     if (document.data.body && document.data.body.content) {
-      document.data.body.content.forEach(element => {
+      document.data.body.content.forEach((element, elementIndex) => {
         if (element.paragraph && element.paragraph.elements) {
           element.paragraph.elements.forEach(paragraphElement => {
+            // テキスト処理
             if (paragraphElement.textRun && paragraphElement.textRun.content) {
               content += paragraphElement.textRun.content;
+            }
+            
+            // 🖼️ 画像処理追加
+            if (paragraphElement.inlineObjectElement) {
+              const objectId = paragraphElement.inlineObjectElement.inlineObjectId;
+              if (document.data.inlineObjects && document.data.inlineObjects[objectId]) {
+                const inlineObject = document.data.inlineObjects[objectId];
+                if (inlineObject.embeddedObject && inlineObject.embeddedObject.imageProperties) {
+                  const imageUrl = inlineObject.embeddedObject.imageProperties.contentUri;
+                  
+                  if (imageUrl) {
+                    const imageInfo = {
+                      source: 'google_docs',
+                      fileName: fileName,
+                      position: elementIndex + 1,
+                      url: imageUrl,
+                      description: `${fileName} - ドキュメント内画像${extractedImages.length + 1}`,
+                      type: 'embedded_image'
+                    };
+                    
+                    extractedImages.push(imageInfo);
+                    documentImages.push(imageInfo);
+                    content += `\n[🖼️ 画像: ${imageInfo.description}]\n`;
+                    console.log(`🖼️ 画像検出: ${imageInfo.description} - ${imageUrl}`);
+                  }
+                }
+              }
             }
           });
         }
       });
     }
+    
+    // 画像情報を追記
+    if (extractedImages.length > 0) {
+      content += `\n\n--- 含まれる画像一覧 (${extractedImages.length}枚) ---\n`;
+      extractedImages.forEach((img, index) => {
+        content += `${index + 1}. ${img.description}\n   URL: ${img.url}\n`;
+      });
+    }
 
-    console.log(`✅ Google Docs読み込み成功: ${fileName} (${content.length}文字)`);
+    console.log(`✅ Google Docs読み込み成功: ${fileName} (${content.length}文字, ${extractedImages.length}枚の画像)`);
     return content;
 
   } catch (error) {
@@ -311,10 +387,10 @@ async function loadGoogleDocs(url, fileName) {
   }
 }
 
-// 🆕 Notion読み込み関数
+// 🖼️ 修正：Notion画像対応版
 async function loadNotionContent(url, fileName) {
   try {
-    console.log(`📝 Notion読み込み開始: ${fileName}`);
+    console.log(`📝 Notion読み込み開始（画像対応）: ${fileName}`);
     
     // NotionのページIDを抽出
     const pageIdMatch = url.match(/([a-f0-9]{32}|[a-f0-9-]{36})/);
@@ -338,17 +414,58 @@ async function loadNotionContent(url, fileName) {
     });
     
     const html = response.data;
+    let extractedImages = [];
+    
+    // 🖼️ 画像URLを抽出
+    const imgMatches = html.match(/<img[^>]+src=['"]([^'"]+)['"][^>]*>/gi);
+    if (imgMatches) {
+      imgMatches.forEach((imgTag, index) => {
+        const srcMatch = imgTag.match(/src=['"]([^'"]+)['"]/);
+        if (srcMatch) {
+          let imageUrl = srcMatch[1];
+          
+          // 相対URLを絶対URLに変換
+          if (imageUrl.startsWith('/')) {
+            imageUrl = new URL(imageUrl, url).href;
+          }
+          
+          // Notionの画像URLを処理
+          if (imageUrl.includes('notion') || imageUrl.includes('amazonaws.com')) {
+            const imageInfo = {
+              source: 'notion',
+              fileName: fileName,
+              position: index + 1,
+              url: imageUrl,
+              description: `${fileName} - Notion画像${index + 1}`,
+              type: 'embedded_image'
+            };
+            
+            extractedImages.push(imageInfo);
+            documentImages.push(imageInfo);
+            console.log(`🖼️ 画像検出: ${imageInfo.description} - ${imageUrl}`);
+          }
+        }
+      });
+    }
     
     // Notionページのタイトルを抽出
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     const title = titleMatch ? titleMatch[1].replace(' | Notion', '').trim() : fileName;
     
-    // Notionの特殊なHTML構造からテキストを抽出
+    // Notionの特殊なHTML構造からテキストを抽出（画像参照付き）
     let textContent = html
       // スクリプトとスタイルを除去
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
       .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
+      // 画像タグを参照テキストに変換
+      .replace(/<img[^>]+src=['"]([^'"]+)['"][^>]*>/gi, (match, src) => {
+        const imageIndex = extractedImages.findIndex(img => img.url === src || src.includes(img.url.split('?')[0]));
+        if (imageIndex >= 0) {
+          return `\n[🖼️ 画像: ${extractedImages[imageIndex].description}]\n`;
+        }
+        return '\n[🖼️ 画像]\n';
+      })
       // Notionの特殊なクラスを持つ要素を重視
       .replace(/<div[^>]*class="[^"]*notion-page-content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1')
       .replace(/<div[^>]*class="[^"]*notion-text[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1\n')
@@ -379,7 +496,15 @@ async function loadNotionContent(url, fileName) {
     content += `種類: Notionページ\n\n`;
     content += textContent;
     
-    console.log(`✅ Notion読み込み成功: ${fileName} (${content.length}文字)`);
+    // 画像情報を追記
+    if (extractedImages.length > 0) {
+      content += `\n\n--- 含まれる画像一覧 (${extractedImages.length}枚) ---\n`;
+      extractedImages.forEach((img, index) => {
+        content += `${index + 1}. ${img.description}\n   URL: ${img.url}\n`;
+      });
+    }
+    
+    console.log(`✅ Notion読み込み成功: ${fileName} (${content.length}文字, ${extractedImages.length}枚の画像)`);
     return content;
 
   } catch (error) {
@@ -395,10 +520,10 @@ async function loadNotionContent(url, fileName) {
   }
 }
 
-// 🆕 汎用WEBサイト読み込み関数
+// 🖼️ 修正：汎用WEBサイト画像対応版
 async function loadWebsiteContent(url, fileName) {
   try {
-    console.log(`🌐 WEBサイト読み込み開始: ${fileName}`);
+    console.log(`🌐 WEBサイト読み込み開始（画像対応）: ${fileName}`);
     
     const response = await axios.get(url, {
       timeout: 10000,
@@ -409,6 +534,43 @@ async function loadWebsiteContent(url, fileName) {
     
     // HTMLから主要なテキストコンテンツを抽出
     const html = response.data;
+    let extractedImages = [];
+    
+    // 🖼️ 画像URLを抽出
+    const imgMatches = html.match(/<img[^>]+src=['"]([^'"]+)['"][^>]*>/gi);
+    if (imgMatches) {
+      imgMatches.forEach((imgTag, index) => {
+        const srcMatch = imgTag.match(/src=['"]([^'"]+)['"]/);
+        if (srcMatch) {
+          let imageUrl = srcMatch[1];
+          
+          // 相対URLを絶対URLに変換
+          if (imageUrl.startsWith('/')) {
+            imageUrl = new URL(imageUrl, url).href;
+          } else if (imageUrl.startsWith('./')) {
+            imageUrl = new URL(imageUrl.substring(2), url).href;
+          } else if (!imageUrl.startsWith('http')) {
+            imageUrl = new URL(imageUrl, url).href;
+          }
+          
+          // 有効な画像URLのみを追加
+          if (imageUrl.startsWith('http') && imageUrl.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i)) {
+            const imageInfo = {
+              source: 'website',
+              fileName: fileName,
+              position: index + 1,
+              url: imageUrl,
+              description: `${fileName} - WEB画像${index + 1}`,
+              type: 'embedded_image'
+            };
+            
+            extractedImages.push(imageInfo);
+            documentImages.push(imageInfo);
+            console.log(`🖼️ 画像検出: ${imageInfo.description} - ${imageUrl}`);
+          }
+        }
+      });
+    }
     
     // タイトル抽出
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
@@ -418,13 +580,21 @@ async function loadWebsiteContent(url, fileName) {
     const descMatch = html.match(/<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"']+)["\'][^>]*>/i);
     const description = descMatch ? descMatch[1].trim() : '';
     
-    // 基本的なHTMLタグを除去してテキストを抽出
+    // 基本的なHTMLタグを除去してテキストを抽出（画像参照付き）
     let textContent = html
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
       .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
       .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
       .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+      // 画像タグを参照テキストに変換
+      .replace(/<img[^>]+src=['"]([^'"]+)['"][^>]*>/gi, (match, src) => {
+        const imageIndex = extractedImages.findIndex(img => img.url === src);
+        if (imageIndex >= 0) {
+          return `\n[🖼️ 画像: ${extractedImages[imageIndex].description}]\n`;
+        }
+        return '\n[🖼️ 画像]\n';
+      })
       .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n## $1\n')
       .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n')
       .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '• $1\n')
@@ -452,7 +622,15 @@ async function loadWebsiteContent(url, fileName) {
     content += `種類: WEBサイト\n\n`;
     content += textContent;
     
-    console.log(`✅ WEBサイト読み込み成功: ${fileName} (${content.length}文字)`);
+    // 画像情報を追記
+    if (extractedImages.length > 0) {
+      content += `\n\n--- 含まれる画像一覧 (${extractedImages.length}枚) ---\n`;
+      extractedImages.forEach((img, index) => {
+        content += `${index + 1}. ${img.description}\n   URL: ${img.url}\n`;
+      });
+    }
+    
+    console.log(`✅ WEBサイト読み込み成功: ${fileName} (${content.length}文字, ${extractedImages.length}枚の画像)`);
     return content;
 
   } catch (error) {
@@ -474,13 +652,27 @@ async function loadImageUrlInfo(url, fileName) {
     const contentType = response.headers['content-type'] || 'unknown';
     const contentLength = response.headers['content-length'] || 'unknown';
     
+    // 直接画像URLもdocumentImagesに追加
+    const imageInfo = {
+      source: 'direct_url',
+      fileName: fileName,
+      url: url,
+      description: `${fileName} - 直接画像URL`,
+      type: 'direct_image'
+    };
+    
+    documentImages.push(imageInfo);
+    console.log(`🖼️ 直接画像URL追加: ${imageInfo.description} - ${url}`);
+    
     let content = `${fileName}\n${'='.repeat(50)}\n`;
     content += `種類: 画像ファイル\n`;
     content += `URL: ${url}\n`;
     content += `ファイル形式: ${contentType}\n`;
     content += `ファイルサイズ: ${contentLength} bytes\n\n`;
     content += `【AI画像解析対応】\nこの画像は、質問時に画像として添付された場合、AI が詳細に分析して回答します。\n`;
-    content += `画像の内容、技術的な問題、改善点などを具体的に指摘できます。`;
+    content += `画像の内容、技術的な問題、改善点などを具体的に指摘できます。\n\n`;
+    content += `--- 含まれる画像一覧 (1枚) ---\n`;
+    content += `1. ${imageInfo.description}\n   URL: ${imageInfo.url}\n`;
     
     console.log(`✅ 画像URL情報取得成功: ${fileName}`);
     return content;
@@ -491,7 +683,7 @@ async function loadImageUrlInfo(url, fileName) {
   }
 }
 
-// 🔧 修正：URL先のコンテンツを読み込む関数（Notion対応版）
+// 🔧 修正：URL先のコンテンツを読み込む関数（画像対応版）
 async function loadContentFromUrl(urlInfo) {
   const { url, fileName, category, type } = urlInfo;
   
@@ -504,7 +696,7 @@ async function loadContentFromUrl(urlInfo) {
     else if (url.includes('docs.google.com/document')) {
       return await loadGoogleDocs(url, fileName);
     } 
-    // 🆕 Notion対応
+    // 🖼️ Notion対応（画像付き）
     else if (url.includes('notion.so') || url.includes('notion.site')) {
       return await loadNotionContent(url, fileName);
     }
@@ -514,7 +706,7 @@ async function loadContentFromUrl(urlInfo) {
              url.includes('drive.google.com/file')) {
       return await loadImageUrlInfo(url, fileName);
     }
-    // 🌐 一般WEBサイト
+    // 🖼️ 一般WEBサイト（画像付き）
     else if (url.startsWith('http://') || url.startsWith('https://')) {
       return await loadWebsiteContent(url, fileName);
     }
@@ -529,10 +721,13 @@ async function loadContentFromUrl(urlInfo) {
   }
 }
 
-// 🆕 統合知識ベース構築関数
+// 🖼️ 修正：統合知識ベース構築関数（画像対応版）
 async function buildKnowledgeBase() {
   try {
-    console.log('📚 知識ベース構築開始...');
+    console.log('📚 知識ベース構築開始（画像対応版）...');
+    
+    // 🖼️ 前回の文書内画像をクリア
+    documentImages = [];
     
     const urlList = await loadUrlListFromSpreadsheet();
     if (urlList.length === 0) {
@@ -540,7 +735,7 @@ async function buildKnowledgeBase() {
       return null;
     }
 
-    let knowledgeBase = 'VTuber育成スクール - わなみさん 知識ベース\n';
+    let knowledgeBase = 'VTuber育成スクール - わなみさん 知識ベース（画像対応版）\n';
     knowledgeBase += '='.repeat(80) + '\n\n';
 
     // 各URLの内容を読み込み
@@ -553,7 +748,21 @@ async function buildKnowledgeBase() {
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    console.log(`✅ 知識ベース構築完了 - 総文字数: ${knowledgeBase.length}`);
+    // 🖼️ 総画像数を追記
+    const totalImages = documentImages.length;
+    knowledgeBase += `\n\n${'='.repeat(80)}\n`;
+    knowledgeBase += `📚 知識ベース統計\n`;
+    knowledgeBase += `- 総文字数: ${knowledgeBase.length}\n`;
+    knowledgeBase += `- 含まれる画像総数: ${totalImages}枚\n`;
+    
+    if (totalImages > 0) {
+      knowledgeBase += `\n🖼️ 全文書画像一覧:\n`;
+      documentImages.forEach((img, index) => {
+        knowledgeBase += `${index + 1}. ${img.description} (${img.source})\n`;
+      });
+    }
+
+    console.log(`✅ 知識ベース構築完了 - 総文字数: ${knowledgeBase.length}, 画像数: ${totalImages}`);
     return knowledgeBase;
 
   } catch (error) {
@@ -562,13 +771,14 @@ async function buildKnowledgeBase() {
   }
 }
 
-// 🖼️ 新機能：画像対応メンションAI回答生成関数
+// 🖼️ 新機能：文書内画像も含むメンションAI回答生成関数
 async function generateMentionAIResponseWithImages(question, imageUrls, userInfo) {
   try {
-    console.log(`🤖🖼️ 画像対応メンションAI回答生成開始`);
+    console.log(`🤖🖼️ 文書画像対応メンションAI回答生成開始`);
     console.log(`📝 ユーザー: ${userInfo.username}`);
     console.log(`💬 質問: ${question}`);
-    console.log(`🖼️ 画像数: ${imageUrls.length}`);
+    console.log(`🖼️ ユーザー画像数: ${imageUrls.length}`);
+    console.log(`📚 文書内画像数: ${documentImages.length}`);
     
     if (!openai) {
       console.log('❌ OpenAI not initialized');
@@ -582,7 +792,7 @@ async function generateMentionAIResponseWithImages(question, imageUrls, userInfo
       return 'すみません、現在知識ベースにアクセスできません。担任の先生に直接ご相談ください。';
     }
 
-    // 🖼️ 画像対応システムプロンプト
+    // 🖼️ 文書画像対応システムプロンプト
     const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の専門AIアシスタントです。
 
 以下の知識ベースを参考に、生徒からの質問に親切で具体的な回答をしてください。
@@ -590,18 +800,19 @@ async function generateMentionAIResponseWithImages(question, imageUrls, userInfo
 【知識ベース】
 ${knowledgeBase}
 
-【画像対応回答ルール】
+【文書内画像対応回答ルール】
 - 添付された画像の内容を詳細に分析してください
+- 知識ベース内の文書に含まれる関連画像も参考にしてください
+- 文書内画像と質問画像を比較・関連付けて説明してください
 - 画像に基づいた具体的なアドバイスやフィードバックを提供してください
-- 画像の技術的な問題があれば指摘し、改善方法を提案してください
 - 配信設定、デザイン、SNS投稿など、VTuber活動に関連する画像は特に詳しく解説してください
 - 丁寧で親しみやすい口調で回答してください
 - 具体的で実用的なアドバイスを提供してください
 - 絵文字を適度に使用してください
-- 800文字以内で簡潔にまとめてください
+- 1000文字以内で簡潔にまとめてください
 - 知識ベースにない内容は「担任の先生にご相談ください」と案内してください`;
 
-    // 🖼️ メッセージ配列を構築（画像対応）
+    // 🖼️ メッセージ配列を構築（文書画像対応）
     const messages = [
       { role: "system", content: systemPrompt }
     ];
@@ -612,12 +823,12 @@ ${knowledgeBase}
       content: [
         {
           type: "text",
-          text: question || "この画像について教えてください"
+          text: `${question || "この画像について教えてください"}\n\n【参考情報】知識ベースには${documentImages.length}枚の関連画像が含まれています。`
         }
       ]
     };
 
-    // 画像URLを追加
+    // ユーザー添付画像を追加（優先度高）
     imageUrls.forEach(imageInfo => {
       userMessage.content.push({
         type: "image_url",
@@ -626,7 +837,23 @@ ${knowledgeBase}
           detail: "high" // 高解像度で分析
         }
       });
-      console.log(`🖼️ 画像追加: ${imageInfo.filename}`);
+      console.log(`🖼️ ユーザー画像追加: ${imageInfo.filename}`);
+    });
+
+    // 🆕 文書内画像も追加（最大5枚まで、関連性の高いものを優先）
+    const relevantDocImages = documentImages
+      .filter(img => img.url && img.url.startsWith('http'))
+      .slice(0, 5); // 最大5枚まで
+    
+    relevantDocImages.forEach(imageInfo => {
+      userMessage.content.push({
+        type: "image_url",
+        image_url: {
+          url: imageInfo.url,
+          detail: "medium" // 中解像度で参考として
+        }
+      });
+      console.log(`📚 文書画像追加: ${imageInfo.description}`);
     });
 
     messages.push(userMessage);
@@ -635,17 +862,17 @@ ${knowledgeBase}
     const completion = await openai.chat.completions.create({
       model: "gpt-4o", // 画像対応モデル
       messages: messages,
-      max_tokens: 1500,
+      max_tokens: 2000,
       temperature: 0.7,
     });
 
     const aiResponse = completion.choices[0].message.content;
-    console.log('✅ 画像対応メンションAI回答生成完了');
+    console.log('✅ 文書画像対応メンションAI回答生成完了');
     
     return aiResponse;
 
   } catch (error) {
-    console.error('❌ 画像対応メンションAI回答生成エラー:', error.message);
+    console.error('❌ 文書画像対応メンションAI回答生成エラー:', error.message);
     
     return `申し訳ございません！現在画像解析AI機能に問題が発生しています🙏
 
@@ -656,10 +883,10 @@ ${knowledgeBase}
   }
 }
 
-// 🆕 メンション対応AI回答生成関数（画像対応版に更新）
+// 🆕 メンション対応AI回答生成関数（文書画像対応版に更新）
 async function generateMentionAIResponse(question, userInfo, imageUrls = []) {
-  // 🖼️ 画像がある場合は画像対応版を使用
-  if (imageUrls && imageUrls.length > 0) {
+  // 🖼️ 画像がある場合または文書内画像がある場合は画像対応版を使用
+  if ((imageUrls && imageUrls.length > 0) || documentImages.length > 0) {
     return await generateMentionAIResponseWithImages(question, imageUrls, userInfo);
   }
 
@@ -726,13 +953,14 @@ ${knowledgeBase}
   }
 }
 
-// 🖼️ 新機能：画像対応専門AI回答生成関数
+// 🖼️ 新機能：文書画像対応専門AI回答生成関数
 async function generateAIResponseWithImages(question, buttonType, imageUrls, userInfo) {
   try {
-    console.log(`🤖🖼️ 画像対応専門AI回答生成開始: ${buttonType}`);
+    console.log(`🤖🖼️ 文書画像対応専門AI回答生成開始: ${buttonType}`);
     console.log(`📝 ユーザー: ${userInfo.username}`);
     console.log(`💬 質問: ${question}`);
-    console.log(`🖼️ 画像数: ${imageUrls.length}`);
+    console.log(`🖼️ ユーザー画像数: ${imageUrls.length}`);
+    console.log(`📚 文書内画像数: ${documentImages.length}`);
     
     if (!openai) {
       console.log('❌ OpenAI not initialized');
@@ -746,7 +974,7 @@ async function generateAIResponseWithImages(question, buttonType, imageUrls, use
       return 'すみません、現在知識ベースにアクセスできません。担任の先生に直接ご相談ください。';
     }
 
-    // ボタンタイプ別システムプロンプト（画像対応版）
+    // ボタンタイプ別システムプロンプト（文書画像対応版）
     let systemPrompt = `あなたはVTuber育成スクール「わなみさん」の専門AIアシスタントです。
 
 以下の知識ベースを参考に、生徒からの質問に親切で具体的な回答をしてください。
@@ -754,43 +982,48 @@ async function generateAIResponseWithImages(question, buttonType, imageUrls, use
 【知識ベース】
 ${knowledgeBase}
 
-【画像対応回答ルール】
+【文書内画像対応回答ルール】
 - 添付された画像の内容を詳細に分析してください
+- 知識ベース内の文書に含まれる関連画像も参考にしてください
+- 文書内画像と質問画像を比較・関連付けて説明してください
 - 画像に基づいた具体的なアドバイスやフィードバックを提供してください
 - 画像の技術的な問題があれば指摘し、改善方法を提案してください
 - 丁寧で親しみやすい口調で回答してください
 - 具体的で実用的なアドバイスを提供してください
 - 絵文字を適度に使用してください
-- 800文字以内で簡潔にまとめてください
+- 1000文字以内で簡潔にまとめてください
 - 知識ベースにない内容は「担任の先生にご相談ください」と案内してください`;
 
     switch (buttonType) {
       case 'lesson_question':
-        systemPrompt += `\n\n【特別指示：レッスン質問 + 画像分析】
+        systemPrompt += `\n\n【特別指示：レッスン質問 + 文書画像分析】
 - レッスン内容に関する質問として回答してください
 - 画像が配信設定やソフトウェア画面の場合、設定方法を詳しく説明してください
+- 文書内の関連図表や画像と比較して説明してください
 - 技術的な内容は段階的に説明してください
 - 画像に写っているエラーや問題があれば解決方法を提案してください`;
         break;
         
       case 'sns_consultation':
-        systemPrompt += `\n\n【特別指示：SNS運用相談 + 画像分析】
+        systemPrompt += `\n\n【特別指示：SNS運用相談 + 文書画像分析】
 - X(Twitter)やYouTubeの運用に関する相談として回答してください
 - 画像がSNS投稿、サムネイル、デザインの場合、改善点を具体的に指摘してください
+- 文書内の成功例画像と比較して分析してください
 - フォロワー獲得やエンゲージメント向上の観点から画像を評価してください
 - デザインの改善点や魅力的な要素について言及してください`;
         break;
         
       case 'mission_submission':
-        systemPrompt += `\n\n【特別指示：ミッション提出 + 画像分析】
+        systemPrompt += `\n\n【特別指示：ミッション提出 + 文書画像分析】
 - ミッション提出に関する質問として回答してください
 - 画像がミッション成果物の場合、詳細なフィードバックを提供してください
+- 文書内の課題例や参考画像と比較して評価してください
 - 良い点を褒めつつ、改善可能な部分も建設的に指摘してください
 - 次のステップや発展的なアドバイスを含めてください`;
         break;
     }
 
-    // 🖼️ メッセージ配列を構築（画像対応）
+    // 🖼️ メッセージ配列を構築（文書画像対応）
     const messages = [
       { role: "system", content: systemPrompt }
     ];
@@ -801,12 +1034,12 @@ ${knowledgeBase}
       content: [
         {
           type: "text",
-          text: question || "この画像について教えてください"
+          text: `${question || "この画像について教えてください"}\n\n【参考情報】知識ベースには${documentImages.length}枚の関連画像が含まれています。`
         }
       ]
     };
 
-    // 画像URLを追加
+    // ユーザー添付画像を追加（優先度高）
     imageUrls.forEach(imageInfo => {
       userMessage.content.push({
         type: "image_url",
@@ -817,23 +1050,39 @@ ${knowledgeBase}
       });
     });
 
+    // 🆕 文書内画像も追加（最大5枚まで）
+    const relevantDocImages = documentImages
+      .filter(img => img.url && img.url.startsWith('http'))
+      .slice(0, 5);
+    
+    relevantDocImages.forEach(imageInfo => {
+      userMessage.content.push({
+        type: "image_url",
+        image_url: {
+          url: imageInfo.url,
+          detail: "medium"
+        }
+      });
+      console.log(`📚 文書画像追加: ${imageInfo.description}`);
+    });
+
     messages.push(userMessage);
 
     // OpenAI API呼び出し（GPT-4 Vision）
     const completion = await openai.chat.completions.create({
       model: "gpt-4o", // 画像対応モデル
       messages: messages,
-      max_tokens: 1500,
+      max_tokens: 2000,
       temperature: 0.7,
     });
 
     const aiResponse = completion.choices[0].message.content;
-    console.log('✅ 画像対応専門AI回答生成完了');
+    console.log('✅ 文書画像対応専門AI回答生成完了');
     
     return aiResponse;
 
   } catch (error) {
-    console.error('❌ 画像対応専門AI回答生成エラー:', error.message);
+    console.error('❌ 文書画像対応専門AI回答生成エラー:', error.message);
     
     return `申し訳ございません！現在画像解析AI機能に問題が発生しています🙏
 
@@ -844,10 +1093,10 @@ ${knowledgeBase}
   }
 }
 
-// 🆕 専門AI回答生成関数（知識ベース統合版）- ボタン対応（画像対応版に更新）
+// 🆕 専門AI回答生成関数（知識ベース統合版）- ボタン対応（文書画像対応版に更新）
 async function generateAIResponse(question, buttonType, userInfo, imageUrls = []) {
-  // 🖼️ 画像がある場合は画像対応版を使用
-  if (imageUrls && imageUrls.length > 0) {
+  // 🖼️ 画像がある場合または文書内画像がある場合は画像対応版を使用
+  if ((imageUrls && imageUrls.length > 0) || documentImages.length > 0) {
     return await generateAIResponseWithImages(question, buttonType, imageUrls, userInfo);
   }
 
@@ -939,7 +1188,7 @@ ${knowledgeBase}
   }
 }
 
-// AI応答ボタンの質問入力要求メッセージ（従来通り）
+// AI応答ボタンの質問入力要求メッセージ（文書画像対応版に更新）
 const AI_QUESTION_PROMPTS = {
   lesson_question: {
     title: "📚 レッスンについての質問",
@@ -956,6 +1205,8 @@ const AI_QUESTION_PROMPTS = {
 • エラーメッセージがあれば教えてください
 • レッスン番号を記載してください
 • 🖼️ **画像添付可能**：配信設定画面やエラー画面があれば添付してください
+
+📚 **知識ベース内の関連画像も自動で参考にします！**
 
 **📝 この下にあなたの質問を入力してください ⬇️**
 ※質問内容は1分以内に送信してください！
@@ -977,6 +1228,8 @@ const AI_QUESTION_PROMPTS = {
 • XアカウントやチャンネルURLを教えていただけるとより良いアドバイスができる可能性があります
 • 🖼️ **画像添付可能**：サムネイル、投稿画像、アナリティクス画面など添付してください
 
+📚 **知識ベース内の関連画像も自動で参考にします！**
+
 **📝 この下にあなたのご相談内容を入力してください ⬇️**
 ※質問内容は1分以内に送信してください！
 　回答まで1分半ほどかかります！`
@@ -995,6 +1248,8 @@ const AI_QUESTION_PROMPTS = {
 • 完了報告の場合は取り組み内容を教えてください
 • 質問の場合は具体的に何に困っているか書いてください
 • 🖼️ **画像添付可能**：成果物のスクリーンショット、作業画面など添付してください
+
+📚 **知識ベース内の関連画像も自動で参考にします！**
 
 **📝 この下にミッション関連の内容を入力してください ⬇️**
 ※質問内容は1分以内に送信してください！　回答まで1分半ほどかかります！`
@@ -1019,7 +1274,10 @@ async function sendMentionToN8N(interaction, questionText, imageUrls = []) {
       // 🖼️ 画像情報を追加
       has_images: imageUrls.length > 0,
       image_count: imageUrls.length,
-      image_urls: imageUrls
+      image_urls: imageUrls,
+      // 🆕 文書内画像情報を追加
+      document_images_count: documentImages.length,
+      has_document_images: documentImages.length > 0
     };
 
     console.log('🚀 n8nにメンションAI処理依頼送信中:', payload);
@@ -1054,7 +1312,10 @@ async function sendToN8N(buttonId, interaction, questionText = null, imageUrls =
       // 🖼️ 画像情報を追加
       has_images: imageUrls.length > 0,
       image_count: imageUrls.length,
-      image_urls: imageUrls
+      image_urls: imageUrls,
+      // 🆕 文書内画像情報を追加
+      document_images_count: documentImages.length,
+      has_document_images: documentImages.length > 0
     };
 
     console.log('🚀 n8nにAI処理依頼送信中:', payload);
@@ -1119,9 +1380,9 @@ function generateButtonResponse(customId, interaction = null) {
   }
 }
 
-// 🖼️ 新機能：メンション対応AI処理リクエスト受信エンドポイント（画像対応版）
+// 🖼️ 新機能：メンション対応AI処理リクエスト受信エンドポイント（文書画像対応版）
 app.post('/ai-process-mention', async (req, res) => {
-  console.log('🏷️ メンションAI処理リクエスト受信:', req.body);
+  console.log('🏷️ メンションAI処理リクエスト受信（文書画像対応）:', req.body);
   
   try {
     // サービス初期化
@@ -1133,13 +1394,13 @@ app.post('/ai-process-mention', async (req, res) => {
       return res.json({ error: '質問テキストまたは画像が必要です' });
     }
     
-    // 🖼️ 画像対応メンションAI回答生成
+    // 🖼️ 文書画像対応メンションAI回答生成
     const aiResponse = await generateMentionAIResponse(message_content, {
       id: user_id,
       username: username
     }, image_urls);
     
-    console.log('✅ メンションAI回答生成完了');
+    console.log('✅ メンションAI回答生成完了（文書画像対応）');
     
     res.json({
       success: true,
@@ -1148,7 +1409,9 @@ app.post('/ai-process-mention', async (req, res) => {
       knowledge_base_used: true,
       trigger_type: 'mention',
       has_images: image_urls.length > 0,
-      image_count: image_urls.length
+      image_count: image_urls.length,
+      document_images_count: documentImages.length,
+      has_document_images: documentImages.length > 0
     });
     
   } catch (error) {
@@ -1160,9 +1423,9 @@ app.post('/ai-process-mention', async (req, res) => {
   }
 });
 
-// 🖼️ 新機能：専門AI処理リクエスト受信エンドポイント（画像対応版）
+// 🖼️ 新機能：専門AI処理リクエスト受信エンドポイント（文書画像対応版）
 app.post('/ai-process', async (req, res) => {
-  console.log('🤖 専門AI処理リクエスト受信:', req.body);
+  console.log('🤖 専門AI処理リクエスト受信（文書画像対応）:', req.body);
   
   try {
     // サービス初期化
@@ -1174,13 +1437,13 @@ app.post('/ai-process', async (req, res) => {
       return res.json({ error: '質問テキストまたは画像が必要です' });
     }
     
-    // 🖼️ 画像対応専門AI回答生成
+    // 🖼️ 文書画像対応専門AI回答生成
     const aiResponse = await generateAIResponse(message_content, button_id, {
       id: user_id,
       username: username
     }, image_urls);
     
-    console.log('✅ 専門AI回答生成完了');
+    console.log('✅ 専門AI回答生成完了（文書画像対応）');
     
     res.json({
       success: true,
@@ -1188,7 +1451,9 @@ app.post('/ai-process', async (req, res) => {
       processed_at: new Date().toISOString(),
       knowledge_base_used: true,
       has_images: image_urls.length > 0,
-      image_count: image_urls.length
+      image_count: image_urls.length,
+      document_images_count: documentImages.length,
+      has_document_images: documentImages.length > 0
     });
     
   } catch (error) {
@@ -1200,7 +1465,7 @@ app.post('/ai-process', async (req, res) => {
   }
 });
 
-// 🔧 修正：知識ベーステスト用エンドポイント（詳細デバッグ情報追加）
+// 🔧 修正：知識ベーステスト用エンドポイント（文書画像対応情報追加）
 app.get('/test-knowledge-base', async (req, res) => {
   try {
     initializeServices();
@@ -1226,6 +1491,13 @@ app.get('/test-knowledge-base', async (req, res) => {
       preview: knowledgeBase ? knowledgeBase.substring(0, 1000) : null,
       url_list: urlList.slice(0, 5), // 最初の5個のURL情報
       api_status: apiStatus,
+      // 🆕 文書内画像情報追加
+      document_images_count: documentImages.length,
+      document_images_sample: documentImages.slice(0, 3).map(img => ({
+        source: img.source,
+        description: img.description,
+        type: img.type
+      })),
       environment_vars: {
         google_project_id: process.env.GOOGLE_PROJECT_ID ? 'Set' : 'Not Set',
         google_client_email: process.env.GOOGLE_CLIENT_EMAIL || 'Not Set',
@@ -1246,31 +1518,33 @@ app.get('/test-knowledge-base', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'Discord Bot - VTuber School with Mention Support & Full Web Integration',
+    message: 'Discord Bot - VTuber School with Document Image Support',
     timestamp: new Date().toISOString(),
-    version: '11.0.0', // 🆕 Notion対応版
+    version: '12.0.0', // 🖼️ 文書内画像対応版
     features: {
       slash_commands: true,
       mention_support: true,
       image_support: true,
+      document_image_support: true, // 🆕 文書内画像対応
       button_interactions: true,
       static_responses: true,
       ai_responses: 'spreadsheet_knowledge_base_active',
       question_input_system: true,
       spreadsheet_integration: true,
       google_slides_docs_support: true,
-      notion_support: true, // 🆕 Notion対応
-      website_support: true, // 🆕 汎用WEBサイト対応
-      image_url_support: true, // 🆕 画像URL対応
+      notion_support: true,
+      website_support: true,
+      image_url_support: true,
       knowledge_base_urls: KNOWLEDGE_SPREADSHEET_ID,
       ai_target_buttons: ['lesson_question', 'sns_consultation', 'mission_submission'],
       bot_user_id: BOT_USER_ID,
-      gpt4_vision: true
+      gpt4_vision: true,
+      document_images_count: documentImages.length // 🆕 文書内画像数
     }
   });
 });
 
-// 🖼️ 新機能：Discord webhook処理（画像対応版）
+// 🖼️ 新機能：Discord webhook処理（文書画像対応版）
 app.post('/discord', async (req, res) => {
   console.log('=== Discord Interaction 受信 ===');
   console.log('Time:', new Date().toISOString());
@@ -1303,7 +1577,7 @@ app.post('/discord', async (req, res) => {
     return res.json({ type: 1 });
   }
   
-  // 🖼️ 画像対応：メッセージタイプ（type: 0）の処理を更新
+  // 🖼️ 文書画像対応：メッセージタイプ（type: 0）の処理を更新
   if (body.type === 0) {
     console.log('💬 メッセージ受信 - メンション確認中...');
     
@@ -1383,14 +1657,14 @@ app.post('/discord', async (req, res) => {
         return res.json(response);
       } else {
         // 質問内容または画像がある場合はn8nに送信してAI処理
-        console.log('🤖 メンション質問をn8nに送信');
+        console.log('🤖 メンション質問をn8nに送信（文書画像対応）');
         
-        // 🖼️ 画像対応版のn8n送信
+        // 🖼️ 文書画像対応版のn8n送信
         sendMentionToN8N(body, questionContent, imageUrls).catch(error => {
           console.error('n8nメンション送信失敗:', error);
         });
         
-        // 🖼️ 画像対応の受付確認メッセージ
+        // 🖼️ 文書画像対応の受付確認メッセージ
         let confirmationMessage = `📝 **ご質問ありがとうございます！**\n\n`;
         
         if (questionContent) {
@@ -1399,6 +1673,11 @@ app.post('/discord', async (req, res) => {
         
         if (hasImages) {
           confirmationMessage += `🖼️ **画像 ${imageUrls.length}枚を確認しました**\n\n`;
+        }
+        
+        // 🆕 文書内画像情報を追加
+        if (documentImages.length > 0) {
+          confirmationMessage += `📚 **知識ベース内の関連画像 ${documentImages.length}枚も参考にします**\n\n`;
         }
         
         confirmationMessage += `知識ベース（Google Slides、Docs、Notion、WEBサイト含む）を確認して回答を準備中です。少々お待ちください... 🤖✨`;
@@ -1420,7 +1699,7 @@ app.post('/discord', async (req, res) => {
   }
   
   if (body.type === 2 && body.data?.name === 'soudan') {
-    console.log('⚡ /soudan コマンド - 専門知識ベース対応版');
+    console.log('⚡ /soudan コマンド - 文書画像対応専門知識ベース版');
     
     const userId = body.member?.user?.id || body.user?.id;
     const response = {
@@ -1472,19 +1751,19 @@ app.post('/discord', async (req, res) => {
       }
     };
 
-    console.log('✅ Discord即座応答送信（専門知識ベース版）');
+    console.log('✅ Discord即座応答送信（文書画像対応専門知識ベース版）');
     return res.json(response);
   }
   
   if (body.type === 3) {
     const buttonId = body.data?.custom_id;
-    console.log('🔘 ボタンクリック - 専門知識ベース対応');
+    console.log('🔘 ボタンクリック - 文書画像対応専門知識ベース');
     console.log('Button ID:', buttonId);
     
     const response = generateButtonResponse(buttonId, body);
     
     if (AI_TARGET_BUTTONS[buttonId]) {
-      console.log('📝 専門AI質問入力要求送信 + n8n通知');
+      console.log('📝 文書画像対応専門AI質問入力要求送信 + n8n通知');
     } else {
       console.log('📝 静的応答送信:', buttonId);
     }
@@ -1512,27 +1791,29 @@ app.get('/debug-google-auth', (req, res) => {
       drive_initialized: !!drive,
       docs_initialized: !!docs,
       slides_initialized: !!slides
-    }
+    },
+    document_images_count: documentImages.length
   });
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School v11.0 ===');
+  console.log('=== Discord Bot VTuber School v12.0 ===');
   console.log(`📍 Port: ${PORT}`);
   console.log(`🤖 Bot User ID: ${BOT_USER_ID}`);
   console.log('✅ Static responses: Render.com');
   console.log('🏷️ Mention Support: @わなみさん Active');
   console.log('🖼️ Image Analysis: GPT-4 Vision Active');
-  console.log('📝 Notion Support: Active'); // 🆕 新ログ
-  console.log('🌐 Website Support: Active'); // 🆕 新ログ
-  console.log('🖼️ Image URL Support: Active'); // 🆕 新ログ
+  console.log('📚 Document Image Support: Active'); // 🆕 新ログ
+  console.log('📝 Notion Support: Active');
+  console.log('🌐 Website Support: Active');
+  console.log('🖼️ Image URL Support: Active');
   console.log('📝 AI Question Input System: Active');
   console.log('🤖 専門AI Response Generation: Active');
   console.log('📊 Spreadsheet Knowledge Base: Active');
   console.log(`📚 Knowledge Source: ${KNOWLEDGE_SPREADSHEET_ID}`);
   console.log(`🔗 n8n Webhook: ${N8N_WEBHOOK_URL}`);
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
-  console.log('🚀 Phase 6: 📝 完全WEB統合対応完了'); // 🆕 新ログ
+  console.log('🚀 Phase 7: 🖼️ 文書内画像完全対応完了'); // 🆕 新ログ
   console.log('=====================================');
 
   // 起動時に初期化実行
