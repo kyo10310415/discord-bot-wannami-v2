@@ -311,22 +311,217 @@ async function loadGoogleDocs(url, fileName) {
   }
 }
 
-// 🆕 URL先のコンテンツを読み込む関数
+// 🆕 Notion読み込み関数
+async function loadNotionContent(url, fileName) {
+  try {
+    console.log(`📝 Notion読み込み開始: ${fileName}`);
+    
+    // NotionのページIDを抽出
+    const pageIdMatch = url.match(/([a-f0-9]{32}|[a-f0-9-]{36})/);
+    if (!pageIdMatch) {
+      throw new Error('Invalid Notion URL format - Page ID not found');
+    }
+    
+    const pageId = pageIdMatch[0].replace(/-/g, '');
+    console.log(`🔍 Notion Page ID: ${pageId}`);
+    
+    // Notion APIを使わずに公開ページをスクレイピング
+    const response = await axios.get(url, {
+      timeout: 15000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'ja,en-US;q=0.7,en;q=0.3',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive'
+      }
+    });
+    
+    const html = response.data;
+    
+    // Notionページのタイトルを抽出
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].replace(' | Notion', '').trim() : fileName;
+    
+    // Notionの特殊なHTML構造からテキストを抽出
+    let textContent = html
+      // スクリプトとスタイルを除去
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
+      // Notionの特殊なクラスを持つ要素を重視
+      .replace(/<div[^>]*class="[^"]*notion-page-content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1')
+      .replace(/<div[^>]*class="[^"]*notion-text[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1\n')
+      .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n## $1\n')
+      .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n')
+      .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '• $1\n')
+      .replace(/<br[^>]*>/gi, '\n')
+      // HTMLタグを除去
+      .replace(/<[^>]*>/g, ' ')
+      // HTMLエンティティをデコード
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ')
+      // 余分な空白を整理
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // 長すぎる場合は制限
+    if (textContent.length > 8000) {
+      textContent = textContent.substring(0, 8000) + '\n\n... (長いコンテンツのため一部省略)';
+    }
+    
+    let content = `${fileName}\n${'='.repeat(50)}\n`;
+    content += `タイトル: ${title}\n`;
+    content += `Notion URL: ${url}\n`;
+    content += `種類: Notionページ\n\n`;
+    content += textContent;
+    
+    console.log(`✅ Notion読み込み成功: ${fileName} (${content.length}文字)`);
+    return content;
+
+  } catch (error) {
+    console.error(`❌ Notion読み込み失敗 ${fileName}:`, error.message);
+    
+    // フォールバック: 基本的なWebサイト読み込みを試行
+    console.log(`🔄 Notionフォールバック: 基本WEBサイト読み込みを試行`);
+    try {
+      return await loadWebsiteContent(url, fileName);
+    } catch (fallbackError) {
+      return `${fileName}: Notion読み込みエラー - ${error.message}（フォールバックも失敗: ${fallbackError.message}）`;
+    }
+  }
+}
+
+// 🆕 汎用WEBサイト読み込み関数
+async function loadWebsiteContent(url, fileName) {
+  try {
+    console.log(`🌐 WEBサイト読み込み開始: ${fileName}`);
+    
+    const response = await axios.get(url, {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+    
+    // HTMLから主要なテキストコンテンツを抽出
+    const html = response.data;
+    
+    // タイトル抽出
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : fileName;
+    
+    // metaディスクリプション抽出
+    const descMatch = html.match(/<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"']+)["\'][^>]*>/i);
+    const description = descMatch ? descMatch[1].trim() : '';
+    
+    // 基本的なHTMLタグを除去してテキストを抽出
+    let textContent = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+      .replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '')
+      .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+      .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n## $1\n')
+      .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n')
+      .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '• $1\n')
+      .replace(/<br[^>]*>/gi, '\n')
+      .replace(/<[^>]*>/g, ' ')
+      .replace(/&quot;/g, '"')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    
+    // 長すぎる場合は最初の部分のみ使用
+    if (textContent.length > 5000) {
+      textContent = textContent.substring(0, 5000) + '\n\n... (長いコンテンツのため一部省略)';
+    }
+    
+    let content = `${fileName}\n${'='.repeat(50)}\n`;
+    content += `タイトル: ${title}\n`;
+    if (description) {
+      content += `概要: ${description}\n`;
+    }
+    content += `URL: ${url}\n`;
+    content += `種類: WEBサイト\n\n`;
+    content += textContent;
+    
+    console.log(`✅ WEBサイト読み込み成功: ${fileName} (${content.length}文字)`);
+    return content;
+
+  } catch (error) {
+    console.error(`❌ WEBサイト読み込み失敗 ${fileName}:`, error.message);
+    return `${fileName}: WEBサイト読み込みエラー - ${error.message}`;
+  }
+}
+
+// 🖼️ 画像URL情報取得関数
+async function loadImageUrlInfo(url, fileName) {
+  try {
+    console.log(`🖼️ 画像URL情報取得: ${fileName}`);
+    
+    // 画像URLの場合はメタデータのみ取得
+    const response = await axios.head(url, {
+      timeout: 5000
+    });
+    
+    const contentType = response.headers['content-type'] || 'unknown';
+    const contentLength = response.headers['content-length'] || 'unknown';
+    
+    let content = `${fileName}\n${'='.repeat(50)}\n`;
+    content += `種類: 画像ファイル\n`;
+    content += `URL: ${url}\n`;
+    content += `ファイル形式: ${contentType}\n`;
+    content += `ファイルサイズ: ${contentLength} bytes\n\n`;
+    content += `【AI画像解析対応】\nこの画像は、質問時に画像として添付された場合、AI が詳細に分析して回答します。\n`;
+    content += `画像の内容、技術的な問題、改善点などを具体的に指摘できます。`;
+    
+    console.log(`✅ 画像URL情報取得成功: ${fileName}`);
+    return content;
+
+  } catch (error) {
+    console.error(`❌ 画像URL情報取得失敗 ${fileName}:`, error.message);
+    return `${fileName}: 画像アクセスエラー - ${error.message}`;
+  }
+}
+
+// 🔧 修正：URL先のコンテンツを読み込む関数（Notion対応版）
 async function loadContentFromUrl(urlInfo) {
   const { url, fileName, category, type } = urlInfo;
   
   try {
+    // Google Slides
     if (url.includes('docs.google.com/presentation')) {
       return await loadGoogleSlides(url, fileName);
-    } else if (url.includes('docs.google.com/document')) {
+    } 
+    // Google Docs
+    else if (url.includes('docs.google.com/document')) {
       return await loadGoogleDocs(url, fileName);
-    } else if (url.includes('notion.so')) {
-      // Notionは公開URLの場合、通常のHTTPリクエストで読み込み
-      console.log(`📝 Notion URL検出: ${fileName} - 現在スキップ中`);
-      return `${fileName}: Notion連携は今後実装予定`;
-    } else {
+    } 
+    // 🆕 Notion対応
+    else if (url.includes('notion.so') || url.includes('notion.site')) {
+      return await loadNotionContent(url, fileName);
+    }
+    // 🖼️ 画像URL検出
+    else if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i) || 
+             url.includes('cdn.discordapp.com') ||
+             url.includes('drive.google.com/file')) {
+      return await loadImageUrlInfo(url, fileName);
+    }
+    // 🌐 一般WEBサイト
+    else if (url.startsWith('http://') || url.startsWith('https://')) {
+      return await loadWebsiteContent(url, fileName);
+    }
+    // 未対応形式
+    else {
       console.log(`❓ 未知のURL形式: ${fileName}`);
-      return `${fileName}: 未対応のURL形式`;
+      return `${fileName}: 未対応のURL形式 - ${url}`;
     }
   } catch (error) {
     console.error(`❌ コンテンツ読み込み失敗 ${fileName}:`, error.message);
@@ -1051,23 +1246,26 @@ app.get('/test-knowledge-base', async (req, res) => {
 app.get('/', (req, res) => {
   res.json({ 
     status: 'ok', 
-    message: 'Discord Bot - VTuber School with Mention Support & Image Analysis',
+    message: 'Discord Bot - VTuber School with Mention Support & Full Web Integration',
     timestamp: new Date().toISOString(),
-    version: '10.0.0', // 🖼️ 画像対応版
+    version: '11.0.0', // 🆕 Notion対応版
     features: {
       slash_commands: true,
       mention_support: true,
-      image_support: true, // 🖼️ 新機能
+      image_support: true,
       button_interactions: true,
       static_responses: true,
       ai_responses: 'spreadsheet_knowledge_base_active',
       question_input_system: true,
       spreadsheet_integration: true,
       google_slides_docs_support: true,
+      notion_support: true, // 🆕 Notion対応
+      website_support: true, // 🆕 汎用WEBサイト対応
+      image_url_support: true, // 🆕 画像URL対応
       knowledge_base_urls: KNOWLEDGE_SPREADSHEET_ID,
       ai_target_buttons: ['lesson_question', 'sns_consultation', 'mission_submission'],
       bot_user_id: BOT_USER_ID,
-      gpt4_vision: true // 🖼️ GPT-4 Vision対応
+      gpt4_vision: true
     }
   });
 });
@@ -1203,7 +1401,7 @@ app.post('/discord', async (req, res) => {
           confirmationMessage += `🖼️ **画像 ${imageUrls.length}枚を確認しました**\n\n`;
         }
         
-        confirmationMessage += `知識ベースを確認して回答を準備中です。少々お待ちください... 🤖✨`;
+        confirmationMessage += `知識ベース（Google Slides、Docs、Notion、WEBサイト含む）を確認して回答を準備中です。少々お待ちください... 🤖✨`;
         
         const response = {
           type: 4,
@@ -1319,19 +1517,22 @@ app.get('/debug-google-auth', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('=== Discord Bot VTuber School v10.0 ===');
+  console.log('=== Discord Bot VTuber School v11.0 ===');
   console.log(`📍 Port: ${PORT}`);
   console.log(`🤖 Bot User ID: ${BOT_USER_ID}`);
   console.log('✅ Static responses: Render.com');
   console.log('🏷️ Mention Support: @わなみさん Active');
-  console.log('🖼️ Image Analysis: GPT-4 Vision Active'); // 🖼️ 新ログ
+  console.log('🖼️ Image Analysis: GPT-4 Vision Active');
+  console.log('📝 Notion Support: Active'); // 🆕 新ログ
+  console.log('🌐 Website Support: Active'); // 🆕 新ログ
+  console.log('🖼️ Image URL Support: Active'); // 🆕 新ログ
   console.log('📝 AI Question Input System: Active');
   console.log('🤖 専門AI Response Generation: Active');
   console.log('📊 Spreadsheet Knowledge Base: Active');
   console.log(`📚 Knowledge Source: ${KNOWLEDGE_SPREADSHEET_ID}`);
   console.log(`🔗 n8n Webhook: ${N8N_WEBHOOK_URL}`);
   console.log('🎯 AI Target Buttons: lesson_question, sns_consultation, mission_submission');
-  console.log('🚀 Phase 5: 🖼️ 画像読み込み機能完了'); // 🖼️ 新ログ
+  console.log('🚀 Phase 6: 📝 完全WEB統合対応完了'); // 🆕 新ログ
   console.log('=====================================');
 
   // 起動時に初期化実行
