@@ -1,7 +1,8 @@
-// services/rag-system.js - RAGシステム（最適化版）
+// services/rag-system.js - RAGシステム（知識ベース限定回答対応版）
 
 const openaiService = require('./openai-service');
 const { RAG_CONFIG } = require('../config/constants');
+const promptTemplates = require('../ai/prompt-templates');
 
 class RAGSystem {
   constructor() {
@@ -203,6 +204,102 @@ class RAGSystem {
           : 0
       }
     };
+  }
+
+  // 🆕 新規追加: 知識ベース限定検索と回答生成
+  async searchKnowledgeBaseOnly(query, userInfo = {}) {
+    try {
+      if (!this.isInitialized) {
+        console.log('❌ RAGシステムが初期化されていません');
+        return {
+          response: promptTemplates.getErrorResponse('initialization'),
+          sources: [],
+          tokensUsed: { embedding: 0, completion: 0 },
+          canAnswer: false,
+          confidence: 0
+        };
+      }
+
+      console.log(`🔍 知識ベース限定検索開始: "${query}"`);
+      
+      // 1. 関連チャンクを検索
+      const relevantChunks = await this.searchRelevantChunks(query, 5);
+      const embeddingTokens = this.estimateTokens(query) || 10;
+
+      // 検索結果を統一フォーマットに変換
+      const searchResults = relevantChunks.map(item => ({
+        content: item.chunk.text,
+        score: item.similarity,
+        source: item.chunk.source
+      }));
+
+      console.log(`🔍 ${searchResults.length}件の関連情報を発見`);
+      
+      // 2. 回答可能性を事前判定
+      const answerability = promptTemplates.assessAnswerability(searchResults, query);
+      
+      if (!answerability.canAnswer) {
+        console.log(`❌ 回答不能: ${answerability.reason}`);
+        return {
+          response: promptTemplates.generateUnableToAnswerResponse(query, answerability.reason),
+          sources: [],
+          tokensUsed: { embedding: embeddingTokens, completion: 0 },
+          canAnswer: false,
+          confidence: answerability.confidence
+        };
+      }
+
+      // 3. 知識ベース限定プロンプト生成
+      const messages = [{
+        role: 'user',
+        content: promptTemplates.generateKnowledgeBaseOnlyPrompt(query, searchResults, userInfo)
+      }];
+
+      // 4. OpenAI API呼び出し
+      const aiResponse = await openaiService.chat(messages, {
+        max_tokens: 1000,
+        temperature: 0.3
+      });
+
+      const { content, usage } = aiResponse;
+      const completionTokens = usage?.completion_tokens || 0;
+
+      console.log(`✅ 知識ベース限定回答生成完了 (${completionTokens}トークン使用)`);
+
+      return {
+        response: content,
+        sources: searchResults.map(r => ({ 
+          content: r.content.substring(0, 200) + '...', 
+          score: r.score,
+          source: r.source 
+        })),
+        tokensUsed: { embedding: embeddingTokens, completion: completionTokens },
+        canAnswer: true,
+        confidence: answerability.confidence,
+        relevantCount: answerability.relevantCount
+      };
+
+    } catch (error) {
+      console.error('❌ 知識ベース限定検索エラー:', error.message);
+      return {
+        response: promptTemplates.getErrorResponse('ai_processing', error.message),
+        sources: [],
+        tokensUsed: { embedding: 0, completion: 0 },
+        canAnswer: false,
+        confidence: 0
+      };
+    }
+  }
+
+  // 🆕 新規追加: 従来のsearch関数（互換性維持）
+  async search(query, userInfo = {}) {
+    return await this.searchKnowledgeBaseOnly(query, userInfo);
+  }
+
+  // 🆕 新規追加: トークン数推定ユーティリティ
+  estimateTokens(text) {
+    // 簡単な推定：1トークン≒4文字（日本語）
+    return Math.ceil(text.length / 4);
   }
 
   // 統計情報
