@@ -1,4 +1,4 @@
-// index.js - Discord Bot メインサーバー（知識ベース限定回答版 v14.0.0）
+// index.js - Discord Bot メインサーバー（知識ベース限定回答版 v14.1.0 - 早期応答対応）
 
 const express = require('express');
 const { VERSION, FEATURES, BOT_USER_ID } = require('./config/constants');
@@ -16,6 +16,9 @@ const PORT = environment.PORT;
 // グローバル状態管理
 let isSystemInitialized = false;
 let initializationError = null;
+
+// 早期応答システム用グローバル変数
+let activeResumeWebhooks = new Map(); // チャンネルID → Resume URL
 
 // Raw body parser for Discord webhook
 app.use('/discord', express.raw({ type: 'application/json' }));
@@ -152,6 +155,188 @@ async function generateRAGResponse(question, buttonType = null, userInfo, imageU
     };
   }
 }
+
+// ========== 早期応答システム - 新機能追加 ==========
+
+// 動的Webhook URL登録用エンドポイント
+app.post('/register-resume-webhook', async (req, res) => {
+  try {
+    const { resume_url, channel_id, message_id, user_id } = req.body;
+    
+    console.log(`📝 Resume Webhook登録: ${channel_id} → ${resume_url}`);
+    
+    // アクティブなWebhook URLを保存
+    activeResumeWebhooks.set(channel_id, {
+      url: resume_url,
+      message_id,
+      user_id,
+      registered_at: new Date().toISOString()
+    });
+    
+    // 5分後に自動削除（タイムアウト対策）
+    setTimeout(() => {
+      activeResumeWebhooks.delete(channel_id);
+      console.log(`🗑️ Resume Webhook期限切れ削除: ${channel_id}`);
+    }, 5 * 60 * 1000);
+    
+    res.json({ success: true, registered: true });
+  } catch (error) {
+    console.error('❌ Resume Webhook登録失敗:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// メッセージ受信時の早期応答トリガー
+app.post('/trigger-early-response', async (req, res) => {
+  try {
+    const { channel_id } = req.body;
+    const webhookInfo = activeResumeWebhooks.get(channel_id);
+    
+    if (webhookInfo && webhookInfo.url !== 'not-available') {
+      console.log(`⚡ 早期応答トリガー送信: ${channel_id}`);
+      
+      const response = await fetch(webhookInfo.url, {
+        method: 'GET', // n8nの設定でGETになっているため
+        headers: { 'Content-Type': 'application/json' }
+      });
+      
+      // 使用済みWebhook URLを削除
+      activeResumeWebhooks.delete(channel_id);
+      
+      console.log('✅ 待機中断成功');
+      res.json({ success: true, resumed: true });
+    } else {
+      console.log('⚠️ Resume Webhook未登録またはURL無効');
+      res.json({ success: false, reason: 'no_webhook_registered' });
+    }
+  } catch (error) {
+    console.error('❌ 早期応答トリガー失敗:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// メンション検知WebhookからのAI処理依頼（早期応答対応版）
+app.post('/mention-trigger', async (req, res) => {
+  try {
+    console.log('🎯 メンション検知Webhook受信');
+    console.log('Request body:', req.body);
+
+    const message = req.body;
+    
+    // Discord PING検証
+    if (message.type === 1) {
+      console.log('📍 Discord PING検証');
+      return res.json({ type: 1 });
+    }
+
+    // メッセージ検証
+    if (!message.content || !message.author || message.author.bot) {
+      console.log('⚠️ 無効なメッセージまたはBot送信');
+      return res.json({ success: false, reason: 'invalid_message' });
+    }
+
+    const botUserId = process.env.DISCORD_APPLICATION_ID || BOT_USER_ID;
+    if (!message.content.includes(`<@${botUserId}>`)) {
+      console.log('⚠️ Bot宛メンションではない');
+      return res.json({ success: false, reason: 'not_mention' });
+    }
+
+    const channel_id = message.channel_id;
+    const user_id = message.author.id;
+    const username = message.author.username;
+    const guild_id = message.guild_id;
+
+    console.log(`👤 メンション処理: ${username} (${user_id}) in ${channel_id}`);
+
+    // 【NEW】早期応答トリガー送信
+    if (channel_id) {
+      try {
+        const earlyResponse = await fetch('https://discord-bot-wannami.onrender.com/trigger-early-response', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel_id })
+        });
+        
+        const earlyResult = await earlyResponse.json();
+        console.log('⚡ 早期応答トリガー結果:', earlyResult);
+      } catch (error) {
+        console.error('早期応答トリガー送信失敗:', error);
+      }
+    }
+
+    // Discord応答（メニューボタン表示）
+    const discordResponse = await fetch(`https://discord.com/api/v10/channels/${channel_id}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: `こんにちは <@${user_id}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
+        components: [
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                style: 1,
+                label: "お支払いに関する相談",
+                custom_id: "payment_consultation"
+              },
+              {
+                type: 2,
+                style: 2,
+                label: "プライベートなご相談",
+                custom_id: "private_consultation"
+              },
+              {
+                type: 2,
+                style: 3,
+                label: "レッスンについての質問",
+                custom_id: "lesson_question"
+              }
+            ]
+          },
+          {
+            type: 1,
+            components: [
+              {
+                type: 2,
+                style: 3,
+                label: "SNS運用相談",
+                custom_id: "sns_consultation"
+              },
+              {
+                type: 2,
+                style: 1,
+                label: "ミッションの提出",
+                custom_id: "mission_submission"
+              }
+            ]
+          }
+        ]
+      })
+    });
+
+    if (!discordResponse.ok) {
+      const errorText = await discordResponse.text();
+      throw new Error(`Discord API Error: ${discordResponse.status} - ${errorText}`);
+    }
+
+    console.log('✅ メンション応答メッセージ送信完了');
+    res.json({ success: true, type: 'mention_processed' });
+
+  } catch (error) {
+    console.error('❌ メンション処理エラー:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      type: 'mention_error'
+    });
+  }
+});
+
+// ========== 既存エンドポイント ==========
 
 // Discord Webhook エンドポイント
 app.post('/discord', async (req, res) => {
@@ -371,21 +556,22 @@ app.get('/', (req, res) => {
   const stats = ragSystem.getStats();
   const status = {
     status: 'running',
-    version: `${VERSION} - 知識ベース限定回答版`,
+    version: `${VERSION} - 知識ベース限定回答版 v14.1.0`,
     features: [
       ...FEATURES,
       '知識ベース限定回答システム',
       '回答不能判定システム',
       'ミッション特別処理（良い例/悪い例重視）',
       'スプレッドシートG列対応',
-      'n8n即座応答対応'
+      'n8n即座応答対応 ⚡NEW'
     ],
     system: {
       initialized: isSystemInitialized,
       error: initializationError,
       ragStats: stats,
       knowledgeBaseLimited: true,
-      immediateResponse: true
+      immediateResponse: true,
+      activeWebhooks: activeResumeWebhooks.size
     },
     timestamp: new Date().toISOString()
   };
@@ -411,7 +597,8 @@ app.post('/initialize', async (req, res) => {
           '知識ベース限定回答システム',
           '回答不能判定システム',
           'ミッション特別処理',
-          'スプレッドシートG列対応'
+          'スプレッドシートG列対応',
+          'n8n即座応答対応'
         ]
       });
     } else {
@@ -440,9 +627,10 @@ app.get('/stats', (req, res) => {
     res.json({
       system: {
         initialized: isSystemInitialized,
-        version: `${VERSION} - 知識ベース限定回答版`,
+        version: `${VERSION} - 知識ベース限定回答版 v14.1.0`,
         uptime: process.uptime(),
-        memory: process.memoryUsage()
+        memory: process.memoryUsage(),
+        activeWebhooks: activeResumeWebhooks.size
       },
       rag: ragStats,
       services: {
@@ -454,7 +642,12 @@ app.get('/stats', (req, res) => {
         mission_special_processing: true,
         spreadsheet_g_column: true,
         immediate_response: true,
-        unable_to_answer_detection: true
+        unable_to_answer_detection: true,
+        early_response_system: true
+      },
+      webhooks: {
+        active_count: activeResumeWebhooks.size,
+        registered_channels: Array.from(activeResumeWebhooks.keys())
       },
       timestamp: new Date().toISOString()
     });
@@ -477,7 +670,8 @@ app.listen(PORT, async () => {
   console.log('   • 回答不能判定システム');
   console.log('   • ミッション特別処理（良い例/悪い例重視）');
   console.log('   • スプレッドシートG列対応');
-  console.log('   • n8n即座応答対応');
+  console.log('   • n8n即座応答対応 ⚡NEW');
+  console.log('   • 早期応答システム（Webhook URL動的登録）');
   console.log('='.repeat(60));
   
   // 自動初期化
@@ -489,6 +683,7 @@ app.listen(PORT, async () => {
     console.log('✅ サーバー準備完了！');
     console.log(`📊 統計: ${stats.totalChunks}チャンク, ${stats.totalImages}画像`);
     console.log('🎯 知識ベース限定回答モード: 有効');
+    console.log('⚡ 早期応答システム: 有効');
   } else {
     console.log('⚠️ 初期化エラーあり。手動初期化をお試しください。');
     console.log(`❌ エラー詳細: ${initializationError}`);
@@ -498,10 +693,12 @@ app.listen(PORT, async () => {
 // グレースフルシャットダウン
 process.on('SIGTERM', () => {
   console.log('🛑 SIGTERM受信。サーバーをシャットダウンします...');
+  activeResumeWebhooks.clear();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   console.log('🛑 SIGINT受信。サーバーをシャットダウンします...');
+  activeResumeWebhooks.clear();
   process.exit(0);
 });
