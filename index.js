@@ -215,11 +215,11 @@ app.post('/trigger-early-response', async (req, res) => {
   }
 });
 
-// メンション検知WebhookからのAI処理依頼（早期応答対応版）
+// メンション検知WebhookからのAI処理依頼（修正版）
 app.post('/mention-trigger', async (req, res) => {
   try {
     console.log('🎯 メンション検知Webhook受信');
-    console.log('Request body:', req.body);
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
 
     const message = req.body;
     
@@ -235,9 +235,29 @@ app.post('/mention-trigger', async (req, res) => {
       return res.json({ success: false, reason: 'invalid_message' });
     }
 
-    const botUserId = process.env.DISCORD_APPLICATION_ID || BOT_USER_ID;
-    if (!message.content.includes(`<@${botUserId}>`)) {
+    // Bot ID取得（複数の方法で確認）
+    const botUserId = process.env.DISCORD_APPLICATION_ID || BOT_USER_ID || '1420328163497607199';
+    console.log(`🤖 検索対象Bot ID: ${botUserId}`);
+    console.log(`📝 受信メッセージ: ${message.content}`);
+
+    // メンション形式を複数パターンでチェック
+    const mentionPatterns = [
+      `<@${botUserId}>`,           // 通常メンション
+      `<@!${botUserId}>`,          // ニックネーム付きメンション
+      `@わなみさん`,                // 直接文字列（念のため）
+    ];
+
+    const isMentioned = mentionPatterns.some(pattern => {
+      const found = message.content.includes(pattern);
+      if (found) {
+        console.log(`✅ メンションパターン発見: ${pattern}`);
+      }
+      return found;
+    });
+
+    if (!isMentioned) {
       console.log('⚠️ Bot宛メンションではない');
+      console.log('検索したパターン:', mentionPatterns);
       return res.json({ success: false, reason: 'not_mention' });
     }
 
@@ -251,6 +271,7 @@ app.post('/mention-trigger', async (req, res) => {
     // 【NEW】早期応答トリガー送信
     if (channel_id) {
       try {
+        console.log(`⚡ 早期応答トリガー送信開始: ${channel_id}`);
         const earlyResponse = await fetch('https://discord-bot-wannami.onrender.com/trigger-early-response', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -260,11 +281,12 @@ app.post('/mention-trigger', async (req, res) => {
         const earlyResult = await earlyResponse.json();
         console.log('⚡ 早期応答トリガー結果:', earlyResult);
       } catch (error) {
-        console.error('早期応答トリガー送信失敗:', error);
+        console.error('❌ 早期応答トリガー送信失敗:', error);
       }
     }
 
     // Discord応答（メニューボタン表示）
+    console.log('📤 Discord応答メッセージ送信開始...');
     const discordResponse = await fetch(`https://discord.com/api/v10/channels/${channel_id}/messages`, {
       method: 'POST',
       headers: {
@@ -320,6 +342,7 @@ app.post('/mention-trigger', async (req, res) => {
 
     if (!discordResponse.ok) {
       const errorText = await discordResponse.text();
+      console.error(`❌ Discord API Error: ${discordResponse.status} - ${errorText}`);
       throw new Error(`Discord API Error: ${discordResponse.status} - ${errorText}`);
     }
 
