@@ -52,7 +52,7 @@ class GoogleApisService {
     }
   }
 
-  // スプレッドシートからURL一覧を読み込む
+  // スプレッドシートからURL一覧を読み込む（G列まで拡張）
   async loadUrlListFromSpreadsheet(spreadsheetId) {
     try {
       if (!this.sheets) {
@@ -64,7 +64,7 @@ class GoogleApisService {
       
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: 'A2:E50', // ヘッダー除く、データ行のみ
+        range: 'A2:G50', // ヘッダー除く、G列まで拡張
       });
 
       const rows = response.data.values || [];
@@ -75,7 +75,9 @@ class GoogleApisService {
           url: row[1],
           category: row[2] || 'その他',
           type: row[3] || 'unknown',
-          range: row[4] || ''
+          range: row[4] || '',
+          missionType: row[5] || '', // F列: ミッション種別
+          priority: row[6] || ''      // G列: 優先度
         }));
 
       console.log(`✅ スプレッドシートから${urlList.length}個のURL発見`);
