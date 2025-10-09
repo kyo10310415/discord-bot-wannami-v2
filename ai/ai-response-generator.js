@@ -1,4 +1,4 @@
-// ai/ai-response-generator.js - AI回答生成
+// ai/ai-response-generator.js - AI回答生成（修正版）
 
 const openaiService = require('../services/openai-service');
 const ragSystem = require('../services/rag-system');
@@ -142,7 +142,7 @@ class AIResponseGenerator {
       messages.push(userMessage);
 
       return await openaiService.createVisionCompletion(messages, {
-        maxTokens: 2000,
+        max_tokens: 2000, // 🔧 修正: maxTokens → max_tokens
         temperature: 0.7
       });
     } else {
@@ -150,7 +150,7 @@ class AIResponseGenerator {
       messages.push({ role: "user", content: question });
       
       return await openaiService.createChatCompletion(messages, {
-        maxTokens: 1500,
+        max_tokens: 1500, // 🔧 修正: maxTokens → max_tokens
         temperature: 0.7
       });
     }
