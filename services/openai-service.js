@@ -1,4 +1,4 @@
-// services/openai-service.js - OpenAI サービス
+// services/openai-service.js - OpenAI サービス（修正版）
 
 const OpenAI = require('openai');
 const { OPENAI_MODELS } = require('../config/constants');
@@ -64,7 +64,7 @@ class OpenAIService {
       const response = await this.client.chat.completions.create({
         model: options.model || OPENAI_MODELS.TEXT,
         messages: messages,
-        max_tokens: options.maxTokens || 2000,
+        max_tokens: options.max_tokens || 2000, // 🔧 修正: maxTokens → max_tokens
         temperature: options.temperature || 0.7,
         ...options
       });
@@ -86,7 +86,7 @@ class OpenAIService {
       const response = await this.client.chat.completions.create({
         model: OPENAI_MODELS.VISION,
         messages: messages,
-        max_tokens: options.maxTokens || 2000,
+        max_tokens: options.max_tokens || 2000, // 🔧 修正: maxTokens → max_tokens
         temperature: options.temperature || 0.7,
         ...options
       });
