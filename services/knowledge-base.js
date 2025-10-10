@@ -21,7 +21,7 @@ class KnowledgeBaseService {
       
       if (result) {
         this.isInitialized = true;
-        console.log('✅ 知識ベースサービス初期化完了');
+        logger.info('✅ 知識ベースサービス初期化完了');
         return result;
       } else {
         console.log('⚠️ 知識ベース構築に失敗しましたが、サービスは初期化されました');
