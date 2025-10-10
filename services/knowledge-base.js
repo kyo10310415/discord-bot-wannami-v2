@@ -111,43 +111,47 @@ class KnowledgeBaseService {
     }
   }
 
-  // URL先のコンテンツを読み込む
+  // URL先のコンテンツを読み込む（型ベースの判定に変更）
   async loadContentFromUrl(urlInfo) {
     const { url, fileName, category, type } = urlInfo;
     
+    console.log(`📖 コンテンツ読み込み開始: ${fileName} (${type})`);
+    
     try {
-      // Google Slides
-      if (url.includes('docs.google.com/presentation')) {
-        return await googleApisService.loadGoogleSlides(url, fileName);
-      } 
-      // Google Docs
-      else if (url.includes('docs.google.com/document')) {
-        return await googleApisService.loadGoogleDocs(url, fileName);
-      } 
-      // Notion
-      else if (url.includes('notion.so') || url.includes('notion.site')) {
-        const content = await loadNotionContent(url, fileName);
-        return { content, images: this.extractImagesFromNotionContent(content, fileName) };
-      }
-      // 画像URL
-      else if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i) || 
-               url.includes('cdn.discordapp.com') ||
-               url.includes('drive.google.com/file')) {
-        const content = await loadImageUrlInfo(url, fileName);
-        return { content, images: this.extractDirectImageInfo(url, fileName) };
-      }
-      // 一般WEBサイト
-      else if (url.startsWith('http://') || url.startsWith('https://')) {
-        const content = await loadWebsiteContent(url, fileName);
-        return { content, images: this.extractImagesFromWebContent(content, fileName) };
-      }
-      // 未対応形式
-      else {
-        console.log(`❓ 未知のURL形式: ${fileName}`);
-        return { content: `${fileName}: 未対応のURL形式 - ${url}`, images: [] };
+      // typeベースでのコンテンツ読み込み
+      switch (type) {
+        case 'google_slides':
+          console.log(`📊 Google Slides読み込み: ${fileName}`);
+          return await googleApisService.loadGoogleSlides(url, fileName);
+          
+        case 'google_docs':
+          console.log(`📄 Google Docs読み込み: ${fileName}`);
+          return await googleApisService.loadGoogleDocs(url, fileName);
+          
+        case 'notion':
+          console.log(`📝 Notion読み込み: ${fileName}`);
+          const notionContent = await loadNotionContent(url, fileName);
+          return { content: notionContent, images: this.extractImagesFromNotionContent(notionContent, fileName) };
+          
+        case 'image':
+          console.log(`🖼️ 画像読み込み: ${fileName}`);
+          const imageContent = await loadImageUrlInfo(url, fileName);
+          return { content: imageContent, images: this.extractDirectImageInfo(url, fileName) };
+          
+        case 'website':
+          console.log(`🌐 ウェブサイト読み込み: ${fileName}`);
+          const websiteContent = await loadWebsiteContent(url, fileName);
+          return { content: websiteContent, images: this.extractImagesFromWebContent(websiteContent, fileName) };
+          
+        default:
+          console.log(`❓ 未対応のURL形式: ${fileName} (${type})`);
+          return { 
+            content: `${fileName}: 未対応のURL形式 (${type}) - ${url}`,
+            images: [] 
+          };
       }
     } catch (error) {
-      console.error(`❌ コンテンツ読み込み失敗 ${fileName}:`, error.message);
+      console.error(`❌ コンテンツ読み込み失敗 ${fileName} (${type}):`, error.message);
       throw error;
     }
   }
