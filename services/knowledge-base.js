@@ -8,6 +8,31 @@ class KnowledgeBaseService {
   constructor() {
     this.documentImages = [];
     this.lastBuildTime = null;
+    this.isInitialized = false;
+  }
+
+  // 🆕 追加: 初期化メソッド（index.jsとの互換性のため）
+  async initialize() {
+    try {
+      console.log('📚 知識ベースサービス初期化開始...');
+      
+      // 知識ベース構築を実行
+      const result = await this.buildKnowledgeBase();
+      
+      if (result) {
+        this.isInitialized = true;
+        console.log('✅ 知識ベースサービス初期化完了');
+        return result;
+      } else {
+        console.log('⚠️ 知識ベース構築に失敗しましたが、サービスは初期化されました');
+        this.isInitialized = true;
+        return null;
+      }
+    } catch (error) {
+      console.error('❌ 知識ベースサービス初期化エラー:', error.message);
+      this.isInitialized = false;
+      throw error;
+    }
   }
 
   // 統合知識ベース構築
@@ -183,6 +208,19 @@ class KnowledgeBaseService {
     return this.documentImages;
   }
 
+  // 🆕 追加: 状態取得メソッド
+  getStatus() {
+    return {
+      initialized: this.isInitialized,
+      totalDocumentImages: this.documentImages.length,
+      lastBuildTime: this.lastBuildTime,
+      imagesBySource: this.documentImages.reduce((acc, img) => {
+        acc[img.source] = (acc[img.source] || 0) + 1;
+        return acc;
+      }, {})
+    };
+  }
+
   // 統計情報
   getStats() {
     return {
@@ -204,8 +242,28 @@ class KnowledgeBaseService {
   reset() {
     this.documentImages = [];
     this.lastBuildTime = null;
+    this.isInitialized = false;
     console.log('🔄 知識ベースサービスリセット完了');
   }
 }
 
-module.exports = new KnowledgeBaseService();
+// 🆕 修正: シングルトンインスタンス作成
+const knowledgeBaseService = new KnowledgeBaseService();
+
+// 🆕 修正: 複数の形式でexport（index.jsとの互換性確保）
+module.exports = {
+  // サービスインスタンス
+  knowledgeBaseService,
+  
+  // 直接メソッド呼び出し用
+  buildKnowledgeBase: () => knowledgeBaseService.buildKnowledgeBase(),
+  initialize: () => knowledgeBaseService.initialize(),
+  initializeKnowledgeBase: () => knowledgeBaseService.initialize(),
+  getDocumentImages: () => knowledgeBaseService.getDocumentImages(),
+  getStats: () => knowledgeBaseService.getStats(),
+  getStatus: () => knowledgeBaseService.getStatus(),
+  reset: () => knowledgeBaseService.reset(),
+  
+  // 後方互換性のため
+  default: knowledgeBaseService
+};
