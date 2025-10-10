@@ -1,22 +1,29 @@
 {
   "name": "discord-bot-wannami",
-  "version": "9.1.0",
-  "description": "VTuber School Discord Bot with Mention Support",
+  "version": "15.3.0",
+  "description": "VTuber育成スクール用Discord自動応答チャットボット",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "message-bot": "node discord-message-bot.js",
     "dev": "nodemon index.js"
   },
   "dependencies": {
     "discord.js": "^14.14.1",
-    "axios": "^1.6.0",
     "express": "^4.18.2",
-    "tweetnacl": "^1.0.3",
-    "googleapis": "^132.0.0",
-    "openai": "^4.24.7"
+    "google-auth-library": "^9.6.3",
+    "googleapis": "^131.0.0",
+    "openai": "^4.28.4",
+    "chalk": "^4.1.2"
   },
   "engines": {
-    "node": "18.x"
-  }
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "vtuber",
+    "education"
+  ],
+  "author": "VTuber育成スクール",
+  "license": "MIT"
 }
