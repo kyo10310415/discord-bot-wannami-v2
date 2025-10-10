@@ -10,6 +10,19 @@ class Environment {
     return process.env.OPENAI_API_KEY;
   }
 
+  // Discord Bot設定
+  get DISCORD_BOT_TOKEN() {
+    return process.env.DISCORD_BOT_TOKEN;
+  }
+
+  get DISCORD_PUBLIC_KEY() {
+    return process.env.DISCORD_PUBLIC_KEY;
+  }
+
+  get DISCORD_APPLICATION_ID() {
+    return process.env.DISCORD_APPLICATION_ID;
+  }
+
   // Google APIs設定
   get GOOGLE_CREDENTIALS() {
     return {
@@ -33,7 +46,9 @@ class Environment {
       'GOOGLE_PROJECT_ID',
       'GOOGLE_PRIVATE_KEY',
       'GOOGLE_CLIENT_EMAIL',
-      'DISCORD_PUBLIC_KEY'
+      'DISCORD_BOT_TOKEN',
+      'DISCORD_PUBLIC_KEY',
+      'DISCORD_APPLICATION_ID'
     ];
 
     const missing = required.filter(key => !process.env[key]);
@@ -51,7 +66,9 @@ class Environment {
       google_project_id: !!process.env.GOOGLE_PROJECT_ID,
       google_client_email: !!process.env.GOOGLE_CLIENT_EMAIL,
       google_private_key: !!process.env.GOOGLE_PRIVATE_KEY,
+      discord_bot_token: !!process.env.DISCORD_BOT_TOKEN,
       discord_public_key: !!process.env.DISCORD_PUBLIC_KEY,
+      discord_application_id: !!process.env.DISCORD_APPLICATION_ID,
       bot_user_id: !!process.env.BOT_USER_ID,
       enable_message_bot: process.env.ENABLE_MESSAGE_BOT === 'true'
     };
