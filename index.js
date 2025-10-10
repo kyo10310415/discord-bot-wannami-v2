@@ -1,26 +1,29 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
-// Version: 15.3.0 - 動作確認用シンプル統合版
+// Version: 15.2.0 - Gateway+Interactions統合版（完全機能復活）
 
 const express = require('express');
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const crypto = require('crypto');
 
-// 基本設定
-const app = express();
-const PORT = process.env.PORT || 3000;
+// 設定とサービスのインポート
+const env = require('./config/environment');
+const logger = require('./utils/logger');
+const discordHandler = require('./handlers/discord-handler');
+const mentionHandler = require('./handlers/mention-handler');
+const buttonHandler = require('./handlers/button-handler');
+const { initializeServices } = require('./services/google-apis');
+const { initializeKnowledgeBase } = require('./services/knowledge-base');
+const { initializeRAG } = require('./services/rag-system');
 
-// Discord設定
-const DISCORD_TOKEN = process.env.DISCORD_BOT_TOKEN;
-const DISCORD_PUBLIC_KEY = process.env.DISCORD_PUBLIC_KEY;
-const DISCORD_APP_ID = process.env.DISCORD_APPLICATION_ID;
-const BOT_USER_ID = process.env.BOT_USER_ID || DISCORD_APP_ID;
+const app = express();
 
 // Discord Client初期化
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages
   ]
 });
 
@@ -31,16 +34,11 @@ app.use(express.json({
   }
 }));
 
-// ログ関数
-function log(level, message, ...args) {
-  const timestamp = new Date().toISOString();
-  console.log(`${timestamp} [${level.toUpperCase()}] ${message}`, ...args);
-}
-
-// Discord署名検証
+// Discord署名検証関数
 function verifySignature(req) {
-  if (!DISCORD_PUBLIC_KEY) {
-    log('error', 'DISCORD_PUBLIC_KEY環境変数が設定されていません');
+  const publicKey = env.DISCORD_PUBLIC_KEY;
+  if (!publicKey) {
+    logger.error('DISCORD_PUBLIC_KEY環境変数が設定されていません');
     return false;
   }
 
@@ -48,233 +46,85 @@ function verifySignature(req) {
   const timestamp = req.headers['x-signature-timestamp'];
   
   if (!signature || !timestamp) {
-    log('error', '必要なヘッダーが見つかりません');
+    logger.error('必要なヘッダーが見つかりません');
     return false;
   }
 
+  const body = req.rawBody || '';
+  
   try {
-    const body = req.rawBody || '';
     const isValid = crypto.verify(
       'ed25519',
       Buffer.concat([Buffer.from(timestamp), body]),
-      Buffer.from(DISCORD_PUBLIC_KEY, 'hex'),
+      Buffer.from(publicKey, 'hex'),
       Buffer.from(signature, 'hex')
     );
     
-    log('info', '署名検証結果:', isValid);
+    logger.info('署名検証結果:', isValid);
     return isValid;
   } catch (error) {
-    log('error', '署名検証エラー:', error.message);
+    logger.error('署名検証エラー:', error);
     return false;
   }
 }
 
-// 応答作成関数
-function createResponse(content, components = null) {
-  const response = {
-    type: 4, // CHANNEL_MESSAGE_WITH_SOURCE
-    data: {
-      content: content,
-      flags: 64 // EPHEMERAL
-    }
-  };
-  
-  if (components) {
-    response.data.components = components;
-  }
-  
-  return response;
-}
-
-// ボタン作成
-function createButtons() {
-  return [
-    {
-      type: 1, // ACTION_ROW
-      components: [
-        {
-          type: 2, // BUTTON
-          style: 1, // PRIMARY
-          label: "①お支払い相談",
-          custom_id: "payment_consultation"
-        },
-        {
-          type: 2,
-          style: 1,
-          label: "②プライベート相談",
-          custom_id: "private_consultation"
-        },
-        {
-          type: 2,
-          style: 1,
-          label: "③レッスン質問",
-          custom_id: "lesson_question"
-        }
-      ]
-    },
-    {
-      type: 1,
-      components: [
-        {
-          type: 2,
-          style: 1,
-          label: "④SNS運用相談",
-          custom_id: "sns_consultation"
-        },
-        {
-          type: 2,
-          style: 1,
-          label: "⑤ミッション提出",
-          custom_id: "mission_submission"
-        }
-      ]
-    }
-  ];
-}
-
-// ボタン応答定義
-const buttonResponses = {
-  payment_consultation: `💰 **お支払い相談**
-
-**お支払いに関するご相談を承ります**
-
-🔹 **ご相談内容**
-• 分割払いのご希望
-• お支払い方法の変更
-• 請求書に関するお問い合わせ
-
-🔹 **お急ぎの場合**
-LINE: @wannami-school
-メール: support@wannami-school.com
-
-わなみさんがサポートします✨`,
-
-  private_consultation: `💬 **プライベート相談**
-
-**プライベートなご相談承ります**
-
-🔹 **ご相談内容**
-• VTuber活動への不安や悩み
-• 配信内容について
-• 活動継続に関する悩み
-
-🔹 **相談時間**
-平日 10:00-18:00 / 土日 14:00-20:00
-
-一緒に解決策を見つけましょう💕`,
-
-  lesson_question: `📚 **レッスン質問**
-
-**レッスンに関するご質問をどうぞ！**
-
-🔹 **よくある質問**
-• 配信ソフトの設定方法
-• Live2Dの操作方法
-• 技術的な問題
-
-🔹 **AI知識ベース対応**
-✨ **@わなみさん [質問]** でAI回答
-
-技術的な質問も大歓迎です📱`,
-
-  sns_consultation: `📱 **SNS運用相談**
-
-**SNS運用のお悩み解決！**
-
-🔹 **サポート内容**
-• Twitter/X の効果的な投稿
-• YouTube ショート動画
-• ファン獲得戦略
-
-✨ **@わなみさん [相談]** でAI回答
-
-一緒にバズる投稿を作りましょう🚀`,
-
-  mission_submission: `🎯 **ミッション提出**
-
-**ミッション提出お疲れさまです！**
-
-🔹 **提出方法**
-• ファイル添付
-• URL添付
-• テキスト報告
-
-✨ **@わなみさん [内容]** でAIフィードバック
-
-あなたの成長を応援します✨`
-};
-
 // Discord Bot Events
-client.once('ready', () => {
-  log('info', `✅ Discord Bot準備完了: ${client.user.tag}`);
-  log('info', `🔗 サーバー数: ${client.guilds.cache.size}`);
-  client.user.setActivity('VTuber育成スクールサポート', { type: 'WATCHING' });
-});
-
-// メンション対応
-client.on('messageCreate', async (message) => {
+client.once('ready', async () => {
+  logger.startup('Discord Bot for わなみさん', '15.2.0', env.PORT);
+  logger.info(`🔗 サーバー数: ${client.guilds.cache.size}`);
+  
   try {
-    if (message.author.bot) return;
+    // 各種サービス初期化
+    logger.info('🔄 サービス初期化開始...');
     
-    // @わなみさん メンション検出
-    const isMentioned = message.mentions.users.has(BOT_USER_ID) || 
-                       message.content.includes(`<@${BOT_USER_ID}>`) ||
-                       message.content.includes(`<@!${BOT_USER_ID}>`);
+    // Google APIs初期化
+    await initializeServices();
+    logger.success('✅ Google APIs初期化完了');
     
-    if (!isMentioned) return;
+    // 知識ベース初期化
+    await initializeKnowledgeBase();
+    logger.success('✅ 知識ベース初期化完了');
     
-    log('info', `メンション検出: ${message.author.username}`);
+    // RAGシステム初期化
+    await initializeRAG();
+    logger.success('✅ RAGシステム初期化完了');
     
-    // メンション部分を除去してクエリを抽出
-    let userQuery = message.content
-      .replace(new RegExp(`<@!?${BOT_USER_ID}>`, 'g'), '')
-      .trim();
-    
-    await message.channel.sendTyping();
-    
-    let response = `🤖 **わなみさんです！**\n\n`;
-    
-    if (!userQuery) {
-      response += `何かご相談はありますか？\n\`/soudan\` コマンドで相談メニューを表示できます！`;
-    } else {
-      response += `「${userQuery}」についてのご相談ですね！\n\n`;
-      
-      // 簡単なキーワード判定
-      const query = userQuery.toLowerCase();
-      if (query.includes('配信') || query.includes('obs')) {
-        response += `🎥 **配信関連のご相談**\n• OBS設定の確認\n• 音声レベルの調整\n• Live2Dの動作確認`;
-      } else if (query.includes('live2d')) {
-        response += `🎨 **Live2D関連のご相談**\n• モデルの表情設定\n• パラメータ調整\n• VTube Studioとの連携`;
-      } else if (query.includes('sns') || query.includes('twitter')) {
-        response += `📱 **SNS運用のご相談**\n• 投稿内容の企画\n• フォロワー獲得戦略\n• バズる投稿のコツ`;
-      } else {
-        response += `ご質問ありがとうございます！\n\`/soudan\` で詳しいサポートメニューをご利用ください。`;
-      }
-      
-      response += `\n\n**詳しいサポート**\n\`/soudan\` で専門的な相談メニューを表示`;
-    }
-    
-    response += `\n\nわなみさんが全力でサポートします！✨`;
-    
-    await message.reply(response);
-    log('info', `応答送信完了: ${message.author.username}`);
+    logger.success('🎉 全サービス初期化完了！');
     
   } catch (error) {
-    log('error', 'メンション処理エラー:', error.message);
-    try {
-      await message.reply('❌ エラーが発生しました。しばらく待ってから再度お試しください。');
-    } catch (replyError) {
-      log('error', 'エラー応答送信失敗:', replyError.message);
-    }
+    logger.errorDetail('❌ サービス初期化失敗:', error);
+    logger.warn('⚠️ 一部機能が制限される可能性があります');
+  }
+  
+  // ステータス設定
+  client.user.setActivity('VTuber育成スクールサポート 🎥✨', { type: 'WATCHING' });
+});
+
+// メンション対応（AI知識ベース統合）
+client.on('messageCreate', async (message) => {
+  try {
+    await mentionHandler.handleMessage(message, client);
+  } catch (error) {
+    logger.errorDetail('メッセージ処理エラー:', error);
+  }
+});
+
+// ロールメンション対応
+client.on('messageCreate', async (message) => {
+  try {
+    await mentionHandler.handleRoleMention(message, client);
+  } catch (error) {
+    logger.errorDetail('ロールメンション処理エラー:', error);
   }
 });
 
 // Discord Interactions エンドポイント
 app.post('/interactions', async (req, res) => {
-  log('info', '=== Discord Interaction受信 ===');
+  logger.discord('Discord Interaction受信');
   
+  // 署名検証
   if (!verifySignature(req)) {
-    log('error', '署名検証失敗');
+    logger.security('署名検証失敗');
     return res.status(401).send('署名が無効です');
   }
 
@@ -283,139 +133,220 @@ app.post('/interactions', async (req, res) => {
   try {
     // PING応答
     if (interaction.type === 1) {
-      log('info', 'PING受信 - PONG応答');
+      logger.info('PING受信 - PONG応答');
       return res.json({ type: 1 });
     }
 
     // APPLICATION_COMMAND
-    if (interaction.type === 2 && interaction.data.name === 'soudan') {
-      log('info', '/soudanコマンド実行');
-      
-      const response = createResponse(
-        `🌟 **わなみさんに相談する** 🌟
-
-わなみさんへようこそ！
-どのようなご相談でしょうか？
-
-**ご利用方法**
-• ボタンを押すと詳細案内が表示されます
-• @わなみさん メンションでAI回答も利用可能
-• 24時間いつでもご相談ください💕`,
-        createButtons()
-      );
-      
+    if (interaction.type === 2) {
+      const response = await discordHandler.handleSlashCommand(interaction);
       return res.json(response);
     }
 
-    // MESSAGE_COMPONENT - ボタンクリック
+    // MESSAGE_COMPONENT - ボタンクリック（AI統合対応）
     if (interaction.type === 3) {
-      const buttonId = interaction.data.custom_id;
-      log('info', `ボタンクリック: ${buttonId}`);
-      
-      const buttonContent = buttonResponses[buttonId];
-      if (buttonContent) {
-        const response = createResponse(buttonContent);
-        log('info', `ボタン応答送信: ${buttonId}`);
-        return res.json(response);
-      }
-      
-      const response = createResponse(
-        "申し訳ございません。このボタンは準備中です🙏\n" +
-        "他のボタンまたは @わなみさん メンションをお試しください✨"
-      );
+      const response = await buttonHandler.handleButtonClick(interaction, client);
       return res.json(response);
     }
 
-    log('warn', '未対応のInteractionタイプ:', interaction.type);
+    // その他のInteraction
+    logger.warn('未対応のInteractionタイプ:', interaction.type);
     return res.status(400).json({ error: '未対応のInteractionです' });
 
   } catch (error) {
-    log('error', 'Interaction処理エラー:', error.message);
+    logger.errorDetail('Interaction処理エラー:', error);
     return res.status(500).json({ error: 'サーバーエラー' });
   }
 });
 
-// ヘルスチェックエンドポイント
+// 知識ベース管理エンドポイント
+app.get('/api/knowledge-base/status', (req, res) => {
+  try {
+    const { knowledgeBaseService } = require('./services/knowledge-base');
+    const stats = knowledgeBaseService.getStats();
+    res.json(stats);
+  } catch (error) {
+    logger.errorDetail('知識ベース状態取得エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// 知識ベース手動更新エンドポイント
+app.post('/api/knowledge-base/refresh', async (req, res) => {
+  try {
+    const { knowledgeBaseService } = require('./services/knowledge-base');
+    const success = await knowledgeBaseService.forceUpdate();
+    res.json({ success, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.errorDetail('知識ベース更新エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// ヘルスチェックエンドポイント（完全版）
 app.get('/', (req, res) => {
-  res.json({
-    status: 'Discord Bot for わなみさん - Running',
-    version: '15.3.0',
-    timestamp: new Date().toISOString(),
-    discord: {
-      connected: client.isReady(),
-      guilds: client.guilds?.cache.size || 0,
-      user: client.user?.tag || 'Not connected'
-    },
-    environment: {
-      node_env: process.env.NODE_ENV || 'development',
-      port: PORT,
-      discord_token: !!DISCORD_TOKEN,
-      discord_public_key: !!DISCORD_PUBLIC_KEY
-    },
-    features: [
-      '✅ Discord Gateway接続',
-      '✅ Discord Interactions API',
-      '✅ @わなみさんメンション対応',
-      '✅ /soudanスラッシュコマンド',
-      '✅ 5つの相談ボタン',
-      '⚡ シンプル統合版（動作確認用）'
-    ]
-  });
+  try {
+    const status = env.getStatus();
+    
+    // 各サービスの状態取得
+    let servicesStatus = {};
+    try {
+      const { googleAPIsService } = require('./services/google-apis');
+      const { openAIService } = require('./services/openai-service');
+      const { knowledgeBaseService } = require('./services/knowledge-base');
+      const { ragSystem } = require('./services/rag-system');
+      
+      servicesStatus = {
+        google_apis: googleAPIsService.getStatus(),
+        openai: openAIService.getStatus(),
+        knowledge_base: knowledgeBaseService.getStatus(),
+        rag_system: ragSystem.getStatus()
+      };
+    } catch (serviceError) {
+      logger.warn('サービス状態取得エラー:', serviceError.message);
+    }
+    
+    res.json({
+      status: 'Discord Bot for わなみさん - Running (Full Version)',
+      version: '15.2.0',
+      timestamp: new Date().toISOString(),
+      environment: {
+        node_env: process.env.NODE_ENV || 'development',
+        port: env.PORT,
+        uptime: Math.floor(process.uptime())
+      },
+      discord: {
+        bot_connected: client.isReady(),
+        guilds: client.guilds?.cache.size || 0,
+        user: client.user?.tag || 'Not connected',
+        latency: client.ws.ping || 0
+      },
+      environment_vars: status,
+      services: servicesStatus,
+      features: [
+        '✅ Discord Gateway接続',
+        '✅ Discord Interactions API',
+        '✅ @わなみさんメンション対応（AI統合）',
+        '✅ /soudanスラッシュコマンド',
+        '✅ AI知識ベース統合（スプレッドシートA-G列対応）',
+        '✅ 画像検出・抽出・Vision解析機能',
+        '✅ RAGシステム（OpenAI統合）',
+        '✅ Notion/WEBサイト読み込み',
+        '✅ 文書内画像抽出・AI解析',
+        '✅ ロールメンション対応',
+        '✅ 知識ベース限定回答システム',
+        '✅ 回答不能システム',
+        '✅ ミッション特別処理',
+        '✅ モジュール化アーキテクチャ',
+        '🚀 完全機能版'
+      ],
+      performance: {
+        memory_usage: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
+        cpu_usage: process.cpuUsage(),
+        node_version: process.version
+      }
+    });
+  } catch (error) {
+    logger.errorDetail('ヘルスチェックエラー:', error);
+    res.status(500).json({ 
+      status: 'Error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // エラーハンドリング
-client.on('error', (error) => {
-  log('error', 'Discord Client エラー:', error.message);
+app.use((error, req, res, next) => {
+  logger.errorDetail('Express エラー:', error);
+  res.status(500).json({ error: 'Internal Server Error' });
 });
 
-process.on('unhandledRejection', (reason) => {
-  log('error', '未処理のPromise拒否:', reason);
+// Discord Client エラーハンドリング
+client.on('error', (error) => {
+  logger.errorDetail('Discord Client エラー:', error);
+});
+
+client.on('warn', (warning) => {
+  logger.warn('Discord Client 警告:', warning);
+});
+
+client.on('disconnect', () => {
+  logger.warn('Discord Client 切断');
+});
+
+client.on('reconnecting', () => {
+  logger.info('Discord Client 再接続中...');
 });
 
 // サーバー起動
 async function startServer() {
   try {
     // 環境変数チェック
-    if (!DISCORD_TOKEN) {
+    if (!env.DISCORD_BOT_TOKEN) {
       throw new Error('DISCORD_BOT_TOKEN環境変数が設定されていません');
     }
-    if (!DISCORD_PUBLIC_KEY) {
+    if (!env.DISCORD_PUBLIC_KEY) {
       throw new Error('DISCORD_PUBLIC_KEY環境変数が設定されていません');
     }
 
     // Discord Bot接続
-    await client.login(DISCORD_TOKEN);
-    log('info', '✅ Discord Bot接続完了');
+    logger.info('🔄 Discord Bot接続開始...');
+    await client.login(env.DISCORD_BOT_TOKEN);
+    logger.success('✅ Discord Bot接続完了');
     
     // Express サーバー起動
-    app.listen(PORT, () => {
-      console.log('\n' + '='.repeat(50));
-      console.log('🚀 Discord Bot Server Started Successfully!');
-      console.log(`📦 Version: 15.3.0 (Simple Integration)`);
-      console.log(`🌐 Port: ${PORT}`);
-      console.log(`🕐 Time: ${new Date().toISOString()}`);
-      console.log(`🔧 Node.js: ${process.version}`);
-      console.log(`🎯 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log('='.repeat(50) + '\n');
+    app.listen(env.PORT, () => {
+      logger.startup('Discord Bot Server', '15.2.0', env.PORT);
     });
     
   } catch (error) {
-    log('error', 'サーバー起動エラー:', error.message);
+    logger.errorDetail('サーバー起動エラー:', error);
     process.exit(1);
   }
 }
 
-// プロセス終了処理
+// プロセス終了時の処理
 process.on('SIGTERM', async () => {
-  log('info', 'SIGTERM受信 - サーバーを停止します');
-  if (client.isReady()) await client.destroy();
+  logger.shutdown('Discord Bot for わなみさん', 'SIGTERM受信');
+  
+  try {
+    // 知識ベース自動更新停止
+    const { knowledgeBaseService } = require('./services/knowledge-base');
+    knowledgeBaseService.stop();
+  } catch (error) {
+    logger.warn('サービス停止エラー:', error.message);
+  }
+  
+  if (client.isReady()) {
+    await client.destroy();
+  }
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  log('info', 'SIGINT受信 - サーバーを停止します');
-  if (client.isReady()) await client.destroy();
+  logger.shutdown('Discord Bot for わなみさん', 'SIGINT受信');
+  
+  try {
+    const { knowledgeBaseService } = require('./services/knowledge-base');
+    knowledgeBaseService.stop();
+  } catch (error) {
+    logger.warn('サービス停止エラー:', error.message);
+  }
+  
+  if (client.isReady()) {
+    await client.destroy();
+  }
   process.exit(0);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.errorDetail('未処理のPromise拒否:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  logger.errorDetail('未処理の例外:', error);
+  process.exit(1);
 });
 
 // サーバー起動実行
