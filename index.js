@@ -1,10 +1,11 @@
-// index.js - Discord Bot メインサーバー（知識ベース限定回答版 v14.1.0 - 早期応答対応）
+// index.js - Discord Bot 完全統合版（メンション機能付き）v15.1.0
 
 const express = require('express');
+const crypto = require('crypto');
+
+// 設定・サービス読み込み
 const { VERSION, FEATURES, BOT_USER_ID } = require('./config/constants');
 const environment = require('./config/environment');
-
-// サービス初期化
 const googleApisService = require('./services/google-apis');
 const openaiService = require('./services/openai-service');
 const knowledgeBaseService = require('./services/knowledge-base');
@@ -17,12 +18,51 @@ const PORT = environment.PORT;
 let isSystemInitialized = false;
 let initializationError = null;
 
-// 早期応答システム用グローバル変数
-let activeResumeWebhooks = new Map(); // チャンネルID → Resume URL
+// Discord設定
+const PUBLIC_KEY = environment.DISCORD_PUBLIC_KEY;
+const BOT_TOKEN = environment.DISCORD_BOT_TOKEN;
+const APPLICATION_ID = environment.DISCORD_APPLICATION_ID || BOT_USER_ID;
 
 // Raw body parser for Discord webhook
-app.use('/discord', express.raw({ type: 'application/json' }));
+app.use('/interactions', express.raw({ 
+  type: 'application/json',
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 app.use(express.json());
+
+// Discord署名検証関数
+function verifySignature(req) {
+  if (!PUBLIC_KEY) {
+    console.error('DISCORD_PUBLIC_KEY環境変数が設定されていません');
+    return false;
+  }
+
+  const signature = req.headers['x-signature-ed25519'];
+  const timestamp = req.headers['x-signature-timestamp'];
+  
+  if (!signature || !timestamp) {
+    console.error('必要なヘッダーが見つかりません');
+    return false;
+  }
+
+  const body = req.rawBody || '';
+  
+  try {
+    const isValid = crypto.verify(
+      'ed25519',
+      Buffer.concat([Buffer.from(timestamp), body]),
+      Buffer.from(PUBLIC_KEY, 'hex'),
+      Buffer.from(signature, 'hex')
+    );
+    
+    return isValid;
+  } catch (error) {
+    console.error('署名検証エラー:', error);
+    return false;
+  }
+}
 
 // サービス初期化関数
 async function initializeServices() {
@@ -62,15 +102,6 @@ async function initializeServices() {
     isSystemInitialized = true;
     console.log('✅ システム初期化完了');
     
-    // 統計情報出力
-    const ragStats = ragSystem.getStats();
-    const kbStats = knowledgeBaseService.getStats();
-    
-    console.log('📊 システム統計:');
-    console.log(`  - RAGチャンク数: ${ragStats.totalChunks}`);
-    console.log(`  - 平均チャンク長: ${ragStats.avgChunkLength}文字`);
-    console.log(`  - 文書内画像数: ${kbStats.totalDocumentImages}`);
-    
     return true;
 
   } catch (error) {
@@ -81,7 +112,7 @@ async function initializeServices() {
   }
 }
 
-// 知識ベース限定RAG回答生成（v14新機能）
+// 知識ベース限定RAG回答生成
 async function generateRAGResponse(question, buttonType = null, userInfo, imageUrls = []) {
   try {
     if (!isSystemInitialized) {
@@ -94,8 +125,7 @@ async function generateRAGResponse(question, buttonType = null, userInfo, imageU
 
     console.log(`🤖 知識ベース限定回答生成開始: ${buttonType || 'mention'}`);
     console.log(`📝 ユーザー: ${userInfo.username}`);
-    console.log(`💬 質問: ${question}`);
-    console.log(`🖼️ 画像数: ${imageUrls.length}`);
+    console.log(`💬 質問: ${question.substring(0, 100)}...`);
 
     // 1. 知識ベース限定検索を実行
     const ragResult = await ragSystem.searchKnowledgeBaseOnly(question, userInfo);
@@ -107,26 +137,20 @@ async function generateRAGResponse(question, buttonType = null, userInfo, imageU
         response: ragResult.response,
         metadata: { 
           ragUsed: true, 
-          chunksUsed: 0,
           canAnswer: false,
           confidence: ragResult.confidence,
-          tokensUsed: ragResult.tokensUsed,
           responseType: 'knowledge_base_limited_unable'
         }
       };
     }
 
-    // 3. 回答可能な場合の処理
-    console.log(`✅ 回答可能: 信頼度${ragResult.confidence}, 関連情報${ragResult.relevantCount || ragResult.sources.length}件`);
-    
-    // ミッション関連の特別情報をメタデータに追加
+    // 3. ミッション関連の特別処理
     const isMissionRelated = question.toLowerCase().includes('ミッション') || 
                            question.toLowerCase().includes('mission') ||
                            question.toLowerCase().includes('課題') ||
                            buttonType === 'mission_submission';
 
-    // 4. システム情報の追加（デバッグ用）
-    console.log(`📊 回答情報: ソース${ragResult.sources.length}件、トークン使用: ${ragResult.tokensUsed.embedding + ragResult.tokensUsed.completion}`);
+    console.log(`✅ 回答可能: 信頼度${ragResult.confidence}, 関連情報${ragResult.sources.length}件`);
     
     return {
       response: ragResult.response,
@@ -134,13 +158,10 @@ async function generateRAGResponse(question, buttonType = null, userInfo, imageU
         ragUsed: true,
         canAnswer: ragResult.canAnswer,
         confidence: ragResult.confidence,
-        relevantCount: ragResult.relevantCount || ragResult.sources.length,
         sourcesUsed: ragResult.sources.length,
-        tokensUsed: ragResult.tokensUsed,
         isMissionRelated: isMissionRelated,
         responseType: 'knowledge_base_limited'
-      },
-      sources: ragResult.sources
+      }
     };
 
   } catch (error) {
@@ -156,450 +177,420 @@ async function generateRAGResponse(question, buttonType = null, userInfo, imageU
   }
 }
 
-// ========== 早期応答システム - 新機能追加 ==========
-
-// 動的Webhook URL登録用エンドポイント
-app.post('/register-resume-webhook', async (req, res) => {
+// メンション検知＆処理関数
+async function handleMention(message) {
   try {
-    const { resume_url, channel_id, message_id, user_id } = req.body;
-    
-    console.log(`📝 Resume Webhook登録: ${channel_id} → ${resume_url}`);
-    
-    // アクティブなWebhook URLを保存
-    activeResumeWebhooks.set(channel_id, {
-      url: resume_url,
-      message_id,
-      user_id,
-      registered_at: new Date().toISOString()
-    });
-    
-    // 5分後に自動削除（タイムアウト対策）
-    setTimeout(() => {
-      activeResumeWebhooks.delete(channel_id);
-      console.log(`🗑️ Resume Webhook期限切れ削除: ${channel_id}`);
-    }, 5 * 60 * 1000);
-    
-    res.json({ success: true, registered: true });
-  } catch (error) {
-    console.error('❌ Resume Webhook登録失敗:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// メッセージ受信時の早期応答トリガー
-app.post('/trigger-early-response', async (req, res) => {
-  try {
-    const { channel_id } = req.body;
-    const webhookInfo = activeResumeWebhooks.get(channel_id);
-    
-    if (webhookInfo && webhookInfo.url !== 'not-available') {
-      console.log(`⚡ 早期応答トリガー送信: ${channel_id}`);
-      
-      const response = await fetch(webhookInfo.url, {
-        method: 'GET', // n8nの設定でGETになっているため
-        headers: { 'Content-Type': 'application/json' }
-      });
-      
-      // 使用済みWebhook URLを削除
-      activeResumeWebhooks.delete(channel_id);
-      
-      console.log('✅ 待機中断成功');
-      res.json({ success: true, resumed: true });
-    } else {
-      console.log('⚠️ Resume Webhook未登録またはURL無効');
-      res.json({ success: false, reason: 'no_webhook_registered' });
-    }
-  } catch (error) {
-    console.error('❌ 早期応答トリガー失敗:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// メンション検知WebhookからのAI処理依頼（修正版）
-app.post('/mention-trigger', async (req, res) => {
-  try {
-    console.log('🎯 メンション検知Webhook受信');
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
-
-    const message = req.body;
-    
-    // Discord PING検証
-    if (message.type === 1) {
-      console.log('📍 Discord PING検証');
-      return res.json({ type: 1 });
-    }
-
-    // メッセージ検証
-    if (!message.content || !message.author || message.author.bot) {
-      console.log('⚠️ 無効なメッセージまたはBot送信');
-      return res.json({ success: false, reason: 'invalid_message' });
-    }
-
-    // Bot ID取得（複数の方法で確認）
-    const botUserId = process.env.DISCORD_APPLICATION_ID || BOT_USER_ID || '1420328163497607199';
-    console.log(`🤖 検索対象Bot ID: ${botUserId}`);
-    console.log(`📝 受信メッセージ: ${message.content}`);
-
-    // メンション形式を複数パターンでチェック
-    const mentionPatterns = [
-      `<@${botUserId}>`,           // 通常メンション
-      `<@!${botUserId}>`,          // ニックネーム付きメンション
-      `@わなみさん`,                // 直接文字列（念のため）
-    ];
-
-    const isMentioned = mentionPatterns.some(pattern => {
-      const found = message.content.includes(pattern);
-      if (found) {
-        console.log(`✅ メンションパターン発見: ${pattern}`);
-      }
-      return found;
-    });
-
-    if (!isMentioned) {
-      console.log('⚠️ Bot宛メンションではない');
-      console.log('検索したパターン:', mentionPatterns);
-      return res.json({ success: false, reason: 'not_mention' });
-    }
-
     const channel_id = message.channel_id;
     const user_id = message.author.id;
     const username = message.author.username;
-    const guild_id = message.guild_id;
+    const content = message.content || '';
 
-    console.log(`👤 メンション処理: ${username} (${user_id}) in ${channel_id}`);
+    console.log(`👤 メンション処理: ${username} in ${channel_id}`);
+    console.log(`💬 内容: ${content}`);
 
-    // 【NEW】早期応答トリガー送信
-    if (channel_id) {
-      try {
-        console.log(`⚡ 早期応答トリガー送信開始: ${channel_id}`);
-        const earlyResponse = await fetch('https://discord-bot-wannami.onrender.com/trigger-early-response', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channel_id })
-        });
-        
-        const earlyResult = await earlyResponse.json();
-        console.log('⚡ 早期応答トリガー結果:', earlyResult);
-      } catch (error) {
-        console.error('❌ 早期応答トリガー送信失敗:', error);
+    // Bot IDを除去してクリーンな質問を抽出
+    const cleanContent = content
+      .replace(new RegExp(`<@!?${APPLICATION_ID}>`, 'g'), '')
+      .trim();
+
+    console.log(`🧹 クリーン後: ${cleanContent}`);
+
+    // 質問が空の場合はメニューボタンを表示
+    if (!cleanContent || cleanContent.length < 3) {
+      console.log('❓ 質問が空のため、メニューボタン表示');
+      
+      const response = await fetch(`https://discord.com/api/v10/channels/${channel_id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bot ${BOT_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          content: `こんにちは <@${user_id}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 1,
+                  label: "お支払いに関する相談",
+                  custom_id: "payment_consultation"
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "プライベートなご相談",
+                  custom_id: "private_consultation"
+                },
+                {
+                  type: 2,
+                  style: 3,
+                  label: "レッスンについての質問",
+                  custom_id: "lesson_question"
+                }
+              ]
+            },
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 3,
+                  label: "SNS運用相談",
+                  custom_id: "sns_consultation"
+                },
+                {
+                  type: 2,
+                  style: 1,
+                  label: "ミッションの提出",
+                  custom_id: "mission_submission"
+                }
+              ]
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Discord API Error: ${response.status}`);
       }
+
+      console.log('✅ メニューボタン送信完了');
+      return true;
     }
 
-    // Discord応答（メニューボタン表示）
-    console.log('📤 Discord応答メッセージ送信開始...');
-    const discordResponse = await fetch(`https://discord.com/api/v10/channels/${channel_id}/messages`, {
+    // 具体的な質問がある場合はAI回答生成
+    console.log('🤖 AI回答生成開始');
+    
+    const result = await generateRAGResponse(cleanContent, 'mention', {
+      username: username,
+      guildName: '不明',
+      channelName: '不明'
+    });
+
+    // 回答形式を整理
+    let responseMessage;
+    if (!result.metadata.canAnswer) {
+      responseMessage = `**🚫 知識ベース限定モード - 回答不能**\n\n${result.response}`;
+    } else if (result.metadata.isMissionRelated) {
+      responseMessage = `**🎯 ミッション関連メンション - 知識ベース限定回答**\n\n${result.response}\n\n**【良い例・悪い例の確認ポイント】**\n上記の回答で「良い例」と「悪い例」の区分を確認して実践してくださいね！\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+    } else {
+      responseMessage = `**🤖 メンション - 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+    }
+
+    // Discord返信
+    const response = await fetch(`https://discord.com/api/v10/channels/${channel_id}/messages`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
+        'Authorization': `Bot ${BOT_TOKEN}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        content: `こんにちは <@${user_id}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
-        components: [
-          {
-            type: 1,
-            components: [
-              {
-                type: 2,
-                style: 1,
-                label: "お支払いに関する相談",
-                custom_id: "payment_consultation"
-              },
-              {
-                type: 2,
-                style: 2,
-                label: "プライベートなご相談",
-                custom_id: "private_consultation"
-              },
-              {
-                type: 2,
-                style: 3,
-                label: "レッスンについての質問",
-                custom_id: "lesson_question"
-              }
-            ]
-          },
-          {
-            type: 1,
-            components: [
-              {
-                type: 2,
-                style: 3,
-                label: "SNS運用相談",
-                custom_id: "sns_consultation"
-              },
-              {
-                type: 2,
-                style: 1,
-                label: "ミッションの提出",
-                custom_id: "mission_submission"
-              }
-            ]
-          }
-        ]
+        content: responseMessage,
+        message_reference: {
+          message_id: message.id
+        }
       })
     });
 
-    if (!discordResponse.ok) {
-      const errorText = await discordResponse.text();
-      console.error(`❌ Discord API Error: ${discordResponse.status} - ${errorText}`);
-      throw new Error(`Discord API Error: ${discordResponse.status} - ${errorText}`);
+    if (!response.ok) {
+      throw new Error(`Discord API Error: ${response.status}`);
     }
 
-    console.log('✅ メンション応答メッセージ送信完了');
-    res.json({ success: true, type: 'mention_processed' });
+    console.log('✅ AI回答送信完了');
+    return true;
 
   } catch (error) {
     console.error('❌ メンション処理エラー:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      type: 'mention_error'
-    });
-  }
-});
-
-// ========== 既存エンドポイント ==========
-
-// Discord Webhook エンドポイント
-app.post('/discord', async (req, res) => {
-  try {
-    const body = req.body;
-    const signature = req.headers['x-signature-ed25519'];
-    const timestamp = req.headers['x-signature-timestamp'];
-
-    // 署名検証（実装は省略）
     
-    console.log('📥 Discord Webhook受信:', body.type);
+    // エラー時の応答
+    try {
+      await fetch(`https://discord.com/api/v10/channels/${message.channel_id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bot ${BOT_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          content: `申し訳ございません <@${message.author.id}>さん。処理中にエラーが発生しました。\n\n担任の先生にご相談いただくか、\`/soudan\` コマンドをお試しください。`
+        })
+      });
+    } catch (retryError) {
+      console.error('❌ エラー応答送信失敗:', retryError);
+    }
+    
+    return false;
+  }
+}
 
-    // Ping応答
-    if (body.type === 1) {
+// =========================
+// Discord Webhookエンドポイント群
+// =========================
+
+// メイン Discord Interactions エンドポイント
+app.post('/interactions', async (req, res) => {
+  try {
+    console.log('=== Discord Interaction受信 ===');
+    
+    // 署名検証
+    if (!verifySignature(req)) {
+      console.error('❌ 署名検証失敗');
+      return res.status(401).send('署名が無効です');
+    }
+
+    const interaction = JSON.parse(req.rawBody);
+    console.log('Interaction Type:', interaction.type);
+
+    // PING応答
+    if (interaction.type === 1) {
+      console.log('📍 PING受信 - PONG応答');
       return res.json({ type: 1 });
     }
 
-    // ボタンインタラクション
-    if (body.type === 3) {
-      const message_content = body.data?.resolved?.messages?.[Object.keys(body.data.resolved.messages)[0]]?.content || 
-                             body.message?.content || '';
-      const button_id = body.data?.custom_id;
+    // スラッシュコマンド処理
+    if (interaction.type === 2 && interaction.data.name === 'soudan') {
+      console.log('💬 /soudan コマンド実行');
       
-      console.log(`🔘 ボタン押下: ${button_id}`);
-      console.log(`📝 メッセージ内容: ${message_content}`);
-
-      if (!message_content) {
-        return res.json({
-          type: 4,
-          data: { content: 'メッセージ内容を取得できませんでした。' }
-        });
-      }
-
-      try {
-        // 知識ベース限定AI回答生成
-        const result = await generateRAGResponse(message_content, button_id, {
-          username: body.member?.user?.username || 'Unknown',
-          guildName: body.guild?.name || '不明',
-          channelName: body.channel?.name || '不明'
-        });
-
-        console.log('✅ 知識ベース限定AI回答生成完了');
-        
-        // 回答不能の場合の特別表示
-        let responseMessage = result.response;
-        if (!result.metadata.canAnswer) {
-          responseMessage = `**🚫 知識ベース限定モード - 回答不能**\n\n${result.response}`;
-        } else if (result.metadata.isMissionRelated) {
-          responseMessage = `**🎯 ミッション関連質問 - 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
-        } else {
-          responseMessage = `**🤖 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
-        }
-
-        return res.json({
-          type: 4,
-          data: { content: responseMessage }
-        });
-
-      } catch (error) {
-        console.error('❌ AI回答生成エラー:', error.message);
-        return res.json({
-          type: 4,
-          data: { content: '知識ベース限定AI回答の生成中にエラーが発生しました。担任の先生にご相談ください。' }
-        });
-      }
-    }
-
-    // メンション処理
-    if (body.type === 2) {
-      const message_content = body.data?.options?.[0]?.value || '';
-      
-      console.log(`💬 メンション受信: ${message_content}`);
-
-      if (!message_content) {
-        return res.json({
-          type: 4,
-          data: { content: '**知識ベース限定モード**\n\nメッセージが空です。質問内容を入力してください。\n\n*このモードでは知識ベース内の情報のみで回答いたします。*' }
-        });
-      }
-
-      try {
-        // 知識ベース限定AI回答生成
-        const result = await generateRAGResponse(message_content, null, {
-          username: body.member?.user?.username || 'Unknown', 
-          guildName: body.guild?.name || '不明',
-          channelName: body.channel?.name || '不明'
-        });
-
-        console.log('✅ 知識ベース限定AI回答生成完了');
-        
-        // 回答不能の場合の特別表示
-        let responseMessage = result.response;
-        if (!result.metadata.canAnswer) {
-          responseMessage = `**🚫 知識ベース限定モード - 回答不能**\n\n${result.response}`;
-        } else if (result.metadata.isMissionRelated) {
-          responseMessage = `**🎯 ミッション関連メンション - 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
-        } else {
-          responseMessage = `**🤖 メンション - 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
-        }
-
-        return res.json({
-          type: 4,
-          data: { content: responseMessage }
-        });
-
-      } catch (error) {
-        console.error('❌ AI回答生成エラー:', error.message);
-        return res.json({
-          type: 4,
-          data: { content: '知識ベース限定AI回答の生成中にエラーが発生しました。担任の先生にご相談ください。' }
-        });
-      }
-    }
-
-    return res.json({ type: 1 });
-
-  } catch (error) {
-    console.error('❌ Discord Webhook処理エラー:', error.message);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-// n8n用AI処理エンドポイント（知識ベース限定対応）
-app.post('/ai-process', async (req, res) => {
-  try {
-    const {
-      message_content,
-      channel_id,
-      user_id,
-      message_id,
-      timestamp,
-      button_id,
-      username,
-      guild_id,
-      has_images,
-      image_count,
-      attachment_images,
-      knowledge_base_only,
-      immediate_response
-    } = req.body;
-
-    console.log('🔄 n8n AI処理要求受信:', {
-      button_id,
-      username,
-      knowledge_base_only: knowledge_base_only || false,
-      immediate_response: immediate_response || false,
-      message_length: message_content?.length || 0,
-      image_count: image_count || 0
-    });
-
-    if (!message_content) {
       return res.json({
-        ai_response: '質問内容が空です。具体的な質問をお聞かせください。',
-        can_answer: false,
-        confidence: 0,
-        response_type: 'error'
+        type: 4,
+        data: {
+          content: `🌟 **わなみさんに相談する** 🌟\n\nVTuber育成スクールへようこそ！\nどのようなご相談でしょうか？下のボタンから選択してください✨`,
+          components: [
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 1,
+                  label: "お支払いに関する相談",
+                  custom_id: "payment_consultation"
+                },
+                {
+                  type: 2,
+                  style: 2,
+                  label: "プライベートなご相談",
+                  custom_id: "private_consultation"
+                },
+                {
+                  type: 2,
+                  style: 3,
+                  label: "レッスンについての質問",
+                  custom_id: "lesson_question"
+                }
+              ]
+            },
+            {
+              type: 1,
+              components: [
+                {
+                  type: 2,
+                  style: 3,
+                  label: "SNS運用相談",
+                  custom_id: "sns_consultation"
+                },
+                {
+                  type: 2,
+                  style: 1,
+                  label: "ミッションの提出",
+                  custom_id: "mission_submission"
+                }
+              ]
+            }
+          ]
+        }
       });
     }
 
-    try {
-      // 知識ベース限定AI回答生成
-      const result = await generateRAGResponse(message_content, button_id, {
-        username: username || 'Unknown',
-        guildName: '不明',
-        channelName: '不明'
-      }, attachment_images || []);
+    // ボタンクリック処理（AI機能統合）
+    if (interaction.type === 3) {
+      const buttonId = interaction.data.custom_id;
+      const userId = interaction.member?.user?.id || interaction.user?.id;
+      const username = interaction.member?.user?.username || interaction.user?.username || 'Unknown';
+      
+      console.log(`🔘 ボタンクリック: ${buttonId} by ${username}`);
 
-      console.log('✅ n8n向け知識ベース限定AI回答生成完了');
+      // AI対象ボタンの判定
+      const AI_TARGET_BUTTONS = ['lesson_question', 'sns_consultation', 'mission_submission'];
+      
+      if (AI_TARGET_BUTTONS.includes(buttonId)) {
+        // AI処理が必要なボタン
+        console.log(`🤖 AI処理開始: ${buttonId}`);
+        
+        // 一時応答（処理中表示）
+        await res.json({
+          type: 5 // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
+        });
 
-      // 回答形式を統一
-      let formattedResponse;
-      if (!result.metadata.canAnswer) {
-        formattedResponse = `**🚫 知識ベース限定モード - 回答不能**\n\n${result.response}`;
-      } else if (result.metadata.isMissionRelated) {
-        formattedResponse = `**🎯 ミッション関連 - 知識ベース限定回答**\n\n${result.response}\n\n**【良い例・悪い例の確認ポイント】**\n上記の回答で「良い例」と「悪い例」の区分を確認して実践してくださいね！\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+        try {
+          // ボタン種別に応じた質問生成
+          let question = '';
+          switch (buttonId) {
+            case 'lesson_question':
+              question = 'レッスンについて質問があります。配信方法や技術的な内容について教えてください。';
+              break;
+            case 'sns_consultation':
+              question = 'SNS運用について相談があります。効果的な投稿方法やフォロワー獲得について教えてください。';
+              break;
+            case 'mission_submission':
+              question = 'ミッション提出について教えてください。提出方法や評価基準について知りたいです。';
+              break;
+          }
+
+          // AI回答生成
+          const result = await generateRAGResponse(question, buttonId, {
+            username: username,
+            guildName: interaction.guild?.name || '不明',
+            channelName: '不明'
+          });
+
+          // 回答形式を整理
+          let responseMessage;
+          if (!result.metadata.canAnswer) {
+            responseMessage = `**🚫 知識ベース限定モード - 回答不能**\n\n${result.response}`;
+          } else if (result.metadata.isMissionRelated) {
+            responseMessage = `**🎯 ミッション関連 - 知識ベース限定回答**\n\n${result.response}\n\n**【良い例・悪い例の確認ポイント】**\n上記の回答で「良い例」と「悪い例」の区分を確認して実践してくださいね！\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+          } else {
+            responseMessage = `**🤖 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+          }
+
+          // フォローアップメッセージで回答送信
+          const followupUrl = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}`;
+          await fetch(followupUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content: responseMessage
+            })
+          });
+
+          console.log(`✅ AI回答送信完了: ${buttonId}`);
+
+        } catch (error) {
+          console.error(`❌ AI処理エラー: ${buttonId}`, error);
+          
+          // エラー時のフォローアップ
+          const followupUrl = `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}`;
+          await fetch(followupUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              content: '申し訳ございません。AI処理中にエラーが発生しました。担任の先生にご相談ください。'
+            })
+          });
+        }
+
       } else {
-        formattedResponse = `**🤖 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+        // 静的応答ボタン
+        const staticResponses = {
+          payment_consultation: `**💰 お支払い相談**\n\n以下の情報をお教えください：\n\n🔹 **ご相談内容**\n• 分割払いのご希望\n• お支払い方法の変更\n• 請求書に関するお問い合わせ\n• その他お支払いに関するご質問\n\n🔹 **お急ぎの場合**\nLINE公式アカウント: @wannami-school\nメール: support@wannami-school.com\n\n**※ お支払い情報は個人情報のため、DMまたは専用チャンネルでご相談ください**`,
+          
+          private_consultation: `**💬 プライベート相談**\n\n🔹 **このようなご相談をお受けしています**\n• VTuber活動への不安や悩み\n• 配信内容やキャラクター設定について\n• ファンとの関係性について\n• 活動継続に関する悩み\n• その他、センシティブなご相談\n\n🔹 **相談方法**\n• **推奨**: わなみさんとのDM（完全プライベート）\n• 専用相談チャンネル（限定公開）\n\n**あなたの気持ちに寄り添って、一緒に解決策を見つけましょう💕**`
+        };
+
+        const response = staticResponses[buttonId] || 'このボタンは準備中です。';
+        
+        return res.json({
+          type: 4,
+          data: { content: response }
+        });
       }
-
-      return res.json({
-        ai_response: formattedResponse,
-        can_answer: result.metadata.canAnswer,
-        confidence: result.metadata.confidence,
-        relevant_count: result.metadata.relevantCount,
-        sources_used: result.metadata.sourcesUsed,
-        tokens_used: result.metadata.tokensUsed,
-        is_mission_related: result.metadata.isMissionRelated,
-        response_type: result.metadata.responseType,
-        processing_mode: 'knowledge_base_limited'
-      });
-
-    } catch (error) {
-      console.error('❌ n8n AI処理エラー:', error.message);
-      return res.json({
-        ai_response: `知識ベース限定AI処理中にエラーが発生しました。\n\nエラー詳細: ${error.message}\n\n担任の先生にご相談ください。`,
-        can_answer: false,
-        confidence: 0,
-        response_type: 'error',
-        error_details: error.message
-      });
     }
 
+    // その他のInteraction
+    console.log('❓ 未対応のInteractionタイプ:', interaction.type);
+    return res.status(400).json({ error: '未対応のInteractionです' });
+
   } catch (error) {
-    console.error('❌ n8n エンドポイントエラー:', error.message);
-    return res.status(500).json({
-      ai_response: 'サーバーエラーが発生しました。',
-      can_answer: false,
-      confidence: 0,
-      response_type: 'server_error',
-      error: error.message
-    });
+    console.error('❌ Discord Interaction処理エラー:', error);
+    return res.status(500).json({ error: 'サーバーエラー' });
   }
 });
+
+// メンション検知エンドポイント（Gateway Events用）
+app.post('/discord-events', async (req, res) => {
+  try {
+    console.log('🎯 Discord Events受信');
+    
+    const event = req.body;
+    console.log('Event:', JSON.stringify(event, null, 2));
+
+    // PING応答
+    if (event.type === 1) {
+      console.log('📍 Gateway PING受信');
+      return res.json({ type: 1 });
+    }
+
+    // メッセージイベント
+    if (event.type === 0 || event.t === 'MESSAGE_CREATE') {
+      const message = event.d || event;
+      
+      // Bot自身のメッセージは無視
+      if (message.author?.bot) {
+        return res.json({ success: true, ignored: 'bot_message' });
+      }
+
+      // メンション確認
+      const mentionPatterns = [
+        `<@${APPLICATION_ID}>`,           // 通常メンション
+        `<@!${APPLICATION_ID}>`,          // ニックネーム付きメンション
+      ];
+
+      const isMentioned = mentionPatterns.some(pattern => 
+        message.content && message.content.includes(pattern)
+      );
+
+      if (isMentioned) {
+        console.log('📢 Bot宛メンション検知');
+        await handleMention(message);
+      }
+    }
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('❌ Discord Events処理エラー:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// =========================
+// その他のエンドポイント
+// =========================
 
 // ヘルスチェックエンドポイント
 app.get('/', (req, res) => {
-  const stats = ragSystem.getStats();
-  const status = {
+  const stats = isSystemInitialized ? ragSystem.getStats() : {};
+  
+  res.json({
     status: 'running',
-    version: `${VERSION} - 知識ベース限定回答版 v14.1.0`,
+    version: `${VERSION} - Render完全統合版 v15.1.0`,
     features: [
-      ...FEATURES,
-      '知識ベース限定回答システム',
-      '回答不能判定システム',
-      'ミッション特別処理（良い例/悪い例重視）',
-      'スプレッドシートG列対応',
-      'n8n即座応答対応 ⚡NEW'
+      '✅ Discord署名検証',
+      '✅ /soudan スラッシュコマンド',
+      '✅ @わなみさん メンション機能 🆕',
+      '✅ 5つの相談ボタン',
+      '✅ 知識ベース限定AI回答（3ボタン + メンション）',
+      '✅ 静的応答（2ボタン）',
+      '✅ ミッション特別処理',
+      '✅ 回答不能判定',
+      '✅ n8n完全削除 - Render単体処理'
     ],
     system: {
       initialized: isSystemInitialized,
       error: initializationError,
-      ragStats: stats,
-      knowledgeBaseLimited: true,
-      immediateResponse: true,
-      activeWebhooks: activeResumeWebhooks.size
+      ragEnabled: isSystemInitialized,
+      mentionEnabled: true,
+      n8nIntegration: false
     },
+    endpoints: [
+      '/interactions - Discord Interactions',
+      '/discord-events - Discord Gateway Events',
+      '/ - Health Check',
+      '/initialize - Manual Initialization'
+    ],
     timestamp: new Date().toISOString()
-  };
-  
-  res.json(status);
+  });
 });
 
 // システム初期化エンドポイント
@@ -614,15 +605,9 @@ app.post('/initialize', async (req, res) => {
     if (result) {
       res.json({ 
         success: true, 
-        message: '知識ベース限定システム初期化完了',
-        stats: ragSystem.getStats(),
-        features: [
-          '知識ベース限定回答システム',
-          '回答不能判定システム',
-          'ミッション特別処理',
-          'スプレッドシートG列対応',
-          'n8n即座応答対応'
-        ]
+        message: 'Render完全統合システム初期化完了',
+        version: 'v15.1.0',
+        features: ['メンション機能付き']
       });
     } else {
       res.status(500).json({ 
@@ -640,88 +625,41 @@ app.post('/initialize', async (req, res) => {
   }
 });
 
-// システム統計エンドポイント
-app.get('/stats', (req, res) => {
-  try {
-    const ragStats = ragSystem.getStats();
-    const googleStatus = googleApisService.getStatus();
-    const openaiStatus = openaiService.getStatus();
-    
-    res.json({
-      system: {
-        initialized: isSystemInitialized,
-        version: `${VERSION} - 知識ベース限定回答版 v14.1.0`,
-        uptime: process.uptime(),
-        memory: process.memoryUsage(),
-        activeWebhooks: activeResumeWebhooks.size
-      },
-      rag: ragStats,
-      services: {
-        google: googleStatus,
-        openai: openaiStatus
-      },
-      features: {
-        knowledge_base_limited: true,
-        mission_special_processing: true,
-        spreadsheet_g_column: true,
-        immediate_response: true,
-        unable_to_answer_detection: true,
-        early_response_system: true
-      },
-      webhooks: {
-        active_count: activeResumeWebhooks.size,
-        registered_channels: Array.from(activeResumeWebhooks.keys())
-      },
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({
-      error: 'Stats retrieval failed',
-      message: error.message
-    });
-  }
-});
-
 // サーバー起動
 app.listen(PORT, async () => {
-  console.log('='.repeat(60));
-  console.log(`🚀 Discord Bot Server v${VERSION} 起動`);
+  console.log('='.repeat(70));
+  console.log(`🚀 Discord Bot Server - Render完全統合版 v15.1.0 起動`);
   console.log(`📡 ポート: ${PORT}`);
-  console.log(`🤖 Bot ID: ${BOT_USER_ID}`);
-  console.log('🔧 新機能:');
+  console.log(`🤖 Bot ID: ${APPLICATION_ID}`);
+  console.log('🔧 統合機能:');
+  console.log('   • /soudan スラッシュコマンド');
+  console.log('   • @わなみさん メンション機能 🆕');
+  console.log('   • 5つのボタン（AI3つ + 静的2つ）');
   console.log('   • 知識ベース限定回答システム');
+  console.log('   • ミッション特別処理（良い例/悪い例）');
   console.log('   • 回答不能判定システム');
-  console.log('   • ミッション特別処理（良い例/悪い例重視）');
-  console.log('   • スプレッドシートG列対応');
-  console.log('   • n8n即座応答対応 ⚡NEW');
-  console.log('   • 早期応答システム（Webhook URL動的登録）');
-  console.log('='.repeat(60));
+  console.log('   • n8n完全削除 - Render単体処理');
+  console.log('='.repeat(70));
   
   // 自動初期化
-  console.log('⏳ 知識ベース限定システム初期化開始...');
+  console.log('⏳ システム初期化開始...');
   await initializeServices();
   
   if (isSystemInitialized) {
-    const stats = ragSystem.getStats();
-    console.log('✅ サーバー準備完了！');
-    console.log(`📊 統計: ${stats.totalChunks}チャンク, ${stats.totalImages}画像`);
-    console.log('🎯 知識ベース限定回答モード: 有効');
-    console.log('⚡ 早期応答システム: 有効');
+    console.log('✅ Render完全統合システム準備完了！');
+    console.log('🎯 メンション機能付き - n8n依存なし');
   } else {
     console.log('⚠️ 初期化エラーあり。手動初期化をお試しください。');
-    console.log(`❌ エラー詳細: ${initializationError}`);
   }
 });
 
 // グレースフルシャットダウン
 process.on('SIGTERM', () => {
   console.log('🛑 SIGTERM受信。サーバーをシャットダウンします...');
-  activeResumeWebhooks.clear();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   console.log('🛑 SIGINT受信。サーバーをシャットダウンします...');
-  activeResumeWebhooks.clear();
   process.exit(0);
 });
