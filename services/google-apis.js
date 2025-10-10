@@ -26,7 +26,21 @@ class GoogleAPIsService {
       // 認証情報の設定
       const credentials = env.GOOGLE_CREDENTIALS;
       
+      // デバッグ用ログ
+      console.log('🔐 Google認証情報チェック:');
+      console.log('- project_id:', !!credentials?.project_id);
+      console.log('- private_key:', !!credentials?.private_key);
+      console.log('- client_email:', !!credentials?.client_email);
+      console.log('- private_key length:', credentials?.private_key?.length || 0);
+      
       if (!credentials || !credentials.private_key) {
+        console.error('❌ 認証情報詳細:', {
+          credentials_exists: !!credentials,
+          project_id: credentials?.project_id,
+          client_email: credentials?.client_email,
+          private_key_exists: !!credentials?.private_key,
+          private_key_preview: credentials?.private_key?.substring(0, 50) + '...'
+        });
         throw new Error('Google認証情報が不完全です');
       }
 
@@ -48,7 +62,7 @@ class GoogleAPIsService {
       this.drive = google.drive({ version: 'v3', auth: this.auth });
 
       this.initialized = true;
-      logger.success('Google APIs初期化完了');
+      logger.info('✅ Google APIs初期化完了');
 
     } catch (error) {
       logger.error('Google APIs初期化エラー:', error);
@@ -71,7 +85,7 @@ class GoogleAPIsService {
       });
 
       const values = response.data.values || [];
-      logger.success(`スプレッドシート読み込み完了: ${values.length}行`);
+      logger.info(`✅ スプレッドシート読み込み完了: ${values.length}行`);
 
       return values;
 
@@ -288,7 +302,7 @@ class GoogleAPIsService {
           rowIndex: index + 2 // スプレッドシートの実際の行番号
         }));
 
-      logger.success(`知識ベース読み込み完了: ${knowledgeItems.length}件`);
+      logger.info(`✅ 知識ベース読み込み完了: ${knowledgeItems.length}件`);
       return knowledgeItems;
 
     } catch (error) {
@@ -385,7 +399,7 @@ class GoogleAPIsService {
         throw new Error('アクセストークンの取得に失敗');
       }
 
-      logger.success('Google APIs接続テスト成功');
+      logger.info('✅ Google APIs接続テスト成功');
       return true;
 
     } catch (error) {
