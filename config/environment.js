@@ -113,6 +113,14 @@ class Environment {
   get PORT() {
     return process.env.PORT || 3000;
   }
+
+  // 汎用getメソッド（後方互換性のため）
+  get(key) {
+    if (this.hasOwnProperty(key)) {
+      return this[key];
+    }
+    return process.env[key];
+  }
 }
 
 module.exports = new Environment();
