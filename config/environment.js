@@ -1,72 +1,72 @@
-// 環境変数管理とバリデーション
+// config/environment.js - エラーハンドリング強化版
+
 require('dotenv').config();
 
-const logger = require('../utils/logger');
-
-class EnvironmentManager {
+class Environment {
     constructor() {
-        this.requiredEnvVars = [
+        this.requiredVars = [
             'DISCORD_BOT_TOKEN',
-            'DISCORD_APPLICATION_ID',
-            'OPENAI_API_KEY',
-            // Google認証情報用の個別キー
-            'GOOGLE_CLIENT_EMAIL',
-            'GOOGLE_CLIENT_ID',
-            'GOOGLE_PRIVATE_KEY',
-            'GOOGLE_PRIVATE_KEY_ID',
-            'GOOGLE_PROJECT_ID',
-            // 知識ベースID
-            'KNOWLEDGE_BASE_SHEET_ID'
+            'OPENAI_API_KEY', 
+            'GOOGLE_SHEETS_ID',
+            'GOOGLE_SERVICE_ACCOUNT_KEY'
         ];
-
-        this.config = {};
-        this.loadEnvironment();
+        
+        this.validateEnvironment();
     }
-
-    loadEnvironment() {
-        try {
-            // 必須環境変数のチェック
-            const missingVars = [];
-
-            for (const varName of this.requiredEnvVars) {
-                const value = process.env[varName];
-                if (!value) {
-                    missingVars.push(varName);
-                } else {
-                    this.config[varName] = value;
-                }
+    
+    validateEnvironment() {
+        const missingVars = [];
+        const presentVars = [];
+        
+        this.requiredVars.forEach(varName => {
+            const value = process.env[varName];
+            if (!value || value.trim() === '') {
+                missingVars.push(varName);
+            } else {
+                presentVars.push(`${varName}=${value.substring(0, 10)}...`);
             }
-
-            if (missingVars.length > 0) {
-                const errorMsg = `必須環境変数が設定されていません: ${missingVars.join(', ')}`;
-                logger.error('❌ Environment Error:', errorMsg);
-                throw new Error(errorMsg);
-            }
-
-            // オプション環境変数
-            this.config.PORT = process.env.PORT || 3000;
-            this.config.NODE_ENV = process.env.NODE_ENV || 'production';
-
-            // Google Sheets認証情報の組み立て
-            this.config.GOOGLE_CREDENTIALS = {
-                type: "service_account",
-                client_email: process.env.GOOGLE_CLIENT_EMAIL,
-                client_id: process.env.GOOGLE_CLIENT_ID,
-                private_key: process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-                private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-                project_id: process.env.GOOGLE_PROJECT_ID
-            };
-
-            logger.info('✅ 環境変数の読み込み完了');
-        } catch (error) {
-            logger.error('❌ 環境変数読み込みエラー:', error);
-            process.exit(1);
+        });
+        
+        console.log('🔍 環境変数チェック結果:');
+        console.log('✅ 設定済み変数:', presentVars);
+        
+        if (missingVars.length > 0) {
+            console.error('❌ 未設定の環境変数:', missingVars);
+            console.error('🚨 Renderの環境変数設定で以下を追加してください:');
+            missingVars.forEach(varName => {
+                console.error(`   ${varName}=your_${varName.toLowerCase()}_here`);
+            });
+            
+            throw new Error(`必須環境変数が設定されていません: ${missingVars.join(', ')}`);
         }
+        
+        console.log('✅ 全環境変数設定完了');
     }
-
-    get(key) {
-        return this.config[key];
+    
+    get(key, defaultValue = null) {
+        const value = process.env[key];
+        if (value === undefined && defaultValue === null) {
+            console.warn(`⚠️ 環境変数 ${key} が設定されていません`);
+        }
+        return value || defaultValue;
+    }
+    
+    // Render用の特別設定
+    isRenderEnvironment() {
+        return process.env.RENDER === 'true' || process.env.RENDER_SERVICE_ID;
+    }
+    
+    getRenderInfo() {
+        if (this.isRenderEnvironment()) {
+            return {
+                serviceId: process.env.RENDER_SERVICE_ID,
+                serviceName: process.env.RENDER_SERVICE_NAME,
+                deployId: process.env.RENDER_DEPLOY_ID,
+                region: process.env.RENDER_REGION
+            };
+        }
+        return null;
     }
 }
 
-module.exports = new EnvironmentManager();
+module.exports = new Environment();
