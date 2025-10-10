@@ -35,7 +35,9 @@ class GoogleAPIsService {
         credentials: credentials,
         scopes: [
           'https://www.googleapis.com/auth/spreadsheets.readonly',
-          'https://www.googleapis.com/auth/drive.readonly'
+          'https://www.googleapis.com/auth/drive.readonly',
+          'https://www.googleapis.com/auth/presentations.readonly',
+          'https://www.googleapis.com/auth/documents.readonly'
         ]
       });
 
@@ -49,7 +51,7 @@ class GoogleAPIsService {
       logger.success('Google APIs初期化完了');
 
     } catch (error) {
-      logger.errorDetail('Google APIs初期化エラー:', error);
+      logger.error('Google APIs初期化エラー:', error);
       throw error;
     }
   }
@@ -74,7 +76,7 @@ class GoogleAPIsService {
       return values;
 
     } catch (error) {
-      logger.errorDetail(`スプレッドシート読み込みエラー (${spreadsheetId}):`, error);
+      logger.error(`スプレッドシート読み込みエラー (${spreadsheetId}):`, error);
       throw error;
     }
   }
@@ -290,7 +292,7 @@ class GoogleAPIsService {
       return knowledgeItems;
 
     } catch (error) {
-      logger.errorDetail('知識ベース読み込みエラー:', error);
+      logger.error('知識ベース読み込みエラー:', error);
       throw error;
     }
   }
@@ -308,7 +310,7 @@ class GoogleAPIsService {
       return response.data;
 
     } catch (error) {
-      logger.errorDetail(`Google Driveファイル情報取得エラー (${fileId}):`, error);
+      logger.error(`Google Driveファイル情報取得エラー (${fileId}):`, error);
       throw error;
     }
   }
@@ -326,7 +328,7 @@ class GoogleAPIsService {
       return response.data;
 
     } catch (error) {
-      logger.errorDetail(`Google Driveファイル内容取得エラー (${fileId}):`, error);
+      logger.error(`Google Driveファイル内容取得エラー (${fileId}):`, error);
       throw error;
     }
   }
@@ -358,7 +360,7 @@ class GoogleAPIsService {
       return metadata;
 
     } catch (error) {
-      logger.errorDetail(`スプレッドシートメタデータ取得エラー (${spreadsheetId}):`, error);
+      logger.error(`スプレッドシートメタデータ取得エラー (${spreadsheetId}):`, error);
       throw error;
     }
   }
@@ -387,7 +389,7 @@ class GoogleAPIsService {
       return true;
 
     } catch (error) {
-      logger.errorDetail('Google APIs接続テストエラー:', error);
+      logger.error('Google APIs接続テストエラー:', error);
       return false;
     }
   }
