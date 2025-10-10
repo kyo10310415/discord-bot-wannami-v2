@@ -476,5 +476,6 @@ module.exports = {
   // 🆕 追加: knowledge-base.jsとの互換性のため
   loadUrlListFromSpreadsheet: (spreadsheetId, range) => googleAPIsService.loadUrlListFromSpreadsheet(spreadsheetId, range),
   loadGoogleSlides: (url, fileName) => googleAPIsService.loadGoogleSlides(url, fileName),
-  loadGoogleDocs: (url, fileName) => googleAPIsService.loadGoogleDocs(url, fileName)
+  loadGoogleDocs: (url, fileName) => googleAPIsService.loadGoogleDocs(url, fileName),
+  detectUrlType: (url) => googleAPIsService.detectUrlType(url) // 🆕 追加: URL型検出関数を公開
 };
