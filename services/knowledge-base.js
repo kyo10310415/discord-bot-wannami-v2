@@ -3,6 +3,7 @@
 const googleApisService = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
 const { loadNotionContent, loadWebsiteContent, loadImageUrlInfo } = require('../utils/content-loaders');
+const logger = require('../utils/logger');
 
 class KnowledgeBaseService {
   constructor() {
