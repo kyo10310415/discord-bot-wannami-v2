@@ -1,6 +1,6 @@
 // services/knowledge-base.js - 知識ベース構築サービス
 
-const googleApisService = require('./google-apis');
+const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
 const { loadNotionContent, loadWebsiteContent, loadImageUrlInfo } = require('../utils/content-loaders');
 const logger = require('../utils/logger');
@@ -45,7 +45,7 @@ class KnowledgeBaseService {
       this.documentImages = [];
       
       // スプレッドシートからURL一覧を取得
-      const urlList = await googleApisService.loadUrlListFromSpreadsheet(KNOWLEDGE_SPREADSHEET_ID);
+      const urlList = await googleAPIsService.loadUrlListFromSpreadsheet(KNOWLEDGE_SPREADSHEET_ID);
       if (urlList.length === 0) {
         console.log('❌ スプレッドシートにURLが見つかりません');
         return null;
@@ -111,22 +111,26 @@ class KnowledgeBaseService {
     }
   }
 
-  // URL先のコンテンツを読み込む（型ベースの判定に変更）
+  // URL先のコンテンツを読み込む（URL自動検出ベースに変更）
   async loadContentFromUrl(urlInfo) {
     const { url, fileName, category, type } = urlInfo;
     
-    console.log(`📖 コンテンツ読み込み開始: ${fileName} (${type})`);
+    // URLから自動で形式を検出
+    const detectedType = detectUrlType(url);
+    
+    console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
+    console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
     
     try {
-      // typeベースでのコンテンツ読み込み
-      switch (type) {
+      // 自動検出されたタイプベースでのコンテンツ読み込み
+      switch (detectedType) {
         case 'google_slides':
           console.log(`📊 Google Slides読み込み: ${fileName}`);
-          return await googleApisService.loadGoogleSlides(url, fileName);
+          return await loadGoogleSlides(url, fileName);
           
         case 'google_docs':
           console.log(`📄 Google Docs読み込み: ${fileName}`);
-          return await googleApisService.loadGoogleDocs(url, fileName);
+          return await loadGoogleDocs(url, fileName);
           
         case 'notion':
           console.log(`📝 Notion読み込み: ${fileName}`);
@@ -144,14 +148,14 @@ class KnowledgeBaseService {
           return { content: websiteContent, images: this.extractImagesFromWebContent(websiteContent, fileName) };
           
         default:
-          console.log(`❓ 未対応のURL形式: ${fileName} (${type})`);
+          console.log(`❓ 未対応のURL形式: ${fileName} (自動検出: ${detectedType}, スプレッドシート: ${type})`);
           return { 
-            content: `${fileName}: 未対応のURL形式 (${type}) - ${url}`,
+            content: `${fileName}: 未対応のURL形式 (検出結果: ${detectedType}) - ${url}`,
             images: [] 
           };
       }
     } catch (error) {
-      console.error(`❌ コンテンツ読み込み失敗 ${fileName} (${type}):`, error.message);
+      console.error(`❌ コンテンツ読み込み失敗 ${fileName} (検出結果: ${detectedType}):`, error.message);
       throw error;
     }
   }
