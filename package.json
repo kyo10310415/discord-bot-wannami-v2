@@ -1,48 +1,47 @@
 {
-  "name": "discord-bot-wannami",
+  "name": "discord-bot-wannami-v2",
   "version": "15.2.0",
-  "description": "VTuber育成スクール用Discord自動応答チャットボット - AI知識ベース・RAGシステム統合版",
+  "description": "VTuber育成スクール用Discord自動応答チャットボット - 完全機能版",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "message-bot": "node discord-message-bot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "engines": {
+    "node": "18.x"
+  },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "express": "^4.18.2",
-    "google-auth-library": "^9.6.3",
-    "googleapis": "^131.0.0",
-    "openai": "^4.28.4",
-    "axios": "^1.6.7",
-    "chalk": "^4.1.2",
+    "discord.js": "^14.15.3",
+    "openai": "^4.56.0",
+    "googleapis": "^128.0.0",
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "pdf-parse": "^1.1.1",
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "winston": "^3.13.0",
+    "uuid": "^10.0.0",
+    "html-to-text": "^9.0.5",
     "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
-    "nodemon": "^3.0.3"
-  },
-  "engines": {
-    "node": ">=18.0.0"
+    "nodemon": "^3.1.4"
   },
   "keywords": [
-    "discord",
-    "bot",
+    "discord-bot",
     "vtuber",
+    "ai-chatbot",
     "education",
-    "ai",
-    "openai",
-    "knowledge-base",
-    "rag-system",
-    "google-apis"
+    "rag-system"
   ],
   "author": "VTuber育成スクール",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/kyo10310415/discord-bot-wannami-v2.git"
-  },
-  "bugs": {
-    "url": "https://github.com/kyo10310415/discord-bot-wannami-v2/issues"
-  },
-  "homepage": "https://github.com/kyo10310415/discord-bot-wannami-v2#readme"
+  }
 }
