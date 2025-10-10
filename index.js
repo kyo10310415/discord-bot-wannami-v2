@@ -1,7 +1,8 @@
-// index.js - Discord Bot 完全統合版（メンション機能付き）v15.1.0
+// index.js - Discord Bot 完全統合版（Gateway + Interactions）v15.2.0
 
 const express = require('express');
 const crypto = require('crypto');
+const { Client, GatewayIntentBits } = require('discord.js');
 
 // 設定・サービス読み込み
 const { VERSION, FEATURES, BOT_USER_ID } = require('./config/constants');
@@ -14,14 +15,25 @@ const ragSystem = require('./services/rag-system');
 const app = express();
 const PORT = environment.PORT;
 
-// グローバル状態管理
-let isSystemInitialized = false;
-let initializationError = null;
-
 // Discord設定
 const PUBLIC_KEY = environment.DISCORD_PUBLIC_KEY;
 const BOT_TOKEN = environment.DISCORD_BOT_TOKEN;
 const APPLICATION_ID = environment.DISCORD_APPLICATION_ID || BOT_USER_ID;
+const ROLE_ID = '1420336261817831464'; // わなみさんロールID
+
+// グローバル状態管理
+let isSystemInitialized = false;
+let initializationError = null;
+
+// Discord Gateway Client初期化
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages
+  ]
+});
 
 // Raw body parser for Discord webhook
 app.use('/interactions', express.raw({ 
@@ -177,36 +189,55 @@ async function generateRAGResponse(question, buttonType = null, userInfo, imageU
   }
 }
 
-// メンション検知＆処理関数
-async function handleMention(message) {
-  try {
-    const channel_id = message.channel_id;
-    const user_id = message.author.id;
-    const username = message.author.username;
-    const content = message.content || '';
+// =========================
+// Discord Gateway Events（メンション処理）
+// =========================
 
-    console.log(`👤 メンション処理: ${username} in ${channel_id}`);
-    console.log(`💬 内容: ${content}`);
+client.on('ready', () => {
+  console.log(`✅ Discord Gateway: ${client.user.tag} メッセージ監視開始`);
+});
 
-    // Bot IDを除去してクリーンな質問を抽出
-    const cleanContent = content
-      .replace(new RegExp(`<@!?${APPLICATION_ID}>`, 'g'), '')
-      .trim();
+client.on('messageCreate', async (message) => {
+  console.log(`📨 メッセージ受信: ${message.author.username} - "${message.content}"`);
+  
+  // Bot自身のメッセージは無視
+  if (message.author.bot) {
+    console.log('🤖 Bot投稿のためスキップ');
+    return;
+  }
+  
+  // メンション検出（ユーザーメンション + ロールメンション）
+  const botUserMentioned = message.mentions.users.has(APPLICATION_ID) || 
+                          message.content.includes(`<@${APPLICATION_ID}>`) ||
+                          message.content.includes(`<@!${APPLICATION_ID}>`);
+  
+  const roleMentioned = message.mentions.roles.has(ROLE_ID);
+  
+  const isMentioned = botUserMentioned || roleMentioned;
+  
+  if (isMentioned) {
+    // ログ出力を詳細化
+    if (botUserMentioned) {
+      console.log(`👤 Bot直接メンション検出: ${message.author.username} - "${message.content}"`);
+    } else if (roleMentioned) {
+      console.log(`🎭 ロールメンション検出: ${message.author.username} - "${message.content}"`);
+    }
+    
+    try {
+      // Bot IDを除去してクリーンな質問を抽出
+      const cleanContent = message.content
+        .replace(new RegExp(`<@!?${APPLICATION_ID}>`, 'g'), '')
+        .replace(`<@&${ROLE_ID}>`, '')
+        .trim();
 
-    console.log(`🧹 クリーン後: ${cleanContent}`);
+      console.log(`🧹 クリーン後の内容: "${cleanContent}"`);
 
-    // 質問が空の場合はメニューボタンを表示
-    if (!cleanContent || cleanContent.length < 3) {
-      console.log('❓ 質問が空のため、メニューボタン表示');
-      
-      const response = await fetch(`https://discord.com/api/v10/channels/${channel_id}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bot ${BOT_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          content: `こんにちは <@${user_id}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
+      // 質問が空の場合はメニューボタンを表示
+      if (!cleanContent || cleanContent.length < 3) {
+        console.log('❓ 質問が空のため、メニューボタン表示');
+        
+        await message.channel.send({
+          content: `こんにちは <@${message.author.id}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
           components: [
             {
               type: 1,
@@ -220,7 +251,7 @@ async function handleMention(message) {
                 {
                   type: 2,
                   style: 2,
-                  label: "プライベートなご相談",
+                  label: "プライベートなご相談", 
                   custom_id: "private_consultation"
                 },
                 {
@@ -249,86 +280,64 @@ async function handleMention(message) {
               ]
             }
           ]
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Discord API Error: ${response.status}`);
+        });
+        
+        console.log('✅ メニューボタン送信完了');
+        return;
       }
 
-      console.log('✅ メニューボタン送信完了');
-      return true;
-    }
-
-    // 具体的な質問がある場合はAI回答生成
-    console.log('🤖 AI回答生成開始');
-    
-    const result = await generateRAGResponse(cleanContent, 'mention', {
-      username: username,
-      guildName: '不明',
-      channelName: '不明'
-    });
-
-    // 回答形式を整理
-    let responseMessage;
-    if (!result.metadata.canAnswer) {
-      responseMessage = `**🚫 知識ベース限定モード - 回答不能**\n\n${result.response}`;
-    } else if (result.metadata.isMissionRelated) {
-      responseMessage = `**🎯 ミッション関連メンション - 知識ベース限定回答**\n\n${result.response}\n\n**【良い例・悪い例の確認ポイント】**\n上記の回答で「良い例」と「悪い例」の区分を確認して実践してくださいね！\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
-    } else {
-      responseMessage = `**🤖 メンション - 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
-    }
-
-    // Discord返信
-    const response = await fetch(`https://discord.com/api/v10/channels/${channel_id}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bot ${BOT_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        content: responseMessage,
-        message_reference: {
-          message_id: message.id
-        }
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`Discord API Error: ${response.status}`);
-    }
-
-    console.log('✅ AI回答送信完了');
-    return true;
-
-  } catch (error) {
-    console.error('❌ メンション処理エラー:', error);
-    
-    // エラー時の応答
-    try {
-      await fetch(`https://discord.com/api/v10/channels/${message.channel_id}/messages`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bot ${BOT_TOKEN}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          content: `申し訳ございません <@${message.author.id}>さん。処理中にエラーが発生しました。\n\n担任の先生にご相談いただくか、\`/soudan\` コマンドをお試しください。`
-        })
+      // 具体的な質問がある場合はAI回答生成
+      console.log('🤖 AI回答生成開始');
+      
+      // 「処理中...」メッセージを送信
+      const processingMessage = await message.channel.send('🤖 AI回答を生成中です...');
+      
+      const result = await generateRAGResponse(cleanContent, 'mention', {
+        username: message.author.username,
+        guildName: message.guild?.name || '不明',
+        channelName: message.channel.name || '不明'
       });
-    } catch (retryError) {
-      console.error('❌ エラー応答送信失敗:', retryError);
+
+      // 回答形式を整理
+      let responseMessage;
+      if (!result.metadata.canAnswer) {
+        responseMessage = `**🚫 知識ベース限定モード - 回答不能**\n\n${result.response}`;
+      } else if (result.metadata.isMissionRelated) {
+        responseMessage = `**🎯 ミッション関連メンション - 知識ベース限定回答**\n\n${result.response}\n\n**【良い例・悪い例の確認ポイント】**\n上記の回答で「良い例」と「悪い例」の区分を確認して実践してくださいね！\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+      } else {
+        responseMessage = `**🤖 メンション - 知識ベース限定回答**\n\n${result.response}\n\n*信頼度: ${(result.metadata.confidence * 100).toFixed(1)}%, 参照ソース: ${result.metadata.sourcesUsed}件*`;
+      }
+
+      // 処理中メッセージを削除して、AI回答を送信
+      await processingMessage.delete();
+      await message.reply(responseMessage);
+
+      console.log('✅ AI回答送信完了');
+      
+    } catch (error) {
+      console.error('❌ メンション処理エラー:', error.message);
+      console.error('詳細:', error);
+      
+      try {
+        await message.reply(`申し訳ございません <@${message.author.id}>さん。処理中にエラーが発生しました。\n\n担任の先生にご相談いただくか、\`/soudan\` コマンドをお試しください。`);
+      } catch (retryError) {
+        console.error('❌ エラー応答送信失敗:', retryError);
+      }
     }
-    
-    return false;
+  } else {
+    console.log('🔍 メンションなし - 処理スキップ');
   }
-}
+});
+
+// Gateway エラーハンドリング
+client.on('error', error => {
+  console.error('❌ Discord Gateway エラー:', error);
+});
 
 // =========================
-// Discord Webhookエンドポイント群
+// Discord Interactions（スラッシュコマンド・ボタン処理）
 // =========================
 
-// メイン Discord Interactions エンドポイント
 app.post('/interactions', async (req, res) => {
   try {
     console.log('=== Discord Interaction受信 ===');
@@ -507,53 +516,6 @@ app.post('/interactions', async (req, res) => {
   }
 });
 
-// メンション検知エンドポイント（Gateway Events用）
-app.post('/discord-events', async (req, res) => {
-  try {
-    console.log('🎯 Discord Events受信');
-    
-    const event = req.body;
-    console.log('Event:', JSON.stringify(event, null, 2));
-
-    // PING応答
-    if (event.type === 1) {
-      console.log('📍 Gateway PING受信');
-      return res.json({ type: 1 });
-    }
-
-    // メッセージイベント
-    if (event.type === 0 || event.t === 'MESSAGE_CREATE') {
-      const message = event.d || event;
-      
-      // Bot自身のメッセージは無視
-      if (message.author?.bot) {
-        return res.json({ success: true, ignored: 'bot_message' });
-      }
-
-      // メンション確認
-      const mentionPatterns = [
-        `<@${APPLICATION_ID}>`,           // 通常メンション
-        `<@!${APPLICATION_ID}>`,          // ニックネーム付きメンション
-      ];
-
-      const isMentioned = mentionPatterns.some(pattern => 
-        message.content && message.content.includes(pattern)
-      );
-
-      if (isMentioned) {
-        console.log('📢 Bot宛メンション検知');
-        await handleMention(message);
-      }
-    }
-
-    res.json({ success: true });
-
-  } catch (error) {
-    console.error('❌ Discord Events処理エラー:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // =========================
 // その他のエンドポイント
 // =========================
@@ -564,31 +526,27 @@ app.get('/', (req, res) => {
   
   res.json({
     status: 'running',
-    version: `${VERSION} - Render完全統合版 v15.1.0`,
+    version: `${VERSION} - Gateway+Interactions統合版 v15.2.0`,
     features: [
       '✅ Discord署名検証',
+      '✅ Discord Gateway（WebSocket）',
       '✅ /soudan スラッシュコマンド',
-      '✅ @わなみさん メンション機能 🆕',
+      '✅ @わなみさん メンション機能（統合版）',
+      '✅ ロールメンション対応',
       '✅ 5つの相談ボタン',
-      '✅ 知識ベース限定AI回答（3ボタン + メンション）',
-      '✅ 静的応答（2ボタン）',
+      '✅ 知識ベース限定AI回答',
       '✅ ミッション特別処理',
       '✅ 回答不能判定',
-      '✅ n8n完全削除 - Render単体処理'
+      '✅ 完全統合 - 単一プロセス'
     ],
     system: {
       initialized: isSystemInitialized,
       error: initializationError,
       ragEnabled: isSystemInitialized,
+      gatewayConnected: client.readyAt !== null,
       mentionEnabled: true,
-      n8nIntegration: false
+      roleId: ROLE_ID
     },
-    endpoints: [
-      '/interactions - Discord Interactions',
-      '/discord-events - Discord Gateway Events',
-      '/ - Health Check',
-      '/initialize - Manual Initialization'
-    ],
     timestamp: new Date().toISOString()
   });
 });
@@ -605,9 +563,9 @@ app.post('/initialize', async (req, res) => {
     if (result) {
       res.json({ 
         success: true, 
-        message: 'Render完全統合システム初期化完了',
-        version: 'v15.1.0',
-        features: ['メンション機能付き']
+        message: 'Gateway+Interactions統合システム初期化完了',
+        version: 'v15.2.0',
+        features: ['Gateway統合', 'メンション機能', 'ロール対応']
       });
     } else {
       res.status(500).json({ 
@@ -628,26 +586,44 @@ app.post('/initialize', async (req, res) => {
 // サーバー起動
 app.listen(PORT, async () => {
   console.log('='.repeat(70));
-  console.log(`🚀 Discord Bot Server - Render完全統合版 v15.1.0 起動`);
+  console.log(`🚀 Discord Bot Server - Gateway+Interactions統合版 v15.2.0 起動`);
   console.log(`📡 ポート: ${PORT}`);
   console.log(`🤖 Bot ID: ${APPLICATION_ID}`);
+  console.log(`🎭 Role ID: ${ROLE_ID}`);
   console.log('🔧 統合機能:');
+  console.log('   • Discord Gateway（WebSocket）- メンション監視');
+  console.log('   • Discord Interactions（HTTP）- スラッシュコマンド・ボタン');
   console.log('   • /soudan スラッシュコマンド');
-  console.log('   • @わなみさん メンション機能 🆕');
+  console.log('   • @わなみさん メンション + ロールメンション');
   console.log('   • 5つのボタン（AI3つ + 静的2つ）');
   console.log('   • 知識ベース限定回答システム');
   console.log('   • ミッション特別処理（良い例/悪い例）');
   console.log('   • 回答不能判定システム');
-  console.log('   • n8n完全削除 - Render単体処理');
+  console.log('   • 完全統合 - 単一プロセス');
   console.log('='.repeat(70));
+  
+  // Discord Gateway接続
+  console.log('🔗 Discord Gateway接続開始...');
+  if (!BOT_TOKEN) {
+    console.error('❌ DISCORD_BOT_TOKEN環境変数が設定されていません');
+    process.exit(1);
+  }
+  
+  try {
+    await client.login(BOT_TOKEN);
+    console.log('✅ Discord Gateway接続成功');
+  } catch (error) {
+    console.error('❌ Discord Gateway接続失敗:', error);
+    process.exit(1);
+  }
   
   // 自動初期化
   console.log('⏳ システム初期化開始...');
   await initializeServices();
   
   if (isSystemInitialized) {
-    console.log('✅ Render完全統合システム準備完了！');
-    console.log('🎯 メンション機能付き - n8n依存なし');
+    console.log('✅ Gateway+Interactions統合システム準備完了！');
+    console.log('🎯 メンション機能統合 - 単一プロセス');
   } else {
     console.log('⚠️ 初期化エラーあり。手動初期化をお試しください。');
   }
@@ -656,10 +632,12 @@ app.listen(PORT, async () => {
 // グレースフルシャットダウン
 process.on('SIGTERM', () => {
   console.log('🛑 SIGTERM受信。サーバーをシャットダウンします...');
+  client.destroy();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   console.log('🛑 SIGINT受信。サーバーをシャットダウンします...');
+  client.destroy();
   process.exit(0);
 });
