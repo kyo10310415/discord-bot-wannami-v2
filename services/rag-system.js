@@ -12,6 +12,26 @@ class RAGSystem {
     this.lastUpdateTime = null;
   }
 
+  // 🆕 追加: 初期化メソッド（index.jsとの互換性のため）
+  async initialize() {
+    try {
+      console.log('🤖 RAGシステム初期化開始...');
+      
+      // 基本的な初期化処理
+      this.isInitialized = true;
+      this.lastUpdateTime = new Date();
+      
+      console.log('✅ RAGシステム初期化完了');
+      console.log('ℹ️ 知識ベースの構築は initializeKnowledgeBase() で別途実行してください');
+      
+      return true;
+    } catch (error) {
+      console.error('❌ RAGシステム初期化エラー:', error.message);
+      this.isInitialized = false;
+      throw error;
+    }
+  }
+
   // 知識ベースの初期化
   async initializeKnowledgeBase(documents) {
     try {
@@ -302,6 +322,19 @@ class RAGSystem {
     return Math.ceil(text.length / 4);
   }
 
+  // 🆕 追加: 状態取得メソッド
+  getStatus() {
+    return {
+      initialized: this.isInitialized,
+      totalChunks: this.knowledgeBase.length,
+      lastUpdateTime: this.lastUpdateTime,
+      avgChunkLength: this.knowledgeBase.length > 0 
+        ? Math.round(this.knowledgeBase.reduce((sum, chunk) => sum + chunk.text.length, 0) / this.knowledgeBase.length)
+        : 0,
+      totalImages: this.knowledgeBase.reduce((sum, chunk) => sum + (chunk.images ? chunk.images.length : 0), 0)
+    };
+  }
+
   // 統計情報
   getStats() {
     return {
@@ -330,4 +363,25 @@ class RAGSystem {
   }
 }
 
-module.exports = new RAGSystem();
+// 🆕 修正: シングルトンインスタンス作成
+const ragSystem = new RAGSystem();
+
+// 🆕 修正: 複数の形式でexport（index.jsとの互換性確保）
+module.exports = {
+  // サービスインスタンス
+  ragSystem,
+  
+  // 直接メソッド呼び出し用
+  initialize: () => ragSystem.initialize(),
+  initializeRAG: () => ragSystem.initialize(),
+  initializeKnowledgeBase: (documents) => ragSystem.initializeKnowledgeBase(documents),
+  searchKnowledgeBaseOnly: (query, userInfo) => ragSystem.searchKnowledgeBaseOnly(query, userInfo),
+  search: (query, userInfo) => ragSystem.search(query, userInfo),
+  generateAnswer: (question, relevantChunks, options) => ragSystem.generateAnswer(question, relevantChunks, options),
+  getStats: () => ragSystem.getStats(),
+  getStatus: () => ragSystem.getStatus(),
+  reset: () => ragSystem.reset(),
+  
+  // 後方互換性のため
+  default: ragSystem
+};
