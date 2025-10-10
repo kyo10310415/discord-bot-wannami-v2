@@ -113,15 +113,15 @@ class GoogleAPIsService {
       const dataRows = values.slice(1);
       
       const urlList = dataRows
-        .filter(row => row[0] && row[0].trim()) // A列（URL）が必須
+        .filter(row => row[1] && row[1].trim() && row[1] !== 'URLリンク' && row[1].startsWith('http')) // B列（URL）が必須、ヘッダー除外、HTTP/HTTPSのみ
         .map((row, index) => ({
-          url: row[0] ? row[0].trim() : '',
-          fileName: row[1] ? row[1].trim() : `文書${index + 1}`,
+          url: row[1] ? row[1].trim() : '',
+          fileName: row[0] ? row[0].trim() : `文書${index + 1}`,
           category: row[2] ? row[2].trim() : 'general',
-          type: row[3] ? row[3].trim() : this.detectUrlType(row[0]),
+          type: row[3] ? row[3].trim() : this.detectUrlType(row[1]),
           rowIndex: index + 2
         }))
-        .filter(item => item.url); // URLが空でないもののみ
+        .filter(item => item.url && item.url.startsWith('http')); // URLが空でなく、HTTPで始まるもののみ
 
       console.log(`✅ URL一覧読み込み完了: ${urlList.length}件`);
       
@@ -138,27 +138,48 @@ class GoogleAPIsService {
     }
   }
 
-  // 🆕 追加: URLタイプの自動検出
+  // 🆕 追加: URLタイプの自動検出（強化版）
   detectUrlType(url) {
-    if (!url || typeof url !== 'string') return 'unknown';
+    if (!url || typeof url !== 'string') {
+      console.log(`❓ URL形式不明: ${url}`);
+      return 'unknown';
+    }
     
-    const urlLower = url.toLowerCase();
+    const urlLower = url.toLowerCase().trim();
     
-    // Google Docs/Slides
-    if (urlLower.includes('docs.google.com/presentation')) return 'google_slides';
-    if (urlLower.includes('docs.google.com/document')) return 'google_docs';
+    // Google Slides検出（より正確なパターン）
+    if (urlLower.includes('docs.google.com/presentation') || urlLower.includes('/presentation/d/')) {
+      console.log(`📊 Google Slides検出: ${url.substring(0, 50)}...`);
+      return 'google_slides';
+    }
     
-    // Notion
-    if (urlLower.includes('notion.so') || urlLower.includes('notion.site')) return 'notion';
+    // Google Docs検出（より正確なパターン）
+    if (urlLower.includes('docs.google.com/document') || urlLower.includes('/document/d/')) {
+      console.log(`📄 Google Docs検出: ${url.substring(0, 50)}...`);
+      return 'google_docs';
+    }
     
-    // 画像ファイル
+    // Notion検出
+    if (urlLower.includes('notion.so') || urlLower.includes('notion.site')) {
+      console.log(`📝 Notion検出: ${url.substring(0, 50)}...`);
+      return 'notion';
+    }
+    
+    // 画像ファイル検出
     if (urlLower.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i) || 
         urlLower.includes('cdn.discordapp.com') ||
-        urlLower.includes('drive.google.com/file')) return 'image';
+        urlLower.includes('drive.google.com/file')) {
+      console.log(`🖼️ 画像ファイル検出: ${url.substring(0, 50)}...`);
+      return 'image';
+    }
     
     // 一般ウェブサイト
-    if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) return 'website';
+    if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
+      console.log(`🌐 ウェブサイト検出: ${url.substring(0, 50)}...`);
+      return 'website';
+    }
     
+    console.log(`❓ 未知のURL形式: ${url}`);
     return 'unknown';
   }
 
@@ -209,6 +230,16 @@ class GoogleAPIsService {
 
     } catch (error) {
       console.error(`❌ Google Slides読み込みエラー ${fileName}:`, error.message);
+      
+      // より詳細なエラー情報
+      if (error.message.includes('permission') || error.message.includes('forbidden')) {
+        console.log(`🔒 権限エラー: ${fileName} - Botアカウントに共有権限が必要です`);
+        return { 
+          content: `${fileName}: Google Slides読み込みエラー - 共有権限が必要です。リンクを知っている全員に共有するか、discord-bot-wannami@wanamisan-474114.iam.gserviceaccount.com に編集権限を付与してください。`,
+          images: []
+        };
+      }
+      
       return { 
         content: `${fileName}: Google Slides読み込みエラー - ${error.message}`,
         images: []
@@ -256,6 +287,16 @@ class GoogleAPIsService {
 
     } catch (error) {
       console.error(`❌ Google Docs読み込みエラー ${fileName}:`, error.message);
+      
+      // より詳細なエラー情報
+      if (error.message.includes('permission') || error.message.includes('forbidden')) {
+        console.log(`🔒 権限エラー: ${fileName} - Botアカウントに共有権限が必要です`);
+        return { 
+          content: `${fileName}: Google Docs読み込みエラー - 共有権限が必要です。リンクを知っている全員に共有するか、discord-bot-wannami@wanamisan-474114.iam.gserviceaccount.com に編集権限を付与してください。`,
+          images: []
+        };
+      }
+      
       return { 
         content: `${fileName}: Google Docs読み込みエラー - ${error.message}`,
         images: []
