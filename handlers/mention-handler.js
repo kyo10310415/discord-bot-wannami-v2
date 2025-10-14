@@ -34,6 +34,12 @@ async function handleMessage(message, client) {
     // 応答処理開始のタイピング表示
     await message.channel.sendTyping();
     
+    // 質問内容が空の場合はボタンメニューを表示
+    if (!userQuery || userQuery.trim() === '') {
+      await showConsultationMenu(message);
+      return;
+    }
+    
     // 知識ベース限定応答処理
     try {
       const { generateKnowledgeOnlyResponse } = require('../services/rag-system');
@@ -102,6 +108,43 @@ function generateKnowledgeBaseFallback(userQuery, hasImages) {
   return response;
 }
 
+// 相談メニュー表示（「@わなみさん」だけのメンション時）
+async function showConsultationMenu(message) {
+  try {
+    logger.discord(`相談メニュー表示: ${message.author.username}`);
+    
+    const content = `🤖 **わなみさんです！**
+
+VTuber育成スクールへようこそ！
+どのようなご相談でしょうか？下のボタンから選択してください✨
+
+**📚 知識ベース限定回答システム**
+• **@わなみさん [質問]** で知識ベースから正確な回答
+• VTuber活動に特化した専門情報のみ回答
+• 知識ベース外の情報は「分からない」と正直に回答
+
+**📞 専門サポートメニュー**
+下のボタンから選択して、より詳しいサポートを受けられます！`;
+    
+    const { createConsultationButtons } = require('./discord-handler');
+    const buttons = createConsultationButtons();
+    
+    // ボタン付きメッセージを送信
+    await message.reply({
+      content: content,
+      components: buttons
+    });
+    
+    logger.success(`相談メニュー送信完了: ${message.author.username}`);
+    
+  } catch (error) {
+    logger.errorDetail('相談メニュー表示エラー:', error);
+    
+    // フォールバック応答
+    await message.reply('🤖 **わなみさんです！**\n\n何かご相談はありますか？\n\n**使い方:**\n• **@わなみさん [質問]** で知識ベースから回答\n• \`/soudan\` で相談メニューを表示\n\nお気軽にご相談ください✨');
+  }
+}
+
 // 長いメッセージを分割して送信
 async function sendLongMessage(channel, content, maxLength = 2000) {
   if (content.length <= maxLength) {
@@ -139,30 +182,49 @@ async function sendLongMessage(channel, content, maxLength = 2000) {
   // 分割されたメッセージを順次送信
   const sentMessages = [];
   for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
+    let messageContent = messages[i];
     
-    if (i === 0) {
-      // 最初のメッセージ
-      sentMessages.push(await channel.send(msg));
-    } else {
-      // 続きのメッセージ（少し間隔を空ける）
-      await new Promise(resolve => setTimeout(resolve, 500));
-      sentMessages.push(await channel.send(`**続き ${i + 1}/${messages.length}:**\n${msg}`));
+    // 最初のメッセージ以外には続きであることを示す
+    if (i > 0) {
+      messageContent = `**（続き ${i + 1}/${messages.length}）**\n${messageContent}`;
+    }
+    
+    // 最後のメッセージ以外には続くことを示す  
+    if (i < messages.length - 1) {
+      messageContent += `\n\n*（続く...）*`;
+    }
+    
+    const sentMessage = await channel.send(messageContent);
+    sentMessages.push(sentMessage);
+    
+    // 連続送信の間隔を空ける
+    if (i < messages.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
   
-  return sentMessages[0]; // 最初のメッセージを返す
+  return sentMessages;
 }
 
-// テスト用エクスポート（開発時のみ）
-if (process.env.NODE_ENV === 'test') {
-  module.exports = {
-    handleMessage,
-    generateKnowledgeBaseFallback,
-    sendLongMessage
-  };
-} else {
-  module.exports = {
-    handleMessage
-  };
+// ロールメンション処理（将来の拡張用）
+async function handleRoleMention(message, client) {
+  try {
+    // ロールメンションの検出と処理
+    const roleMentions = message.mentions?.roles;
+    if (!roleMentions || roleMentions.size === 0) return;
+    
+    logger.discord(`ロールメンション検出: ${roleMentions.size}個`);
+    
+    // 特定のロールに対する特別な処理を実装可能
+    // 例：管理者ロール、生徒ロール、講師ロール等
+    
+  } catch (error) {
+    logger.errorDetail('ロールメンション処理エラー:', error);
+  }
 }
+
+module.exports = {
+  handleMessage,
+  handleRoleMention,
+  sendLongMessage
+};
