@@ -1,4 +1,4 @@
-// handlers/mention-handler.js - メンション処理ハンドラー
+// handlers/mention-handler.js - メンション処理ハンドラー（logger修正版）
 
 const logger = require('../utils/logger');
 const { isBotMentioned, extractContentFromMention } = require('../utils/verification');
