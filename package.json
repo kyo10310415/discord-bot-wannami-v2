@@ -1,13 +1,15 @@
 {
   "name": "discord-bot-wannami-v2",
-  "version": "15.2.0",
-  "description": "VTuber育成スクール用Discord自動応答チャットボット - 完全機能版",
+  "version": "15.3.0",
+  "description": "VTuber育成スクール用Discord自動応答チャットボット - 知識ベース自動更新対応完全機能版",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
     "message-bot": "node discord-message-bot.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "knowledge:update": "node -e \"require('./services/knowledge-scheduler').knowledgeScheduler.performManualUpdate()\"",
+    "knowledge:status": "node -e \"console.log(JSON.stringify(require('./services/knowledge-scheduler').knowledgeScheduler.getStatus(), null, 2))\""
   },
   "engines": {
     "node": "18.x"
@@ -26,7 +28,8 @@
     "winston": "^3.13.0",
     "uuid": "^10.0.0",
     "html-to-text": "^9.0.5",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
@@ -36,12 +39,19 @@
     "vtuber",
     "ai-chatbot",
     "education",
-    "rag-system"
+    "rag-system",
+    "knowledge-base",
+    "auto-update",
+    "scheduler"
   ],
   "author": "VTuber育成スクール",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/kyo10310415/discord-bot-wannami-v2.git"
+  },
+  "homepage": "https://github.com/kyo10310415/discord-bot-wannami-v2#readme",
+  "bugs": {
+    "url": "https://github.com/kyo10310415/discord-bot-wannami-v2/issues"
   }
 }
