@@ -3,7 +3,18 @@
 const logger = require('../utils/logger');
 const { searchKnowledge } = require('./knowledge-base');
 const { generateAIResponse } = require('./openai-service');
-const { LIMITS } = require('../utils/constants');
+
+// 定数を直接定義（constants.jsが見つからない場合の対応）
+const LIMITS = {
+  MESSAGE_LENGTH: 2000,
+  EMBED_DESCRIPTION_LENGTH: 4096,
+  EMBED_FIELD_VALUE_LENGTH: 1024,
+  KNOWLEDGE_BASE_CHUNK_SIZE: 1500,
+  API_TIMEOUT: 30000,
+  RETRY_COUNT: 3,
+  RETRY_DELAY: 1000,
+  MAX_CONTEXT_LENGTH: 25000
+};
 
 class RAGSystem {
   constructor() {
@@ -16,6 +27,7 @@ class RAGSystem {
     try {
       this.initialized = true;
       logger.info('✅ RAGシステム初期化完了');
+      return this;
     } catch (error) {
       logger.errorDetail('RAGシステム初期化エラー:', error);
       throw error;
@@ -194,9 +206,13 @@ const ragSystem = new RAGSystem();
 
 module.exports = {
   ragSystem,
+  // 重要: initialize メソッドを追加
+  initialize: () => ragSystem.initialize(),
   generateRAGResponse: (userQuery, images, context) => 
     ragSystem.generateRAGResponse(userQuery, images, context),
   generateKnowledgeOnlyResponse: (userQuery, context) =>
     ragSystem.generateKnowledgeOnlyResponse(userQuery, context),
-  initializeRAG: () => ragSystem.initialize()
+  initializeRAG: () => ragSystem.initialize(),
+  // レガシー対応
+  RAGSystem
 };
