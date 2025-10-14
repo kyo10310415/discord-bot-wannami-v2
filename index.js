@@ -1,4 +1,4 @@
-// VTuber育成スクール用Discord自動応答チャットボット - 完全機能版 v15.2.0
+// VTuber育成スクール用Discord自動応答チャットボット - 完全機能版 v15.3.0
 require('dotenv').config();
 const { Client, GatewayIntentBits, InteractionType, InteractionResponseType, EmbedBuilder } = require('discord.js');
 const express = require('express');
@@ -14,10 +14,14 @@ const imageUtils = require('./utils/image-utils');
 const aiResponseGenerator = require('./ai/ai-response-generator');
 const promptTemplates = require('./ai/prompt-templates');
 
+// 知識ベース自動更新スケジューラー
+const { knowledgeScheduler } = require('./services/knowledge-scheduler');
+
 // ハンドラー統合
 const discordHandler = require('./handlers/discord-handler');
 const mentionHandler = require('./handlers/mention-handler');
 const buttonHandler = require('./handlers/button-handler');
+const adminHandler = require('./handlers/admin-handler');
 
 class WannamiBot {
     constructor() {
@@ -54,7 +58,16 @@ class WannamiBot {
             // 知識ベース初期化
             await this.initializeKnowledgeBase();
             
+            // 知識ベース自動更新スケジューラー開始
+            try {
+                knowledgeScheduler.start();
+                console.log('📅 知識ベース自動更新スケジューラー開始完了');
+            } catch (schedulerError) {
+                console.error('❌ スケジューラー開始エラー:', schedulerError);
+            }
+            
             this.isReady = true;
+            console.log('🚀 全システム初期化完了');
         });
         
         // メッセージ処理 - 高度機能統合版
@@ -64,15 +77,15 @@ class WannamiBot {
             try {
                 console.log(`📩 メッセージ受信: ${message.author.tag} - ${message.content}`);
                 
-                // メンション処理
+                // メンション処理（修正されたハンドラーを使用）
                 if (message.mentions.has(this.client.user)) {
-                    await this.handleMentionMessage(message);
+                    await mentionHandler.handleMessage(message, this.client);
                     return;
                 }
                 
                 // ロールメンション処理
                 if (await this.checkRoleMention(message)) {
-                    await this.handleRoleMentionMessage(message);
+                    await mentionHandler.handleRoleMention(message, this.client);
                     return;
                 }
                 
@@ -93,7 +106,7 @@ class WannamiBot {
                 if (interaction.isCommand()) {
                     await this.handleSlashCommand(interaction);
                 } else if (interaction.isButton()) {
-                    await buttonHandler.handleButtonInteraction(interaction);
+                    await buttonHandler.handleButtonClick(interaction, this.client);
                 }
             } catch (error) {
                 console.error('❌ インタラクション処理エラー:', error);
@@ -106,7 +119,12 @@ class WannamiBot {
         try {
             console.log('📚 知識ベース初期化中...');
             await knowledgeBase.initialize();
-            await ragSystem.initialize();
+            
+            // RAGシステム初期化
+            if (ragSystem.initialize) {
+                await ragSystem.initialize();
+            }
+            
             console.log('✅ 知識ベース初期化完了');
         } catch (error) {
             console.error('❌ 知識ベース初期化エラー:', error);
@@ -305,7 +323,28 @@ class WannamiBot {
     // スラッシュコマンド処理
     async handleSlashCommand(interaction) {
         try {
-            await discordHandler.handleSlashCommand(interaction);
+            const commandName = interaction.commandName;
+            
+            switch (commandName) {
+                case 'soudan':
+                    await discordHandler.handleSlashCommand(interaction);
+                    break;
+                    
+                case 'help':
+                    await discordHandler.handleSlashCommand(interaction);
+                    break;
+                    
+                case 'status':
+                    await discordHandler.handleSlashCommand(interaction);
+                    break;
+                    
+                case 'knowledge':
+                    await adminHandler.handleKnowledgeCommand(interaction);
+                    break;
+                    
+                default:
+                    await discordHandler.handleSlashCommand(interaction);
+            }
         } catch (error) {
             console.error('❌ スラッシュコマンド処理エラー:', error);
         }
@@ -314,10 +353,12 @@ class WannamiBot {
     // Webサーバー設定
     setupWebServer() {
         this.app.get('/', (req, res) => {
+            const schedulerStatus = knowledgeScheduler.getStatus();
+            
             res.json({
                 status: 'running',
                 botName: 'わんなみちゃんBot',
-                version: '15.2.0',
+                version: '15.3.0',
                 features: [
                     '知識ベース統合（A-G列対応）',
                     'OpenAI GPT-4 Vision対応',
@@ -325,19 +366,52 @@ class WannamiBot {
                     '画像検出・抽出・Vision解析',
                     'Notion/WEBサイト読み込み',
                     '知識ベース限定回答システム',
-                    'ロールメンション対応'
+                    'ロールメンション対応',
+                    'AI対話式ボタンメニュー',
+                    '知識ベース自動更新スケジューラー'
                 ],
-                ready: this.isReady
+                ready: this.isReady,
+                knowledgeBase: {
+                    autoUpdate: schedulerStatus.isRunning,
+                    lastUpdate: schedulerStatus.lastUpdate,
+                    nextUpdate: schedulerStatus.nextUpdate,
+                    updateInProgress: schedulerStatus.updateInProgress
+                }
             });
         });
         
         this.app.get('/health', (req, res) => {
+            const schedulerStatus = knowledgeScheduler.getStatus();
+            
             res.json({
                 status: 'healthy',
                 uptime: process.uptime(),
                 memory: process.memoryUsage(),
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                scheduler: {
+                    running: schedulerStatus.isRunning,
+                    updating: schedulerStatus.updateInProgress
+                }
             });
+        });
+        
+        // 知識ベース統計API
+        this.app.get('/api/knowledge-stats', (req, res) => {
+            try {
+                const kbStats = knowledgeBase.getStats();
+                const schedulerStatus = knowledgeScheduler.getStatus();
+                
+                res.json({
+                    knowledgeBase: kbStats,
+                    scheduler: schedulerStatus,
+                    timestamp: new Date().toISOString()
+                });
+            } catch (error) {
+                res.status(500).json({
+                    error: 'Failed to get knowledge base stats',
+                    message: error.message
+                });
+            }
         });
     }
     
@@ -365,6 +439,11 @@ class WannamiBot {
         console.log('🔄 わんなみちゃんBot終了処理中...');
         
         try {
+            // スケジューラー停止
+            knowledgeScheduler.stop();
+            console.log('📅 知識ベース自動更新スケジューラー停止完了');
+            
+            // Discord Bot終了
             await this.client.destroy();
             console.log('✅ Bot終了完了');
             process.exit(0);
@@ -377,15 +456,30 @@ class WannamiBot {
 
 // シグナルハンドリング
 process.on('SIGINT', async () => {
+    console.log('🛑 SIGINT受信 - 終了処理開始');
     if (global.bot) {
         await global.bot.shutdown();
     }
 });
 
 process.on('SIGTERM', async () => {
+    console.log('🛑 SIGTERM受信 - 終了処理開始');
     if (global.bot) {
         await global.bot.shutdown();
     }
+});
+
+// 未処理例外のキャッチ
+process.on('uncaughtException', (error) => {
+    console.error('❌ 未処理例外:', error);
+    if (global.bot) {
+        global.bot.shutdown();
+    }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ 未処理Promise拒否:', reason);
+    console.error('Promise:', promise);
 });
 
 // Bot起動
