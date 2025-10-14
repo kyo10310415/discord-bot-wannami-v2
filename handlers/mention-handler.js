@@ -40,7 +40,33 @@ async function handleMessage(message, client) {
       return;
     }
     
-    // 知識ベース限定応答処理
+    // ボタンクリック後の質問応答かチェック
+    const { handleQuestionResponse, isUserWaitingForQuestion } = require('./button-handler');
+    
+    if (isUserWaitingForQuestion(message.author.id)) {
+      // ボタンクリック後の質問応答処理
+      try {
+        const buttonResponse = await handleQuestionResponse(message.author.id, userQuery, {
+          username: message.author.username,
+          channelName: message.channel.name,
+          guildName: message.guild?.name || 'DM',
+          hasImages: hasImages,
+          imageUrls: imageUrls
+        });
+        
+        if (buttonResponse) {
+          // ボタン質問の応答を送信
+          await sendLongMessage(message.channel, buttonResponse);
+          logger.success(`ボタン質問応答送信完了: ${message.author.username}`);
+          return;
+        }
+      } catch (buttonError) {
+        logger.errorDetail('ボタン質問応答エラー:', buttonError);
+        // 通常の知識ベース応答にフォールバック
+      }
+    }
+    
+    // 通常の知識ベース限定応答処理
     try {
       const { generateKnowledgeOnlyResponse } = require('../services/rag-system');
       
@@ -49,7 +75,8 @@ async function handleMessage(message, client) {
         username: message.author.username,
         channelName: message.channel.name,
         guildName: message.guild?.name || 'DM',
-        hasImages: hasImages
+        hasImages: hasImages,
+        imageUrls: imageUrls
       });
       
       // 応答送信（2000文字制限対応）
