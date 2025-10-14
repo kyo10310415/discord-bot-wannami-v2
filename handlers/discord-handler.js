@@ -1,233 +1,193 @@
-// handlers/discord-handler.js - Discord Webhook処理
+// handlers/discord-handler.js - Discord Slash Commandハンドラー
 
-const { DISCORD_PUBLIC_KEY, BOT_USER_ID } = require('../config/constants');
-const { 
-  validateDiscordRequest, 
-  parseDiscordBody, 
-  getInteractionType,
-  extractInteractionInfo,
-  createDiscordResponse,
-  createErrorResponse,
-  createSuccessResponse,
-  isBotMentioned,
-  extractContentFromMention
-} = require('../utils/verification');
-const { hasImageAttachments, extractImageUrls } = require('../utils/image-utils');
-const buttonHandler = require('./button-handler');
-const mentionHandler = require('./mention-handler');
+const logger = require('../utils/logger');
+const { createDiscordResponse } = require('../utils/verification');
 
-class DiscordHandler {
-  constructor() {
-    this.interactionCount = 0;
-  }
-
-  // メインDiscord Webhook処理
-  async handleWebhook(req, res) {
-    try {
-      this.interactionCount++;
-      console.log(`=== Discord Interaction #${this.interactionCount} 受信 ===`);
-      console.log('Time:', new Date().toISOString());
-      
-      const signature = req.headers['x-signature-ed25519'];
-      const timestamp = req.headers['x-signature-timestamp'];
-      
-      // 署名検証
-      if (!validateDiscordRequest(signature, timestamp, req.body, DISCORD_PUBLIC_KEY)) {
-        console.log('❌ 署名検証失敗');
-        return res.status(401).json({ error: 'Invalid signature' });
-      }
-
-      // JSONパース
-      let body;
-      try {
-        body = parseDiscordBody(req.body);
-      } catch (error) {
-        console.log('❌ JSONパースエラー');
-        return res.status(400).json({ error: 'Invalid JSON' });
-      }
-
-      // インタラクション情報抽出
-      const interactionInfo = extractInteractionInfo(body);
-      console.log('Type:', interactionInfo.type);
-      console.log('User:', interactionInfo.user?.username);
-      console.log('Channel:', interactionInfo.channel?.id);
-
-      // インタラクションタイプ別処理
-      const response = await this.routeInteraction(body, interactionInfo);
-      
-      if (response) {
-        console.log('✅ Discord応答送信');
-        return res.json(response);
-      } else {
-        console.log('⚠️ 応答なし');
-        return res.status(200).json({ message: 'No response' });
-      }
-
-    } catch (error) {
-      console.error('❌ Discord Webhook処理エラー:', error);
-      const errorResponse = createErrorResponse('内部エラーが発生しました');
-      return res.status(500).json(errorResponse);
-    }
-  }
-
-  // インタラクションタイプ別ルーティング
-  async routeInteraction(body, interactionInfo) {
-    switch (interactionInfo.type) {
-      case 'PING':
-        console.log('🏓 PING認証');
-        return { type: 1 };
-
-      case 'MESSAGE':
-        return await this.handleMessage(body, interactionInfo);
-
-      case 'APPLICATION_COMMAND':
-        return await this.handleSlashCommand(body, interactionInfo);
-
-      case 'MESSAGE_COMPONENT':
-        return await this.handleButton(body, interactionInfo);
-
-      default:
-        console.log('❓ 未対応のInteractionタイプ:', interactionInfo.type);
-        return null;
-    }
-  }
-
-  // メッセージ処理（メンション検出）
-  async handleMessage(body, interactionInfo) {
-    console.log('💬 メッセージ受信 - メンション確認中...');
-    
-    const messageInfo = interactionInfo.message;
-    if (!messageInfo) {
-      console.log('📝 メッセージ情報なし');
-      return null;
-    }
-
-    const content = messageInfo.content;
-    const mentions = messageInfo.mentions || [];
-    const attachments = messageInfo.attachments || [];
-
-    // 画像添付チェック
-    const hasImages = hasImageAttachments(attachments);
-    const imageUrls = hasImages ? extractImageUrls(attachments) : [];
-
-    if (hasImages) {
-      console.log(`🖼️ 画像添付検出: ${imageUrls.length}個`);
-    }
-
-    // メンション検出
-    if (isBotMentioned(content, mentions, BOT_USER_ID)) {
-      console.log('🏷️ @わなみさん メンション検出！');
-      
-      return await mentionHandler.handleMention({
-        content: content,
-        user: interactionInfo.user,
-        channel: interactionInfo.channel,
-        guild: interactionInfo.guild,
-        imageUrls: imageUrls,
-        originalBody: body
-      });
-    } else {
-      console.log('📝 通常メッセージ（メンションなし）- 処理スキップ');
-      return null;
-    }
-  }
-
-  // スラッシュコマンド処理
-  async handleSlashCommand(body, interactionInfo) {
-    const commandName = body.data?.name;
-    console.log(`⚡ スラッシュコマンド: /${commandName}`);
-
-    switch (commandName) {
-      case 'soudan':
-        return await this.handleSoudanCommand(body, interactionInfo);
-      
-      default:
-        console.log(`❓ 未知のコマンド: /${commandName}`);
-        return createErrorResponse(`未知のコマンド: /${commandName}`);
-    }
-  }
-
-  // /soudan コマンド処理
-  async handleSoudanCommand(body, interactionInfo) {
-    console.log('⚡ /soudan コマンド処理');
-
-    const userId = interactionInfo.user?.id;
-    const menuResponse = this.createConsultationMenu(userId);
-
-    return createSuccessResponse(menuResponse.content, menuResponse.components);
-  }
-
-  // ボタン処理
-  async handleButton(body, interactionInfo) {
-    const buttonId = body.data?.custom_id;
-    console.log(`🔘 ボタンクリック: ${buttonId}`);
-
-    return await buttonHandler.handleButton({
-      buttonId: buttonId,
-      user: interactionInfo.user,
-      channel: interactionInfo.channel,
-      guild: interactionInfo.guild,
-      originalBody: body
-    });
-  }
-
-  // 相談メニュー作成
-  createConsultationMenu(userId) {
-    return {
-      content: `こんにちは <@${userId}>さん！\nどのようなご相談でしょうか？以下から選択してください：`,
+// 5つの選択肢ボタンを作成
+function createConsultationButtons() {
+  return [
+    {
+      type: 1, // ACTION_ROW
       components: [
         {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 1,
-              label: "お支払いに関する相談",
-              custom_id: "payment_consultation"
-            },
-            {
-              type: 2,
-              style: 2,
-              label: "プライベートなご相談",
-              custom_id: "private_consultation"
-            },
-            {
-              type: 2,
-              style: 3,
-              label: "レッスンについての質問",
-              custom_id: "lesson_question"
-            }
-          ]
+          type: 2, // BUTTON
+          style: 1, // PRIMARY
+          label: "①お支払い相談",
+          custom_id: "payment_consultation"
         },
         {
-          type: 1,
-          components: [
-            {
-              type: 2,
-              style: 3,
-              label: "SNS運用相談",
-              custom_id: "sns_consultation"
-            },
-            {
-              type: 2,
-              style: 1,
-              label: "ミッションの提出",
-              custom_id: "mission_submission"
-            }
-          ]
+          type: 2,
+          style: 1,
+          label: "②プライベート相談",
+          custom_id: "private_consultation"
+        },
+        {
+          type: 2,
+          style: 1,
+          label: "③レッスン質問",
+          custom_id: "lesson_question"
         }
       ]
-    };
-  }
+    },
+    {
+      type: 1,
+      components: [
+        {
+          type: 2,
+          style: 1,
+          label: "④SNS運用相談",
+          custom_id: "sns_consultation"
+        },
+        {
+          type: 2,
+          style: 1,
+          label: "⑤ミッション提出",
+          custom_id: "mission_submission"
+        }
+      ]
+    }
+  ];
+}
 
-  // 統計情報取得
-  getStats() {
-    return {
-      totalInteractions: this.interactionCount,
-      uptime: process.uptime(),
-      memoryUsage: process.memoryUsage()
-    };
+// /soudanコマンドの応答
+function handleSoudanCommand(interaction) {
+  logger.discord('/soudanコマンド実行');
+  
+  const content = `🌟 **わなみさんに相談する** 🌟
+
+VTuber育成スクールへようこそ！
+どのようなご相談でしょうか？下のボタンから選択してください✨
+
+**ご利用方法**
+• ボタンを押すと詳細な案内が表示されます
+• あなただけに見える応答なので安心してご利用ください
+• 24時間いつでもご相談可能です💕
+
+**📚 知識ベース限定回答システム**
+• **@わなみさん [質問]** で知識ベースから正確な回答
+• VTuber活動に特化した専門情報のみ回答
+• 知識ベース外の情報は「分からない」と正直に回答
+
+**🎯 AI対話式ボタン（②③④）**
+• ボタンクリック→質問入力促進→AI回答の流れ
+• 3分以内の質問入力が必要
+• 知識ベース限定のAI専門回答を提供`;
+
+  return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
+    content: content,
+    components: createConsultationButtons(),
+    flags: 64 // EPHEMERAL - 本人のみ表示
+  });
+}
+
+// Slash Commandのメイン処理
+async function handleSlashCommand(interaction) {
+  try {
+    const commandName = interaction.data.name;
+    logger.discord(`Slash Command受信: /${commandName}`);
+    
+    switch (commandName) {
+      case 'soudan':
+        return handleSoudanCommand(interaction);
+        
+      case 'help':
+        return handleHelpCommand();
+        
+      case 'status':
+        return handleStatusCommand();
+        
+      default:
+        logger.warn(`未知のSlash Command: /${commandName}`);
+        return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
+          content: `❌ 未対応のコマンド: \`/${commandName}\``,
+          flags: 64
+        });
+    }
+    
+  } catch (error) {
+    logger.errorDetail(`Slash Command処理エラー:`, error);
+    return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
+      content: '❌ コマンド処理中にエラーが発生しました。しばらく待ってから再度お試しください。',
+      flags: 64
+    });
   }
 }
 
-module.exports = new DiscordHandler();
+// /helpコマンドの応答
+function handleHelpCommand() {
+  logger.discord('/helpコマンド実行');
+  
+  const content = `📖 **わなみさんBotヘルプ** 📖
+
+**利用可能なコマンド:**
+• \`/soudan\` - 相談メニューを表示
+• \`/help\` - このヘルプを表示
+• \`/status\` - ボットの状態を確認
+
+**メンション機能:**
+• \`@わなみさん [質問]\` - AI知識ベースで回答
+• 画像添付でAI画像解析も可能
+
+**相談カテゴリ:**
+① お支払い相談
+② プライベート相談  
+③ レッスン質問
+④ SNS運用相談
+⑤ ミッション提出
+
+**特別機能:**
+• AI知識ベース統合（VTuber育成専門）
+• 画像解析機能（Live2D、配信画面等）
+• Notion/WEBサイト連携
+• RAGシステムによる精密回答
+
+**サポート:**
+何かご不明な点がございましたら、\`@わなみさん\`でお気軽にお声がけください！`;
+
+  return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
+    content: content,
+    flags: 64 // EPHEMERAL
+  });
+}
+
+// /statusコマンドの応答
+function handleStatusCommand() {
+  logger.discord('/statusコマンド実行');
+  
+  const uptime = process.uptime();
+  const uptimeHours = Math.floor(uptime / 3600);
+  const uptimeMinutes = Math.floor((uptime % 3600) / 60);
+  const uptimeSeconds = Math.floor(uptime % 60);
+  
+  const content = `📊 **Bot Status** 📊
+
+**基本情報:**
+• Version: 15.2.0 (Gateway+Interactions統合版)
+• Uptime: ${uptimeHours}h ${uptimeMinutes}m ${uptimeSeconds}s
+• Node.js: ${process.version}
+• Memory: ${Math.round(process.memoryUsage.rss() / 1024 / 1024)}MB
+
+**機能状態:**
+✅ Discord Gateway接続
+✅ Interactions API
+✅ AI知識ベース
+✅ 画像解析機能
+✅ RAGシステム
+✅ Google APIs連携
+
+**統計:**
+• 起動日時: ${new Date(Date.now() - uptime * 1000).toLocaleString('ja-JP')}
+• 現在時刻: ${new Date().toLocaleString('ja-JP')}
+
+すべてのシステムが正常に動作しています！`;
+
+  return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
+    content: content,
+    flags: 64 // EPHEMERAL
+  });
+}
+
+module.exports = {
+  handleSlashCommand,
+  createConsultationButtons
+};
