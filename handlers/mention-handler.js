@@ -1,4 +1,4 @@
-// handlers/mention-handler.js - メンション処理ハンドラー（logger修正版）
+// handlers/mention-handler.js - メンション処理ハンドラー
 
 const logger = require('../utils/logger');
 const { isBotMentioned, extractContentFromMention } = require('../utils/verification');
@@ -16,6 +16,14 @@ async function handleMessage(message, client) {
     // メンション検出
     const mentions = message.mentions?.users?.map(user => ({ id: user.id })) || [];
     const isMentioned = isBotMentioned(message.content, mentions, BOT_USER_ID);
+    
+    // ロールメンション処理も統合
+    const roleMentions = message.mentions?.roles;
+    if (roleMentions && roleMentions.size > 0) {
+      logger.discord(`ロールメンション検出: ${roleMentions.size}個`);
+      // 特定のロールに対する特別な処理を実装可能
+      // 例：管理者ロール、生徒ロール、講師ロール等
+    }
     
     if (!isMentioned) return;
     
@@ -233,21 +241,11 @@ async function sendLongMessage(channel, content, maxLength = 2000) {
   return sentMessages;
 }
 
-// ロールメンション処理（将来の拡張用）
+// ロールメンション処理（将来の拡張用 - 非推奨）
+// 現在はhandleMessageで統合処理されているため、この関数は使用しないことを推奨
 async function handleRoleMention(message, client) {
-  try {
-    // ロールメンションの検出と処理
-    const roleMentions = message.mentions?.roles;
-    if (!roleMentions || roleMentions.size === 0) return;
-    
-    logger.discord(`ロールメンション検出: ${roleMentions.size}個`);
-    
-    // 特定のロールに対する特別な処理を実装可能
-    // 例：管理者ロール、生徒ロール、講師ロール等
-    
-  } catch (error) {
-    logger.errorDetail('ロールメンション処理エラー:', error);
-  }
+  logger.warn('非推奨: handleRoleMentionは使用されません。handleMessageで統合処理されています。');
+  // 重複処理を防ぐために空関数として保持
 }
 
 module.exports = {
