@@ -11,16 +11,44 @@ const activeQuestionWaits = new Map();
 const BUTTON_RESPONSES = {
   [BUTTON_IDS.PAYMENT_CONSULTATION]: {
     title: "💰 お支払い相談",
-    content: `**申し訳ございません。お支払いに関するご相談はここではお受けできません。**
+    content: `**お支払いに関するご相談を承ります**
 
-お支払い担当者にご連絡ください`
+以下の情報をお教えください：
+
+🔹 **ご相談内容**
+• 分割払いのご希望
+• お支払い方法の変更
+• 請求書に関するお問い合わせ
+• その他お支払いに関するご質問
+
+🔹 **お急ぎの場合**
+LINE公式アカウント: @wannami-school
+メール: support@wannami-school.com
+
+**※ お支払い情報は個人情報のため、DMまたは専用チャンネルでご相談ください**
+
+わなみさんがしっかりサポートいたします✨`
   },
   
   [BUTTON_IDS.PRIVATE_CONSULTATION]: {
     title: "💬 プライベート相談",
-    content: `**申し訳ございません。プライベートなご相談はここではお受けできません。**
+    content: `**プライベートなご相談承ります**
 
-担任の先生にご連絡ください。`
+🔹 **このようなご相談をお受けしています**
+• VTuber活動への不安や悩み
+• 配信内容やキャラクター設定について
+• ファンとの関係性について
+• 活動継続に関する悩み
+• その他、センシティブなご相談
+
+🔹 **相談方法**
+• **推奨**: わなみさんとのDM（完全プライベート）
+• 専用相談チャンネル（限定公開）
+
+🔹 **相談時間**
+平日 10:00-18:00 / 土日 14:00-20:00
+
+**あなたの気持ちに寄り添って、一緒に解決策を見つけましょう💕**`
   },
   
   [BUTTON_IDS.LESSON_QUESTION]: {
@@ -31,6 +59,7 @@ const BUTTON_RESPONSES = {
       "配信ソフトの設定方法を教えて",
       "Live2Dが正常に動作しない",
       "音声にノイズが入る問題の解決方法",
+      "コラボ配信の準備手順"
     ]
   },
   
@@ -41,6 +70,7 @@ const BUTTON_RESPONSES = {
     examples: [
       "Twitterでフォロワーを増やす方法",
       "バズる動画の作り方のコツ",
+      "Instagram投稿の最適な時間帯",
       "アンチコメントへの対処法"
     ]
   },
@@ -50,7 +80,10 @@ const BUTTON_RESPONSES = {
     categoryName: "ミッション",
     contextInfo: "ミッション内容、提出方法、評価基準、次のステップについて",
     examples: [
-      "ミッションのレッスン番号を記載してからご提出ください"
+      "ミッション001の提出方法を教えて",
+      "動画提出時の注意点は何ですか",
+      "評価基準について詳しく知りたい",
+      "次のステップの準備について"
     ]
   }
 };
@@ -323,8 +356,71 @@ function getButtonStats() {
   };
 }
 
+// Gateway経由のボタンクリック処理（Discord.jsインタラクション対応）
+async function handleButtonClickGateway(interaction, client) {
+  try {
+    const buttonId = interaction.customId;
+    const user = interaction.user;
+    
+    logger.discord(`Gatewayボタンクリック: ${buttonId} by ${user?.username}`);
+
+    // ボタン応答の取得
+    const buttonResponse = BUTTON_RESPONSES[buttonId];
+    
+    if (!buttonResponse) {
+      logger.warn(`未定義のBUTTON_ID: ${buttonId}`);
+      return {
+        data: {
+          content: "申し訳ございません。このボタンはまだ準備中です🙏\n" +
+                  "他のボタンをお試しいただくか、直接わなみさんにお声がけください✨",
+          flags: 64 // EPHEMERAL
+        }
+      };
+    }
+
+    // AI機能対応ボタンかチェック
+    const isAITarget = AI_TARGET_BUTTONS.has(buttonId);
+    
+    let responseContent;
+    
+    if (isAITarget) {
+      // AI対応ボタン: 質問入力を促すメッセージを表示
+      responseContent = generateQuestionPrompt(buttonResponse, buttonId, user);
+      
+      // 質問待ち状態を登録（３分間のタイムアウト付き）
+      registerQuestionWait(user.id, buttonId, interaction.channelId);
+      
+    } else {
+      // 静的応答ボタン: 事前定義された内容を返す
+      responseContent = `✨ **${buttonResponse.title}** ✨\n\n${buttonResponse.content}`;
+    }
+
+    // 応答作成
+    const response = {
+      data: {
+        content: responseContent,
+        flags: 64 // EPHEMERAL - 本人のみ表示
+      }
+    };
+
+    logger.success(`${buttonResponse.title} Gateway応答送信完了`);
+    return response;
+
+  } catch (error) {
+    logger.errorDetail('Gatewayボタンクリック処理エラー:', error);
+    
+    return {
+      data: {
+        content: '❌ ボタン処理中にエラーが発生しました。しばらく待ってから再度お試しください。',
+        flags: 64
+      }
+    };
+  }
+}
+
 module.exports = {
   handleButtonClick,
+  handleButtonClickGateway,
   handleAITargetButton,
   handleQuestionResponse,
   generateAIButtonResponse,
