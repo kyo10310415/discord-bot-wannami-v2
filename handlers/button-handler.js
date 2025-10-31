@@ -72,7 +72,7 @@ async function handleButtonClick(interaction, client) {
       return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
         content: "申し訳ございません。このボタンはまだ準備中です🙏\n" +
                 "他のボタンをお試しいただくか、直接わなみさんにお声がけください✨",
-        flags: 64 // EPHEMERAL
+        flags: 0 
       });
     }
 
@@ -107,7 +107,7 @@ async function handleButtonClick(interaction, client) {
     
     return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
       content: '❌ ボタン処理中にエラーが発生しました。しばらく待ってから再度お試しください。',
-      flags: 64
+      flags: 0
     });
   }
 }
