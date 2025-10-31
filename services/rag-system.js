@@ -3,18 +3,7 @@
 const logger = require('../utils/logger');
 const { searchKnowledge } = require('./knowledge-base');
 const { generateAIResponse } = require('./openai-service');
-
-// 定数を直接定義（constants.jsが見つからない場合の対応）
-const LIMITS = {
-  MESSAGE_LENGTH: 2000,
-  EMBED_DESCRIPTION_LENGTH: 4096,
-  EMBED_FIELD_VALUE_LENGTH: 1024,
-  KNOWLEDGE_BASE_CHUNK_SIZE: 1500,
-  API_TIMEOUT: 30000,
-  RETRY_COUNT: 3,
-  RETRY_DELAY: 1000,
-  MAX_CONTEXT_LENGTH: 25000
-};
+const { LIMITS } = require('../utils/constants');
 
 class RAGSystem {
   constructor() {
@@ -27,7 +16,6 @@ class RAGSystem {
     try {
       this.initialized = true;
       logger.info('✅ RAGシステム初期化完了');
-      return this;
     } catch (error) {
       logger.errorDetail('RAGシステム初期化エラー:', error);
       throw error;
@@ -45,98 +33,103 @@ class RAGSystem {
         minScore: 0.1
       });
 
-      logger.ai(`知識ベース検索結果: ${knowledgeResults.length}件`);
+      logger.info(`知識ベース検索結果: ${knowledgeResults.length}件`);
 
       // 2. コンテキスト構築
-      const ragPrompt = this.buildRAGPrompt(userQuery, knowledgeResults, context);
+      let knowledgeContext = '';
+      if (knowledgeResults.length > 0) {
+        knowledgeContext = '【知識ベースからの関連情報】\n\n';
+        knowledgeResults.forEach((result, index) => {
+          knowledgeContext += `${index + 1}. ${result.title}\n`;
+          knowledgeContext += `${result.content}\n`;
+          knowledgeContext += `(関連度: ${(result.score * 100).toFixed(1)}%)\n\n`;
+        });
+      }
 
-      // 3. AI応答生成
-      const response = await generateAIResponse(ragPrompt, images, context);
+      // 3. システムプロンプト作成
+      const systemPrompt = `あなたは「わなみさん」という名前のVTuber育成スクールのアシスタントです。
 
-      logger.info('✅ RAG応答生成完了');
-      return response;
+【重要な役割】
+- VTuber活動を目指す生徒をサポート
+- 技術的な質問に対して具体的かつ分かりやすく回答
+- 親しみやすく、励ましの言葉も添える
+- 知識ベースの情報を最優先に使用
+
+【回答スタイル】
+- 絵文字を適度に使用（🎥✨💡など）
+- 専門用語は初心者にも分かるように説明
+- 具体例を交えた実践的なアドバイス
+- 必要に応じて段階的な手順を提示
+
+【知識ベース情報】
+${knowledgeContext || '関連する知識ベース情報が見つかりませんでした。'}
+
+上記の知識ベース情報を参考に、ユーザーの質問に答えてください。`;
+
+      // 4. AI応答生成
+      const aiResponse = await generateAIResponse(
+        systemPrompt,
+        userQuery,
+        images,
+        context
+      );
+
+      logger.success('RAG応答生成完了');
+      return aiResponse;
 
     } catch (error) {
       logger.errorDetail('RAG応答生成エラー:', error);
-      // フォールバック: 知識ベースなしでAI応答
-      return await generateAIResponse(userQuery, images, context);
+      throw error;
     }
   }
 
-  // RAG用プロンプト構築
-  buildRAGPrompt(userQuery, knowledgeResults, context = {}) {
-    let prompt = `あなたはVTuber育成スクールの専門アシスタント「わなみさん」です。
+  // 画像解析統合RAG応答
+  async generateRAGResponseWithVision(userQuery, imageUrls = [], context = {}) {
+    try {
+      logger.ai('画像解析統合RAG応答生成開始');
 
-【基本設定】
-• VTuber活動に関する専門知識を持っています
-• 優しく丁寧な口調で回答します
-• 提供された知識ベースを活用して正確な情報を提供します
-• 知識ベースにない情報については、一般的な知識で補完します
-• 日本語で回答します`;
-
-    // 知識ベース情報の追加
-    if (knowledgeResults.length > 0) {
-      prompt += `\n\n【関連する知識ベース情報】`;
-      
-      knowledgeResults.forEach((result, index) => {
-        prompt += `\n\n**参考情報 ${index + 1}** (関連度: ${(result.score * 100).toFixed(1)}%)`;
-        prompt += `\n質問: ${result.question}`;
-        prompt += `\n回答: ${result.answer}`;
-        
-        if (result.extended) {
-          prompt += `\n追加情報: ${result.extended}`;
-        }
+      // 知識ベース検索
+      const knowledgeResults = searchKnowledge(userQuery, {
+        maxResults: 3,
+        minScore: 0.15
       });
-      
-      prompt += `\n\n**※ 上記の知識ベース情報を参考にして、ユーザーの質問に適切に回答してください**`;
-    } else {
-      prompt += `\n\n【知識ベース検索結果】\n関連する情報が見つかりませんでした。一般的な知識で回答します。`;
+
+      // 画像コンテキスト追加
+      let visionContext = '';
+      if (imageUrls.length > 0) {
+        visionContext = `\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。画像の内容を確認して、適切なアドバイスを提供してください。`;
+      }
+
+      // コンテキスト構築
+      let knowledgeContext = '';
+      if (knowledgeResults.length > 0) {
+        knowledgeContext = '【知識ベース情報】\n';
+        knowledgeResults.forEach(result => {
+          knowledgeContext += `- ${result.title}: ${result.content}\n`;
+        });
+      }
+
+      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールのアシスタントです。
+
+${knowledgeContext}
+${visionContext}
+
+ユーザーの質問と添付画像を確認して、適切なアドバイスを提供してください。`;
+
+      const response = await generateAIResponse(
+        systemPrompt,
+        userQuery,
+        imageUrls.map(url => ({ url })),
+        context
+      );
+
+      logger.success('画像解析統合RAG応答生成完了');
+      return response;
+
+    } catch (error) {
+      logger.errorDetail('画像解析統合RAG応答エラー:', error);
+      throw error;
     }
-
-    // ユーザー情報
-    if (context.username || context.channelName) {
-      prompt += `\n\n【ユーザー情報】`;
-      if (context.username) prompt += `\n• ユーザー名: ${context.username}`;
-      if (context.channelName) prompt += `\n• チャンネル: ${context.channelName}`;
-      if (context.guildName) prompt += `\n• サーバー: ${context.guildName}`;
-    }
-
-    // 質問内容
-    prompt += `\n\n【ユーザーの質問】\n${userQuery}`;
-
-    // 画像解析指示
-    if (context.hasImages) {
-      prompt += `\n\n【画像解析指示】
-• 添付された画像を詳しく分析してください
-• 技術的な問題があれば具体的に指摘してください
-• 知識ベースの情報と組み合わせて改善点を提案してください`;
-    }
-
-    prompt += `\n\n【回答指示】
-• 知識ベースの情報を最優先で活用してください
-• 分からない場合は「分からない」と正直に答えてください
-• 具体的で実用的なアドバイスを心がけてください
-• 必要に応じて段階的な説明を行ってください`;
-
-    return this.truncatePromptIfNeeded(prompt);
-  }
-
-  // プロンプト長制限
-  truncatePromptIfNeeded(prompt) {
-    // 簡易的なトークン数推定（1トークン≈4文字として計算）
-    const estimatedTokens = Math.ceil(prompt.length / 4);
-    
-    if (estimatedTokens <= this.maxContextTokens) {
-      return prompt;
-    }
-
-    logger.warn(`プロンプトが長すぎます (推定${estimatedTokens}トークン), 切り詰めます`);
-    
-    // 知識ベース部分を短縮
-    const maxLength = this.maxContextTokens * 4 * 0.8; // 安全マージン
-    const truncatedPrompt = prompt.substring(0, maxLength) + '\n\n...（長いコンテンツのため一部省略）';
-    
-    return truncatedPrompt;
   }
 
   // 知識ベース限定応答
@@ -144,6 +137,7 @@ class RAGSystem {
     try {
       logger.ai('知識ベース限定応答生成開始');
 
+      const { searchKnowledge } = require('./knowledge-base');
       const knowledgeResults = searchKnowledge(userQuery, {
         maxResults: 3,
         minScore: 0.2 // より高い関連度を要求
@@ -192,11 +186,13 @@ class RAGSystem {
     }
   }
 
-  // システム状態取得
+  // ステータス取得
   getStatus() {
     return {
       initialized: this.initialized,
-      maxContextTokens: this.maxContextTokens
+      maxContextTokens: this.maxContextTokens,
+      service: 'RAG System',
+      version: '2.0.0'
     };
   }
 }
@@ -204,15 +200,18 @@ class RAGSystem {
 // シングルトンインスタンス
 const ragSystem = new RAGSystem();
 
+// 初期化関数
+async function initializeRAG() {
+  await ragSystem.initialize();
+}
+
+// generateKnowledgeOnlyResponse関数をエクスポート
+async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
+  return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
+}
+
 module.exports = {
   ragSystem,
-  // 重要: initialize メソッドを追加
-  initialize: () => ragSystem.initialize(),
-  generateRAGResponse: (userQuery, images, context) => 
-    ragSystem.generateRAGResponse(userQuery, images, context),
-  generateKnowledgeOnlyResponse: (userQuery, context) =>
-    ragSystem.generateKnowledgeOnlyResponse(userQuery, context),
-  initializeRAG: () => ragSystem.initialize(),
-  // レガシー対応
-  RAGSystem
+  initializeRAG,
+  generateKnowledgeOnlyResponse
 };
