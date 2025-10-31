@@ -1,6 +1,31 @@
-// utils/logger.js - ログ管理システム
+// utils/logger.js - ログ管理システム（chalk不使用版）
 
-const chalk = require('chalk');
+// ANSI色コード
+const colors = {
+  reset: '\x1b[0m',
+  bright: '\x1b[1m',
+  dim: '\x1b[2m',
+  
+  // 文字色
+  black: '\x1b[30m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  white: '\x1b[37m',
+  gray: '\x1b[90m',
+  
+  // 背景色
+  bgRed: '\x1b[41m',
+  bgGreen: '\x1b[42m',
+  bgYellow: '\x1b[43m',
+  bgBlue: '\x1b[44m'
+};
+
+// 色付けヘルパー関数
+const colorize = (color, text) => `${color}${text}${colors.reset}`;
 
 class Logger {
   constructor() {
@@ -11,15 +36,6 @@ class Logger {
       info: 2,
       debug: 3
     };
-    
-    // 色分け設定
-    this.colors = {
-      error: chalk.red,
-      warn: chalk.yellow,
-      info: chalk.cyan,
-      debug: chalk.gray,
-      success: chalk.green
-    };
   }
 
   // ログレベルチェック
@@ -27,40 +43,58 @@ class Logger {
     return this.levels[level] <= this.levels[this.logLevel];
   }
 
+  // タイムスタンプ生成
+  getTimestamp() {
+    const now = new Date();
+    return `[${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}]`;
+  }
+
   // 基本ログ出力
   log(level, message, ...args) {
     if (!this.shouldLog(level)) return;
     
-    const timestamp = new Date().toISOString();
-    const colorFn = this.colors[level] || chalk.white;
-    const levelStr = level.toUpperCase().padEnd(5);
+    const timestamp = this.getTimestamp();
+    const levelColors = {
+      error: colors.red,
+      warn: colors.yellow,
+      info: colors.cyan,
+      debug: colors.gray
+    };
     
-    console.log(`${chalk.gray(timestamp)} ${colorFn(levelStr)} ${message}`, ...args);
+    const levelColor = levelColors[level] || colors.white;
+    const levelStr = `[${level.toUpperCase()}]`;
+    
+    console.log(
+      `${colorize(colors.gray, timestamp)} ${colorize(levelColor, levelStr)} ${message}`,
+      ...args
+    );
   }
 
   // エラーログ
   error(message, ...args) {
-    this.log('error', `❌ ${message}`, ...args);
+    console.log(colorize(colors.red, `❌ ${message}`), ...args);
   }
 
   // 警告ログ
   warn(message, ...args) {
-    this.log('warn', `⚠️ ${message}`, ...args);
+    console.log(colorize(colors.yellow, `⚠️ ${message}`), ...args);
   }
 
   // 情報ログ
   info(message, ...args) {
-    this.log('info', `ℹ️ ${message}`, ...args);
+    console.log(colorize(colors.cyan, `ℹ️ ${message}`), ...args);
   }
 
   // デバッグログ
   debug(message, ...args) {
-    this.log('debug', `🐛 ${message}`, ...args);
+    if (this.shouldLog('debug')) {
+      console.log(colorize(colors.gray, `🐛 ${message}`), ...args);
+    }
   }
 
   // 成功ログ
   success(message, ...args) {
-    this.log('info', this.colors.success(`✅ ${message}`), ...args);
+    console.log(colorize(colors.green, `✅ ${message}`), ...args);
   }
 
   // Discord関連ログ
@@ -90,12 +124,12 @@ class Logger {
 
   // パフォーマンス測定開始
   time(label) {
-    console.time(chalk.blue(`⏱️ ${label}`));
+    console.time(colorize(colors.blue, `⏱️ ${label}`));
   }
 
   // パフォーマンス測定終了
   timeEnd(label) {
-    console.timeEnd(chalk.blue(`⏱️ ${label}`));
+    console.timeEnd(colorize(colors.blue, `⏱️ ${label}`));
   }
 
   // オブジェクトの詳細ログ
@@ -111,8 +145,8 @@ class Logger {
 
   // HTTP リクエストログ
   http(method, url, status, ...args) {
-    const statusColor = status >= 400 ? chalk.red : status >= 300 ? chalk.yellow : chalk.green;
-    this.log('info', `🌐 [HTTP] ${method} ${url} ${statusColor(status)}`, ...args);
+    const statusColor = status >= 400 ? colors.red : status >= 300 ? colors.yellow : colors.green;
+    this.log('info', `🌐 [HTTP] ${method} ${url} ${colorize(statusColor, status)}`, ...args);
   }
 
   // セキュリティ関連ログ
@@ -125,7 +159,7 @@ class Logger {
     this.log('info', `📊 [Stats] ${message}`, ...args);
     if (data && typeof data === 'object') {
       Object.entries(data).forEach(([key, value]) => {
-        console.log(`  ${chalk.cyan(key)}: ${chalk.white(value)}`);
+        console.log(`  ${colorize(colors.cyan, key)}: ${colorize(colors.white, value)}`);
       });
     }
   }
@@ -134,9 +168,9 @@ class Logger {
   errorDetail(message, error) {
     this.error(message);
     if (error && error.stack) {
-      console.error(chalk.red(error.stack));
+      console.error(colorize(colors.red, error.stack));
     } else if (error) {
-      console.error(chalk.red(error));
+      console.error(colorize(colors.red, String(error)));
     }
   }
 
@@ -148,40 +182,32 @@ class Logger {
                           key.toLowerCase().includes('token') || 
                           key.toLowerCase().includes('key') ? 
                           '***' : value;
-      console.log(`  ${chalk.yellow(key)}: ${chalk.white(displayValue)}`);
+      console.log(`  ${colorize(colors.yellow, key)}: ${colorize(colors.white, displayValue)}`);
     });
   }
 
   // 起動完了ログ（特別なフォーマット）
   startup(appName, version, port) {
-    console.log(chalk.green('\n' + '='.repeat(50)));
-    console.log(chalk.green.bold(`🚀 ${appName} Started Successfully!`));
-    console.log(chalk.green(`📦 Version: ${version}`));
-    console.log(chalk.green(`🌐 Port: ${port}`));
-    console.log(chalk.green(`🕐 Time: ${new Date().toISOString()}`));
-    console.log(chalk.green(`🔧 Node.js: ${process.version}`));
-    console.log(chalk.green(`🎯 Environment: ${process.env.NODE_ENV || 'development'}`));
-    console.log(chalk.green('='.repeat(50) + '\n'));
+    const line = '='.repeat(50);
+    console.log(colorize(colors.green, '\n' + line));
+    console.log(colorize(colors.green + colors.bright, `🚀 ${appName} Started Successfully!`));
+    console.log(colorize(colors.green, `📦 Version: ${version}`));
+    console.log(colorize(colors.green, `🌐 Port: ${port}`));
+    console.log(colorize(colors.green, `🕐 Time: ${new Date().toISOString()}`));
+    console.log(colorize(colors.green, `🔧 Node.js: ${process.version}`));
+    console.log(colorize(colors.green, `🎯 Environment: ${process.env.NODE_ENV || 'development'}`));
+    console.log(colorize(colors.green, line + '\n'));
   }
 
   // 終了ログ（特別なフォーマット）
   shutdown(appName, reason) {
-    console.log(chalk.yellow('\n' + '='.repeat(50)));
-    console.log(chalk.yellow.bold(`🛑 ${appName} Shutting Down`));
-    console.log(chalk.yellow(`📝 Reason: ${reason}`));
-    console.log(chalk.yellow(`🕐 Time: ${new Date().toISOString()}`));
-    console.log(chalk.yellow('='.repeat(50) + '\n'));
+    const line = '='.repeat(50);
+    console.log(colorize(colors.yellow, '\n' + line));
+    console.log(colorize(colors.yellow + colors.bright, `🛑 ${appName} Shutting Down`));
+    console.log(colorize(colors.yellow, `📝 Reason: ${reason}`));
+    console.log(colorize(colors.yellow, `🕐 Time: ${new Date().toISOString()}`));
+    console.log(colorize(colors.yellow, line + '\n'));
   }
-}
-
-// チョーク（色付け）がない場合のフォールバック
-if (!chalk.supportsColor) {
-  // カラーサポートがない環境では色を削除
-  Object.keys(chalk).forEach(key => {
-    if (typeof chalk[key] === 'function') {
-      chalk[key] = (text) => text;
-    }
-  });
 }
 
 module.exports = new Logger();
