@@ -11,44 +11,16 @@ const activeQuestionWaits = new Map();
 const BUTTON_RESPONSES = {
   [BUTTON_IDS.PAYMENT_CONSULTATION]: {
     title: "💰 お支払い相談",
-    content: `**お支払いに関するご相談を承ります**
-
-以下の情報をお教えください：
-
-🔹 **ご相談内容**
-• 分割払いのご希望
-• お支払い方法の変更
-• 請求書に関するお問い合わせ
-• その他お支払いに関するご質問
-
-🔹 **お急ぎの場合**
-LINE公式アカウント: @wannami-school
-メール: support@wannami-school.com
-
-**※ お支払い情報は個人情報のため、DMまたは専用チャンネルでご相談ください**
-
-わなみさんがしっかりサポートいたします✨`
+    content: `**お支払いに関するご相談はこちらではお受けできません。**
+    担当者にご連絡ください。
+`
   },
   
   [BUTTON_IDS.PRIVATE_CONSULTATION]: {
     title: "💬 プライベート相談",
-    content: `**プライベートなご相談承ります**
-
-🔹 **このようなご相談をお受けしています**
-• VTuber活動への不安や悩み
-• 配信内容やキャラクター設定について
-• ファンとの関係性について
-• 活動継続に関する悩み
-• その他、センシティブなご相談
-
-🔹 **相談方法**
-• **推奨**: わなみさんとのDM（完全プライベート）
-• 専用相談チャンネル（限定公開）
-
-🔹 **相談時間**
-平日 10:00-18:00 / 土日 14:00-20:00
-
-**あなたの気持ちに寄り添って、一緒に解決策を見つけましょう💕**`
+    content: `**プライベートなご相談はこちらではお受けできません。**
+    担任の先生にご相談ください。
+`
   },
   
   [BUTTON_IDS.LESSON_QUESTION]: {
@@ -58,8 +30,7 @@ LINE公式アカウント: @wannami-school
     examples: [
       "配信ソフトの設定方法を教えて",
       "Live2Dが正常に動作しない",
-      "音声にノイズが入る問題の解決方法",
-      "コラボ配信の準備手順"
+      "音声にノイズが入る問題の解決方法"
     ]
   },
   
@@ -70,7 +41,6 @@ LINE公式アカウント: @wannami-school
     examples: [
       "Twitterでフォロワーを増やす方法",
       "バズる動画の作り方のコツ",
-      "Instagram投稿の最適な時間帯",
       "アンチコメントへの対処法"
     ]
   },
@@ -80,10 +50,8 @@ LINE公式アカウント: @wannami-school
     categoryName: "ミッション",
     contextInfo: "ミッション内容、提出方法、評価基準、次のステップについて",
     examples: [
-      "ミッション001の提出方法を教えて",
-      "動画提出時の注意点は何ですか",
-      "評価基準について詳しく知りたい",
-      "次のステップの準備について"
+      "次のチャットでミッションをご提出ください",
+      "レッスン番号も忘れずに入力ください"
     ]
   }
 };
@@ -128,7 +96,7 @@ async function handleButtonClick(interaction, client) {
     // 応答作成
     const response = createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', {
       content: responseContent,
-      flags: 64 // EPHEMERAL - 本人のみ表示
+      flags: 0 
     });
 
     logger.success(`${buttonResponse.title} 応答送信完了`);
