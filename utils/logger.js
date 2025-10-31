@@ -1,216 +1,187 @@
 // utils/logger.js - ログ管理システム
 
-const winston = require('winston');
-
-// ログレベル定義
-const LOG_LEVELS = {
-  ERROR: 0,
-  WARN: 1,
-  INFO: 2,
-  DEBUG: 3
-};
-
-// カスタムログフォーマット
-const logFormat = winston.format.combine(
-  winston.format.timestamp({
-    format: 'YYYY-MM-DD HH:mm:ss'
-  }),
-  winston.format.errors({ stack: true }),
-  winston.format.printf(({ level, message, timestamp, stack }) => {
-    if (stack) {
-      return `[${timestamp}] [${level.toUpperCase()}] ${message}\n${stack}`;
-    }
-    return `[${timestamp}] [${level.toUpperCase()}] ${message}`;
-  })
-);
-
-// Winston ロガー設定
-const winstonLogger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: logFormat,
-  transports: [
-    // コンソール出力
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        logFormat
-      )
-    }),
-    // ファイル出力（エラーログ）
-    new winston.transports.File({
-      filename: 'logs/error.log',
-      level: 'error',
-      maxsize: 5242880, // 5MB
-      maxFiles: 5
-    }),
-    // ファイル出力（全ログ）
-    new winston.transports.File({
-      filename: 'logs/combined.log',
-      maxsize: 5242880, // 5MB
-      maxFiles: 5
-    })
-  ]
-});
+const chalk = require('chalk');
 
 class Logger {
   constructor() {
-    this.winston = winstonLogger;
+    this.logLevel = process.env.LOG_LEVEL || 'info';
+    this.levels = {
+      error: 0,
+      warn: 1,
+      info: 2,
+      debug: 3
+    };
+    
+    // 色分け設定
+    this.colors = {
+      error: chalk.red,
+      warn: chalk.yellow,
+      info: chalk.cyan,
+      debug: chalk.gray,
+      success: chalk.green
+    };
   }
 
-  // 基本ログメソッド
-  info(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(formattedMessage);
-    console.log(`ℹ️ ${formattedMessage}`);
+  // ログレベルチェック
+  shouldLog(level) {
+    return this.levels[level] <= this.levels[this.logLevel];
   }
 
-  warn(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.warn(formattedMessage);
-    console.warn(`⚠️ ${formattedMessage}`);
+  // 基本ログ出力
+  log(level, message, ...args) {
+    if (!this.shouldLog(level)) return;
+    
+    const timestamp = new Date().toISOString();
+    const colorFn = this.colors[level] || chalk.white;
+    const levelStr = level.toUpperCase().padEnd(5);
+    
+    console.log(`${chalk.gray(timestamp)} ${colorFn(levelStr)} ${message}`, ...args);
   }
 
+  // エラーログ
   error(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.error(formattedMessage);
-    console.error(`❌ ${formattedMessage}`);
+    this.log('error', `❌ ${message}`, ...args);
   }
 
+  // 警告ログ
+  warn(message, ...args) {
+    this.log('warn', `⚠️ ${message}`, ...args);
+  }
+
+  // 情報ログ
+  info(message, ...args) {
+    this.log('info', `ℹ️ ${message}`, ...args);
+  }
+
+  // デバッグログ
   debug(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.debug(formattedMessage);
-    if (process.env.NODE_ENV === 'development') {
-      console.debug(`🐛 ${formattedMessage}`);
-    }
-  }
-
-  // 詳細エラーログ（スタックトレース付き）
-  errorDetail(message, error) {
-    const errorMessage = `${message} ${error?.message || error}`;
-    const stack = error?.stack || new Error().stack;
-    
-    this.winston.error(errorMessage, { stack });
-    console.error(`❌ ${errorMessage}`);
-    
-    if (stack && process.env.NODE_ENV === 'development') {
-      console.error(`📍 Stack trace:\n${stack}`);
-    }
+    this.log('debug', `🐛 ${message}`, ...args);
   }
 
   // 成功ログ
   success(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(`SUCCESS: ${formattedMessage}`);
-    console.log(`✅ ${formattedMessage}`);
+    this.log('info', this.colors.success(`✅ ${message}`), ...args);
   }
 
   // Discord関連ログ
   discord(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(`DISCORD: ${formattedMessage}`);
-    console.log(`💬 ${formattedMessage}`);
-  }
-
-  // AI関連ログ
-  ai(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(`AI: ${formattedMessage}`);
-    console.log(`🤖 ${formattedMessage}`);
-  }
-
-  // 画像関連ログ
-  image(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(`IMAGE: ${formattedMessage}`);
-    console.log(`🖼️ ${formattedMessage}`);
+    this.log('info', `💬 ${message}`, ...args);
   }
 
   // API関連ログ
   api(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(`API: ${formattedMessage}`);
-    console.log(`🔗 ${formattedMessage}`);
+    this.log('info', `🔗 [API] ${message}`, ...args);
+  }
+
+  // AI関連ログ
+  ai(message, ...args) {
+    this.log('info', `🧠 [AI] ${message}`, ...args);
+  }
+
+  // 画像関連ログ
+  image(message, ...args) {
+    this.log('info', `🖼️ ${message}`, ...args);
   }
 
   // 知識ベース関連ログ
   knowledge(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(`KNOWLEDGE: ${formattedMessage}`);
-    console.log(`📚 ${formattedMessage}`);
+    this.log('info', `📚 [Knowledge] ${message}`, ...args);
   }
 
-  // スケジューラー関連ログ
-  scheduler(message, ...args) {
-    const formattedMessage = this.formatMessage(message, args);
-    this.winston.info(`SCHEDULER: ${formattedMessage}`);
-    console.log(`⏰ ${formattedMessage}`);
+  // パフォーマンス測定開始
+  time(label) {
+    console.time(chalk.blue(`⏱️ ${label}`));
   }
 
-  // メッセージ整形
-  formatMessage(message, args) {
-    if (args.length === 0) {
-      return message;
+  // パフォーマンス測定終了
+  timeEnd(label) {
+    console.timeEnd(chalk.blue(`⏱️ ${label}`));
+  }
+
+  // オブジェクトの詳細ログ
+  object(message, obj) {
+    this.info(`${message}:`);
+    console.log(JSON.stringify(obj, null, 2));
+  }
+
+  // ファイル操作ログ
+  file(action, filename, ...args) {
+    this.log('info', `📁 [File] ${action}: ${filename}`, ...args);
+  }
+
+  // HTTP リクエストログ
+  http(method, url, status, ...args) {
+    const statusColor = status >= 400 ? chalk.red : status >= 300 ? chalk.yellow : chalk.green;
+    this.log('info', `🌐 [HTTP] ${method} ${url} ${statusColor(status)}`, ...args);
+  }
+
+  // セキュリティ関連ログ
+  security(message, ...args) {
+    this.log('warn', `🔒 [Security] ${message}`, ...args);
+  }
+
+  // 統計情報ログ
+  stats(message, data, ...args) {
+    this.log('info', `📊 [Stats] ${message}`, ...args);
+    if (data && typeof data === 'object') {
+      Object.entries(data).forEach(([key, value]) => {
+        console.log(`  ${chalk.cyan(key)}: ${chalk.white(value)}`);
+      });
     }
-    
-    const formattedArgs = args.map(arg => {
-      if (typeof arg === 'object') {
-        try {
-          return JSON.stringify(arg, null, 2);
-        } catch (e) {
-          return String(arg);
-        }
-      }
-      return String(arg);
+  }
+
+  // エラーハンドリング用の詳細ログ
+  errorDetail(message, error) {
+    this.error(message);
+    if (error && error.stack) {
+      console.error(chalk.red(error.stack));
+    } else if (error) {
+      console.error(chalk.red(error));
+    }
+  }
+
+  // 設定情報表示
+  config(configName, configData) {
+    this.info(`🔧 [Config] ${configName}:`);
+    Object.entries(configData).forEach(([key, value]) => {
+      const displayValue = key.toLowerCase().includes('password') || 
+                          key.toLowerCase().includes('token') || 
+                          key.toLowerCase().includes('key') ? 
+                          '***' : value;
+      console.log(`  ${chalk.yellow(key)}: ${chalk.white(displayValue)}`);
     });
-    
-    return `${message} ${formattedArgs.join(' ')}`;
   }
 
-  // ログレベル設定
-  setLevel(level) {
-    this.winston.level = level;
+  // 起動完了ログ（特別なフォーマット）
+  startup(appName, version, port) {
+    console.log(chalk.green('\n' + '='.repeat(50)));
+    console.log(chalk.green.bold(`🚀 ${appName} Started Successfully!`));
+    console.log(chalk.green(`📦 Version: ${version}`));
+    console.log(chalk.green(`🌐 Port: ${port}`));
+    console.log(chalk.green(`🕐 Time: ${new Date().toISOString()}`));
+    console.log(chalk.green(`🔧 Node.js: ${process.version}`));
+    console.log(chalk.green(`🎯 Environment: ${process.env.NODE_ENV || 'development'}`));
+    console.log(chalk.green('='.repeat(50) + '\n'));
   }
 
-  // ログファイルのクリア
-  clearLogs() {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      
-      const logsDir = path.join(process.cwd(), 'logs');
-      if (fs.existsSync(logsDir)) {
-        const files = fs.readdirSync(logsDir);
-        files.forEach(file => {
-          const filePath = path.join(logsDir, file);
-          fs.unlinkSync(filePath);
-        });
-        this.info('ログファイルをクリアしました');
-      }
-    } catch (error) {
-      this.error('ログファイルクリアエラー:', error.message);
+  // 終了ログ（特別なフォーマット）
+  shutdown(appName, reason) {
+    console.log(chalk.yellow('\n' + '='.repeat(50)));
+    console.log(chalk.yellow.bold(`🛑 ${appName} Shutting Down`));
+    console.log(chalk.yellow(`📝 Reason: ${reason}`));
+    console.log(chalk.yellow(`🕐 Time: ${new Date().toISOString()}`));
+    console.log(chalk.yellow('='.repeat(50) + '\n'));
+  }
+}
+
+// チョーク（色付け）がない場合のフォールバック
+if (!chalk.supportsColor) {
+  // カラーサポートがない環境では色を削除
+  Object.keys(chalk).forEach(key => {
+    if (typeof chalk[key] === 'function') {
+      chalk[key] = (text) => text;
     }
-  }
-
-  // 統計情報取得
-  getStats() {
-    return {
-      level: this.winston.level,
-      transports: this.winston.transports.length,
-      timestamp: new Date().toISOString()
-    };
-  }
+  });
 }
 
-// シングルトンインスタンス
-const logger = new Logger();
-
-// ログディレクトリの作成
-const fs = require('fs');
-const path = require('path');
-const logsDir = path.join(process.cwd(), 'logs');
-
-if (!fs.existsSync(logsDir)) {
-  fs.mkdirSync(logsDir, { recursive: true });
-}
-
-module.exports = logger;
+module.exports = new Logger();
