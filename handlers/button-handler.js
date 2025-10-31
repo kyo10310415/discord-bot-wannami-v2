@@ -341,7 +341,7 @@ async function handleButtonClickGateway(interaction, client) {
         data: {
           content: "申し訳ございません。このボタンはまだ準備中です🙏\n" +
                   "他のボタンをお試しいただくか、直接わなみさんにお声がけください✨",
-          flags: 64 // EPHEMERAL
+          flags: 0 // EPHEMERAL
         }
       };
     }
@@ -380,7 +380,7 @@ async function handleButtonClickGateway(interaction, client) {
     return {
       data: {
         content: '❌ ボタン処理中にエラーが発生しました。しばらく待ってから再度お試しください。',
-        flags: 64
+        flags: 0
       }
     };
   }
