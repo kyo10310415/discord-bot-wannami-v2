@@ -12,7 +12,7 @@ const discordHandler = require('./handlers/discord-handler');
 const mentionHandler = require('./handlers/mention-handler');
 const buttonHandler = require('./handlers/button-handler');
 const { initializeServices } = require('./services/google-apis');
-const { initializeKnowledgeBase } = require('./services/knowledge-base');
+const knowledgeBase = require('./services/knowledge-base'); // 🆕 修正: モジュール全体をインポート
 const { initializeRAG } = require('./services/rag-system');
 
 const app = express();
@@ -81,8 +81,8 @@ client.once('ready', async () => {
     await initializeServices();
     logger.success('✅ Google APIs初期化完了');
     
-    // 知識ベース初期化
-    await initializeKnowledgeBase();
+    // 🆕 修正: 知識ベース初期化（正しいメソッド呼び出し）
+    await knowledgeBase.initialize();
     logger.success('✅ 知識ベース初期化完了');
     
     // RAGシステム初期化
@@ -187,8 +187,7 @@ app.post('/interactions', async (req, res) => {
 // 知識ベース管理エンドポイント
 app.get('/api/knowledge-base/status', (req, res) => {
   try {
-    const { knowledgeBaseService } = require('./services/knowledge-base');
-    const stats = knowledgeBaseService.getStats();
+    const stats = knowledgeBase.getStats(); // 🆕 修正: 直接呼び出し
     res.json(stats);
   } catch (error) {
     logger.errorDetail('知識ベース状態取得エラー:', error);
@@ -199,9 +198,8 @@ app.get('/api/knowledge-base/status', (req, res) => {
 // 知識ベース手動更新エンドポイント
 app.post('/api/knowledge-base/refresh', async (req, res) => {
   try {
-    const { knowledgeBaseService } = require('./services/knowledge-base');
-    const success = await knowledgeBaseService.forceUpdate();
-    res.json({ success, timestamp: new Date().toISOString() });
+    const success = await knowledgeBase.buildKnowledgeBase(); // 🆕 修正: 直接呼び出し
+    res.json({ success: !!success, timestamp: new Date().toISOString() });
   } catch (error) {
     logger.errorDetail('知識ベース更新エラー:', error);
     res.status(500).json({ error: 'サービスエラー' });
@@ -218,13 +216,12 @@ app.get('/', (req, res) => {
     try {
       const { googleAPIsService } = require('./services/google-apis');
       const { openAIService } = require('./services/openai-service');
-      const { knowledgeBaseService } = require('./services/knowledge-base');
       const { ragSystem } = require('./services/rag-system');
       
       servicesStatus = {
         google_apis: googleAPIsService.getStatus(),
         openai: openAIService.getStatus(),
-        knowledge_base: knowledgeBaseService.getStatus(),
+        knowledge_base: knowledgeBase.getStatus(), // 🆕 修正
         rag_system: ragSystem.getStatus()
       };
     } catch (serviceError) {
@@ -337,8 +334,9 @@ process.on('SIGTERM', async () => {
   
   try {
     // 知識ベース自動更新停止
-    const { knowledgeBaseService } = require('./services/knowledge-base');
-    knowledgeBaseService.stop();
+    if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
+      knowledgeBase.knowledgeBaseService.stop();
+    }
   } catch (error) {
     logger.warn('サービス停止エラー:', error.message);
   }
@@ -353,8 +351,9 @@ process.on('SIGINT', async () => {
   logger.shutdown('Discord Bot for わなみさん', 'SIGINT受信');
   
   try {
-    const { knowledgeBaseService } = require('./services/knowledge-base');
-    knowledgeBaseService.stop();
+    if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
+      knowledgeBase.knowledgeBaseService.stop();
+    }
   } catch (error) {
     logger.warn('サービス停止エラー:', error.message);
   }
