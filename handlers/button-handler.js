@@ -367,7 +367,7 @@ async function handleButtonClickGateway(interaction, client) {
     const response = {
       data: {
         content: responseContent,
-        flags: 64 // EPHEMERAL - 本人のみ表示
+        flags: 0
       }
     };
 
