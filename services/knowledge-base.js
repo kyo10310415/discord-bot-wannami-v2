@@ -1,285 +1,466 @@
-// services/rag-system.js - RAG（Retrieval-Augmented Generation）システム
+// services/knowledge-base.js - 知識ベース構築サービス
 
+const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs } = require('./google-apis');
+const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
+const { loadNotionContent, loadWebsiteContent, loadImageUrlInfo } = require('../utils/content-loaders');
 const logger = require('../utils/logger');
-const knowledgeBase = require('./knowledge-base');
-const { generateAIResponse } = require('./openai-service');
-const { LIMITS } = require('../utils/constants');
 
-class RAGSystem {
+class KnowledgeBaseService {
   constructor() {
-    this.initialized = false;
-    this.maxContextTokens = LIMITS.MAX_CONTEXT_LENGTH || 25000;
+    this.documentImages = [];
+    this.documents = []; // 🆕 追加: 構築した文書を保存
+    this.lastBuildTime = null;
+    this.isInitialized = false;
   }
 
-  // RAGシステム初期化
+  // 🆕 追加: 初期化メソッド（index.jsとの互換性のため）
   async initialize() {
     try {
-      this.initialized = true;
-      logger.info('✅ RAGシステム初期化完了');
+      console.log('📚 知識ベースサービス初期化開始...');
+      
+      // 知識ベース構築を実行
+      const result = await this.buildKnowledgeBase();
+      
+      if (result) {
+        this.isInitialized = true;
+        logger.info('✅ 知識ベースサービス初期化完了');
+        logger.info(`📊 初期化後の文書数: ${this.documents.length}`);
+        return result;
+      } else {
+        console.log('⚠️ 知識ベース構築に失敗しましたが、サービスは初期化されました');
+        this.isInitialized = true;
+        return null;
+      }
     } catch (error) {
-      logger.errorDetail('RAGシステム初期化エラー:', error);
+      console.error('❌ 知識ベースサービス初期化エラー:', error.message);
+      this.isInitialized = false;
       throw error;
     }
   }
 
-  // 知識ベース検索のヘルパーメソッド（修正版）
-  _searchKnowledge(query, options = {}) {
+  // 統合知識ベース構築
+  async buildKnowledgeBase() {
     try {
-      // 方法1: 直接エクスポートされた関数（推奨）
-      if (typeof knowledgeBase.searchKnowledge === 'function') {
-        logger.info('📚 検索方法: 直接関数呼び出し');
-        return knowledgeBase.searchKnowledge(query, options);
+      console.log('📚 知識ベース構築開始...');
+      
+      // 前回の文書内画像をクリア
+      this.documentImages = [];
+      this.documents = []; // 🆕 追加: 文書配列もクリア
+      
+      // スプレッドシートからURL一覧を取得
+      const urlList = await googleAPIsService.loadUrlListFromSpreadsheet(KNOWLEDGE_SPREADSHEET_ID);
+      if (urlList.length === 0) {
+        console.log('❌ スプレッドシートにURLが見つかりません');
+        return null;
       }
-      // 方法2: knowledgeBaseServiceプロパティ経由
-      else if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.searchKnowledge === 'function') {
-        logger.info('📚 検索方法: knowledgeBaseService経由');
-        return knowledgeBase.knowledgeBaseService.searchKnowledge(query, options);
+
+      console.log(`📄 ${urlList.length}件のコンテンツを読み込み開始`);
+
+      const documents = [];
+      let totalImages = 0;
+
+      // 各URLの内容を読み込み
+      for (const urlInfo of urlList) {
+        console.log(`📖 読み込み中: ${urlInfo.fileName}`);
+        
+        try {
+          const result = await this.loadContentFromUrl(urlInfo);
+          
+          if (result) {
+            documents.push({
+              source: urlInfo.fileName,
+              type: urlInfo.type,
+              category: urlInfo.category,
+              url: urlInfo.url,
+              content: result.content,
+              images: result.images || []
+            });
+
+            // 文書内画像を統合
+            if (result.images && result.images.length > 0) {
+              this.documentImages.push(...result.images);
+              totalImages += result.images.length;
+            }
+          }
+        } catch (error) {
+          console.error(`❌ ${urlInfo.fileName} 読み込み失敗:`, error.message);
+          // エラーがあっても他のドキュメントの処理を続行
+          documents.push({
+            source: urlInfo.fileName,
+            type: 'error',
+            category: urlInfo.category,
+            url: urlInfo.url,
+            content: `${urlInfo.fileName}: 読み込みエラー - ${error.message}`,
+            images: []
+          });
+        }
+        
+        // APIレート制限対策で少し待機
+        await this.sleep(200);
       }
-      // 方法3: エラー詳細をログ出力
-      else {
-        logger.error('❌ searchKnowledge関数が見つかりません', {
-          availableKeys: Object.keys(knowledgeBase),
-          knowledgeBaseType: typeof knowledgeBase,
-          hasKnowledgeBaseService: !!knowledgeBase.knowledgeBaseService,
-          knowledgeBaseServiceKeys: knowledgeBase.knowledgeBaseService ? Object.keys(knowledgeBase.knowledgeBaseService) : 'N/A'
+
+      // 🆕 追加: 構築した文書を保存
+      this.documents = documents;
+      this.lastBuildTime = new Date().toISOString();
+
+      console.log(`✅ 知識ベース構築完了`);
+      console.log(`📄 文書数: ${documents.length}`);
+      console.log(`🖼️ 総画像数: ${totalImages}`);
+      console.log(`📊 総文字数: ${documents.reduce((sum, doc) => sum + doc.content.length, 0)}`);
+
+      return documents;
+
+    } catch (error) {
+      console.error('❌ 知識ベース構築エラー:', error);
+      return null;
+    }
+  }
+
+  // 🆕 修正: 日本語対応の簡易トークナイザー
+  _tokenizeQuery(query) {
+    // 日本語と英語の両方に対応
+    const tokens = [];
+    
+    // 英数字の単語を抽出
+    const alphanumericWords = query.match(/[a-zA-Z0-9]+/g) || [];
+    tokens.push(...alphanumericWords);
+    
+    // 日本語: 2文字以上のひらがな・カタカナ・漢字を抽出
+    const hiragana = query.match(/[ぁ-ん]{2,}/g) || [];
+    const katakana = query.match(/[ァ-ヴ]{2,}/g) || [];
+    const kanji = query.match(/[一-龯]{2,}/g) || [];
+    
+    tokens.push(...hiragana, ...katakana, ...kanji);
+    
+    // さらに1文字のカタカナ・アルファベットも追加（X、SNSなど）
+    const singleChars = query.match(/[ァ-ヴA-Z]/g) || [];
+    tokens.push(...singleChars);
+    
+    // 小文字化して重複除去
+    const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
+    
+    return uniqueTokens;
+  }
+
+  // 🆕 修正: 知識ベース検索機能（日本語対応）
+  searchKnowledge(query, options = {}) {
+    try {
+      const {
+        maxResults = 5,
+        minScore = 0.05, // 🆕 minScoreを下げる（0.1 → 0.05）
+        topK = 5,
+        includeMetadata = true
+      } = options;
+
+      logger.info(`🔍 知識ベース検索: "${query}"`);
+      
+      logger.info(`📊 検索前の状態: 初期化=${this.isInitialized}, 文書数=${this.documents.length}`);
+
+      // 知識ベースが初期化されていない場合
+      if (!this.isInitialized || this.documents.length === 0) {
+        logger.warn('⚠️ 知識ベースが初期化されていないか、文書が空です');
+        logger.warn(`詳細: isInitialized=${this.isInitialized}, documents.length=${this.documents.length}`);
+        return [];
+      }
+
+      // 文書の内容サンプルをログ出力（最初の3件）
+      if (this.documents.length > 0) {
+        logger.info('📄 文書サンプル（最初の3件）:');
+        this.documents.slice(0, 3).forEach((doc, i) => {
+          logger.info(`  [${i + 1}] ${doc.source} (${doc.category}) - 文字数: ${doc.content.length}`);
         });
-        throw new Error('searchKnowledge関数が見つかりません。knowledge-base.jsのエクスポート構造を確認してください。');
       }
+
+      // 🆕 日本語対応トークナイザーを使用
+      const queryTokens = this._tokenizeQuery(query);
+      
+      logger.info(`🔑 検索キーワード (${queryTokens.length}個): ${queryTokens.join(', ')}`);
+
+      // クエリ全体も小文字化
+      const queryLower = query.toLowerCase();
+
+      // 各文書とのスコアリング
+      const scoredDocuments = this.documents.map(doc => {
+        const contentLower = doc.content.toLowerCase();
+        let score = 0;
+        let matchDetails = [];
+
+        // キーワードマッチングスコア
+        queryTokens.forEach(token => {
+          const matches = (contentLower.match(new RegExp(token, 'gi')) || []).length;
+          if (matches > 0) {
+            const tokenScore = Math.min(matches * 0.05, 0.3); // 1トークンあたり最大0.3
+            score += tokenScore;
+            matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(2)})`);
+          }
+        });
+
+        // 完全一致ボーナス
+        if (contentLower.includes(queryLower)) {
+          score += 0.5;
+          matchDetails.push('完全一致+0.5');
+        }
+
+        // カテゴリ一致ボーナス
+        if (doc.category) {
+          const categoryLower = doc.category.toLowerCase();
+          if (queryLower.includes(categoryLower) || categoryLower.includes(queryLower)) {
+            score += 0.3;
+            matchDetails.push('カテゴリ一致+0.3');
+          }
+        }
+
+        // ファイル名一致ボーナス
+        const sourceLower = doc.source.toLowerCase();
+        queryTokens.forEach(token => {
+          if (sourceLower.includes(token)) {
+            score += 0.2;
+            matchDetails.push(`ファイル名一致("${token}")+0.2`);
+          }
+        });
+
+        // スコアを0-1の範囲に正規化
+        const normalizedScore = Math.min(score, 1.0);
+
+        return {
+          ...doc,
+          score: normalizedScore,
+          similarity: normalizedScore,
+          title: doc.source,
+          answer: this._extractRelevantContent(doc.content, queryTokens),
+          matchDetails: matchDetails,
+          metadata: includeMetadata ? {
+            source: doc.source,
+            category: doc.category,
+            type: doc.type,
+            url: doc.url
+          } : undefined
+        };
+      });
+
+      // スコアでソート
+      scoredDocuments.sort((a, b) => b.score - a.score);
+
+      // スコアの分布をログ出力
+      logger.info('📊 スコア分布（上位10件）:');
+      scoredDocuments.slice(0, 10).forEach((doc, i) => {
+        const details = doc.matchDetails.length > 0 ? doc.matchDetails.join(', ') : 'マッチなし';
+        logger.info(`  [${i + 1}] ${doc.source}: ${doc.score.toFixed(3)} - ${details}`);
+      });
+
+      // 最小スコアでフィルタリング & 上位結果のみ返す
+      const results = scoredDocuments
+        .filter(doc => doc.score >= minScore)
+        .slice(0, Math.max(maxResults, topK));
+
+      logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(2) || 0})`);
+      
+      // フィルタリング情報
+      if (results.length === 0 && scoredDocuments.length > 0) {
+        logger.warn(`⚠️ minScore=${minScore}でフィルタリングされました。最高スコア: ${scoredDocuments[0].score.toFixed(3)}`);
+      }
+
+      return results;
+
     } catch (error) {
       logger.error('❌ 知識ベース検索エラー:', error);
-      throw error;
+      return [];
     }
   }
 
-  // RAG応答生成
-  async generateRAGResponse(userQuery, images = [], context = {}) {
-    try {
-      logger.ai('RAG応答生成開始');
+  // 関連コンテンツ抽出（長い文書から関連部分を抜粋）
+  _extractRelevantContent(content, keywords) {
+    const maxLength = 500; // 最大文字数
+    const contentLower = content.toLowerCase();
 
-      // 1. 知識ベース検索（修正版）
-      const knowledgeResults = this._searchKnowledge(userQuery, {
-        maxResults: 5,
-        minScore: 0.05
-      });
-
-      logger.info(`知識ベース検索結果: ${knowledgeResults.length}件`);
-
-      // 2. コンテキスト構築
-      let knowledgeContext = '';
-      if (knowledgeResults.length > 0) {
-        knowledgeContext = '【知識ベースからの関連情報】\n\n';
-        knowledgeResults.forEach((result, index) => {
-          knowledgeContext += `${index + 1}. ${result.title || result.source}\n`;
-          // 🆕 修正: 長いコンテンツは要約して使用
-          const contentPreview = result.answer || result.content.substring(0, 500);
-          knowledgeContext += `${contentPreview}\n`;
-          knowledgeContext += `(関連度: ${(result.score * 100).toFixed(1)}%)\n\n`;
-        });
+    // キーワードが最初に出現する位置を探す
+    let firstMatchIndex = -1;
+    for (const keyword of keywords) {
+      const index = contentLower.indexOf(keyword.toLowerCase());
+      if (index !== -1 && (firstMatchIndex === -1 || index < firstMatchIndex)) {
+        firstMatchIndex = index;
       }
-
-      // 3. システムプロンプト作成
-      const systemPrompt = `あなたは「わなみさん」という名前のVTuber育成スクールのアシスタントです。
-
-【重要な役割】
-- VTuber活動を目指す生徒をサポート
-- 技術的な質問に対して具体的かつ分かりやすく回答
-- 親しみやすく、励ましの言葉も添える
-- 知識ベースの情報を最優先に使用
-
-【回答スタイル】
-- 絵文字を適度に使用（🎥✨💡など）
-- 専門用語は初心者にも分かるように説明
-- 具体例を交えた実践的なアドバイス
-- 必要に応じて段階的な手順を提示
-- **生のスライド内容をそのまま貼り付けず、要約して説明する**
-
-【知識ベース情報】
-${knowledgeContext || '関連する知識ベース情報が見つかりませんでした。'}
-
-上記の知識ベース情報を参考に、ユーザーの質問に答えてください。
-**重要**: スライドの生の内容（"--- スライド X ---"など）をそのまま出力せず、内容を理解して要約・整理してください。`;
-
-      // 4. AI応答生成
-      const aiResponse = await generateAIResponse(
-        systemPrompt,
-        userQuery,
-        images,
-        context
-      );
-
-      logger.success('RAG応答生成完了');
-      return aiResponse;
-
-    } catch (error) {
-      logger.errorDetail('RAG応答生成エラー:', error);
-      throw error;
     }
-  }
 
-  // 画像解析統合RAG応答
-  async generateRAGResponseWithVision(userQuery, imageUrls = [], context = {}) {
-    try {
-      logger.ai('画像解析統合RAG応答生成開始');
-
-      // 知識ベース検索（修正版）
-      const knowledgeResults = this._searchKnowledge(userQuery, {
-        maxResults: 3,
-        minScore: 0.05
-      });
-
-      // 画像コンテキスト追加
-      let visionContext = '';
-      if (imageUrls.length > 0) {
-        visionContext = `\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。画像の内容を確認して、適切なアドバイスを提供してください。`;
-      }
-
-      // コンテキスト構築
-      let knowledgeContext = '';
-      if (knowledgeResults.length > 0) {
-        knowledgeContext = '【知識ベース情報】\n';
-        knowledgeResults.forEach(result => {
-          const contentPreview = result.answer || result.content.substring(0, 300);
-          knowledgeContext += `- ${result.title || result.source}: ${contentPreview}\n`;
-        });
-      }
-
-      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールのアシスタントです。
-
-${knowledgeContext}
-${visionContext}
-
-ユーザーの質問と添付画像を確認して、適切なアドバイスを提供してください。
-**重要**: 知識ベースの内容を要約・整理して、わかりやすく説明してください。`;
-
-      const response = await generateAIResponse(
-        systemPrompt,
-        userQuery,
-        imageUrls.map(url => ({ url })),
-        context
-      );
-
-      logger.success('画像解析統合RAG応答生成完了');
-      return response;
-
-    } catch (error) {
-      logger.errorDetail('画像解析統合RAG応答エラー:', error);
-      throw error;
-    }
-  }
-
-  // 知識ベース限定応答（🆕 完全に書き直し）
-  async generateKnowledgeOnlyResponse(userQuery, context = {}) {
-    try {
-      logger.ai('知識ベース限定応答生成開始');
-
-      // 知識ベース検索
-      const knowledgeResults = this._searchKnowledge(userQuery, {
-        maxResults: 5,
-        minScore: 0.05
-      });
-
-      logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
-
-      if (knowledgeResults.length === 0) {
-        return `🤖 **わなみさんです！**\n\n申し訳ございません。「${userQuery}」に関する情報が知識ベースに見つかりませんでした。
-
-**🔍 他の質問方法を試してみてください：**
-• より具体的なキーワードで質問
-• 関連する別の表現で質問
-• \`/soudan\` コマンドから該当するカテゴリを選択
-
-**📚 現在の知識ベースには以下の情報が含まれています：**
-• VTuber活動の基本
-• 配信技術と機材設定
-• Live2Dモデルの扱い方
-• SNS運用とマーケティング
-• デザインとブランディング
-
-📞 **より詳しいサポートが必要な場合:**
-\`/soudan\` で相談メニューを表示し、専門サポートをご利用ください✨`;
-      }
-
-      // 🆕 知識ベースの内容を整理してプロンプトに渡す
-      let knowledgeContext = '【参照資料】\n\n';
-      knowledgeResults.forEach((result, index) => {
-        knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
-        // answerフィールドがあればそれを使用、なければcontentから抜粋
-        const content = result.answer || result.content.substring(0, 800);
-        knowledgeContext += `${content}\n\n`;
-      });
-
-      // 🆕 AIに要約・整理を依頼
-      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
-
-【重要なルール】
-1. 以下の参照資料の内容**のみ**を使って回答してください
-2. 参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください
-3. 内容を理解して、**要約・整理・わかりやすく説明**してください
-4. 具体的なアドバイスと実践的な手順を提供してください
-5. 親しみやすく、でも専門的な口調で回答してください
-
-【参照資料】
-${knowledgeContext}
-
-【質問】
-${userQuery}
-
-【回答の形式】
-- 🎯 見出しで要点を明確に
-- 📝 箇条書きや番号付きリストで整理
-- 💡 具体例を交えて説明
-- ✨ 励ましの言葉も添える
-- 📚 出典（レッスン名など）を簡潔に記載
-
-**絶対に守ること**: "--- スライド X ---"のような生の内容を出力しないでください。`;
-
-      // AIで要約応答を生成
-      const aiResponse = await generateAIResponse(
-        systemPrompt,
-        userQuery,
-        [],
-        context
-      );
-
-      logger.info('✅ 知識ベース限定応答生成完了');
+    // キーワードが見つかった場合、その周辺を抽出
+    if (firstMatchIndex !== -1) {
+      const start = Math.max(0, firstMatchIndex - 100);
+      const end = Math.min(content.length, firstMatchIndex + maxLength - 100);
+      const excerpt = content.substring(start, end);
       
-      // 🆕 フッターを追加
-      const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*\n📞 **さらに詳しいサポート**: \`/soudan\` で専門相談をご利用ください✨`;
-      
-      return aiResponse + footer;
+      return (start > 0 ? '...' : '') + excerpt + (end < content.length ? '...' : '');
+    }
 
+    // キーワードが見つからない場合、先頭から抽出
+    return content.substring(0, maxLength) + (content.length > maxLength ? '...' : '');
+  }
+
+  // URL先のコンテンツを読み込む（URL自動検出ベースに変更）
+  async loadContentFromUrl(urlInfo) {
+    const { url, fileName, category, type } = urlInfo;
+    
+    // URLから自動で形式を検出
+    const detectedType = detectUrlType(url);
+    
+    console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
+    console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
+    
+    try {
+      // 自動検出されたタイプベースでのコンテンツ読み込み
+      switch (detectedType) {
+        case 'google_slides':
+          console.log(`📊 Google Slides読み込み: ${fileName}`);
+          return await loadGoogleSlides(url, fileName);
+          
+        case 'google_docs':
+          console.log(`📄 Google Docs読み込み: ${fileName}`);
+          return await loadGoogleDocs(url, fileName);
+          
+        case 'notion':
+          console.log(`📝 Notion読み込み: ${fileName}`);
+          const notionContent = await loadNotionContent(url, fileName);
+          return { content: notionContent, images: this.extractImagesFromNotionContent(notionContent, fileName) };
+          
+        case 'image':
+          console.log(`🖼️ 画像読み込み: ${fileName}`);
+          const imageContent = await loadImageUrlInfo(url, fileName);
+          return { content: imageContent, images: this.extractDirectImageInfo(url, fileName) };
+          
+        case 'website':
+          console.log(`🌐 ウェブサイト読み込み: ${fileName}`);
+          const websiteContent = await loadWebsiteContent(url, fileName);
+          return { content: websiteContent, images: this.extractImagesFromWebContent(websiteContent, fileName) };
+          
+        default:
+          console.log(`❓ 未対応のURL形式: ${fileName} (自動検出: ${detectedType}, スプレッドシート: ${type})`);
+          return { 
+            content: `${fileName}: 未対応のURL形式 (検出結果: ${detectedType}) - ${url}`,
+            images: [] 
+          };
+      }
     } catch (error) {
-      logger.errorDetail('知識ベース限定応答エラー:', error);
-      return '申し訳ございません。現在知識ベースにアクセスできません。しばらく待ってから再度お試しください。';
+      console.error(`❌ コンテンツ読み込み失敗 ${fileName} (検出結果: ${detectedType}):`, error.message);
+      throw error;
     }
   }
 
-  // ステータス取得
+  // Notionコンテンツから画像情報を抽出
+  extractImagesFromNotionContent(content, fileName) {
+    const images = [];
+    // Notionの画像参照パターンをマッチング
+    const imageMatches = content.match(/\[🖼️ 画像: ([^\]]+)\]/g);
+    
+    if (imageMatches) {
+      imageMatches.forEach((match, index) => {
+        images.push({
+          source: 'notion',
+          fileName: fileName,
+          position: index + 1,
+          description: match.replace(/\[🖼️ 画像: ([^\]]+)\]/, '$1'),
+          type: 'embedded_image'
+        });
+      });
+    }
+    
+    return images;
+  }
+
+  // 直接画像URLの情報を抽出
+  extractDirectImageInfo(url, fileName) {
+    return [{
+      source: 'direct_url',
+      fileName: fileName,
+      url: url,
+      description: `${fileName} - 直接画像URL`,
+      type: 'direct_image'
+    }];
+  }
+
+  // WEBコンテンツから画像情報を抽出
+  extractImagesFromWebContent(content, fileName) {
+    const images = [];
+    const imageMatches = content.match(/\[🖼️ 画像: ([^\]]+)\]/g);
+    
+    if (imageMatches) {
+      imageMatches.forEach((match, index) => {
+        images.push({
+          source: 'website',
+          fileName: fileName,
+          position: index + 1,
+          description: match.replace(/\[🖼️ 画像: ([^\]]+)\]/, '$1'),
+          type: 'embedded_image'
+        });
+      });
+    }
+    
+    return images;
+  }
+
+  // 文書内画像の取得
+  getDocumentImages() {
+    return this.documentImages;
+  }
+
+  // 状態取得メソッド
   getStatus() {
     return {
-      initialized: this.initialized,
-      maxContextTokens: this.maxContextTokens,
-      service: 'RAG System',
-      version: '2.1.0'
+      initialized: this.isInitialized,
+      totalDocuments: this.documents.length,
+      totalDocumentImages: this.documentImages.length,
+      lastBuildTime: this.lastBuildTime,
+      imagesBySource: this.documentImages.reduce((acc, img) => {
+        acc[img.source] = (acc[img.source] || 0) + 1;
+        return acc;
+      }, {})
     };
+  }
+
+  // 統計情報
+  getStats() {
+    return {
+      totalDocuments: this.documents.length,
+      totalDocumentImages: this.documentImages.length,
+      lastBuildTime: this.lastBuildTime,
+      imagesBySource: this.documentImages.reduce((acc, img) => {
+        acc[img.source] = (acc[img.source] || 0) + 1;
+        return acc;
+      }, {})
+    };
+  }
+
+  // ユーティリティ: 待機
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // リセット
+  reset() {
+    this.documents = [];
+    this.documentImages = [];
+    this.lastBuildTime = null;
+    this.isInitialized = false;
+    console.log('🔄 知識ベースサービスリセット完了');
   }
 }
 
-// シングルトンインスタンス
-const ragSystem = new RAGSystem();
+// シングルトンインスタンス作成
+const knowledgeBaseService = new KnowledgeBaseService();
 
-// 初期化関数
-async function initializeRAG() {
-  await ragSystem.initialize();
-}
-
-// generateKnowledgeOnlyResponse関数をエクスポート
-async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
-  return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
-}
-
+// 複数の形式でexport（index.jsとの互換性確保）
 module.exports = {
-  ragSystem,
-  initializeRAG,
-  generateKnowledgeOnlyResponse
+  // サービスインスタンス
+  knowledgeBaseService,
+  
+  // 直接メソッド呼び出し用
+  buildKnowledgeBase: () => knowledgeBaseService.buildKnowledgeBase(),
+  initialize: () => knowledgeBaseService.initialize(),
+  initializeKnowledgeBase: () => knowledgeBaseService.initialize(),
+  searchKnowledge: (query, options) => knowledgeBaseService.searchKnowledge(query, options),
+  getDocumentImages: () => knowledgeBaseService.getDocumentImages(),
+  getStats: () => knowledgeBaseService.getStats(),
+  getStatus: () => knowledgeBaseService.getStatus(),
+  reset: () => knowledgeBaseService.reset(),
+  
+  // 後方互換性のため
+  default: knowledgeBaseService
 };
