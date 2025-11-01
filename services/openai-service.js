@@ -64,7 +64,7 @@ class OpenAIService {
       const response = await this.client.chat.completions.create({
         model: options.model || OPENAI_MODELS.TEXT,
         messages: messages,
-        max_tokens: options.max_tokens || 2000, // 🔧 修正: maxTokens → max_tokens
+        max_tokens: options.max_tokens || 2000,
         temperature: options.temperature || 0.7,
         ...options
       });
@@ -86,7 +86,7 @@ class OpenAIService {
       const response = await this.client.chat.completions.create({
         model: OPENAI_MODELS.VISION,
         messages: messages,
-        max_tokens: options.max_tokens || 2000, // 🔧 修正: maxTokens → max_tokens
+        max_tokens: options.max_tokens || 2000,
         temperature: options.temperature || 0.7,
         ...options
       });
@@ -94,6 +94,51 @@ class OpenAIService {
       return response.choices[0].message.content;
     } catch (error) {
       console.error('❌ Vision completion エラー:', error.message);
+      throw error;
+    }
+  }
+
+  // 🆕 追加: AI応答生成（RAGシステム用）
+  async generateAIResponse(systemPrompt, userQuery, images = [], context = {}) {
+    if (!this.isInitialized) {
+      // 初期化されていない場合は自動初期化を試みる
+      this.initialize();
+      if (!this.isInitialized) {
+        throw new Error('OpenAI service not initialized and auto-initialization failed');
+      }
+    }
+
+    try {
+      // 画像がある場合はVisionモデルを使用
+      if (images && images.length > 0) {
+        const visionMessage = this.buildVisionMessage(
+          `${systemPrompt}\n\n【ユーザーの質問】\n${userQuery}`,
+          images
+        );
+
+        const response = await this.createVisionCompletion([
+          { role: "system", content: systemPrompt },
+          visionMessage
+        ]);
+
+        return response;
+      }
+
+      // テキストのみの場合
+      const messages = [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userQuery }
+      ];
+
+      const response = await this.createChatCompletion(messages, {
+        temperature: context.temperature || 0.7,
+        max_tokens: context.max_tokens || 2000
+      });
+
+      return response;
+
+    } catch (error) {
+      console.error('❌ AI応答生成エラー:', error.message);
       throw error;
     }
   }
@@ -137,4 +182,15 @@ class OpenAIService {
   }
 }
 
-module.exports = new OpenAIService();
+// シングルトンインスタンス作成
+const openAIService = new OpenAIService();
+
+// 🆕 追加: エクスポート（rag-system.js互換性のため）
+module.exports = {
+  openAIService,
+  // generateAIResponse関数をエクスポート
+  generateAIResponse: (systemPrompt, userQuery, images, context) => 
+    openAIService.generateAIResponse(systemPrompt, userQuery, images, context),
+  // 後方互換性のため
+  default: openAIService
+};
