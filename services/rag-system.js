@@ -22,13 +22,42 @@ class RAGSystem {
     }
   }
 
+  // 知識ベース検索のヘルパーメソッド（3段階フォールバック）
+  _searchKnowledge(query, options) {
+    try {
+      // 方法1: knowledgeBaseServiceプロパティ経由
+      if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.searchKnowledge === 'function') {
+        logger.info('📚 検索方法: knowledgeBaseService経由');
+        return knowledgeBase.knowledgeBaseService.searchKnowledge(query, options);
+      }
+      // 方法2: 直接エクスポートされた関数
+      else if (typeof knowledgeBase.searchKnowledge === 'function') {
+        logger.info('📚 検索方法: 直接関数呼び出し');
+        return knowledgeBase.searchKnowledge(query, options);
+      }
+      // 方法3: エラー詳細をログ出力
+      else {
+        logger.error('❌ searchKnowledge関数が見つかりません', {
+          availableKeys: Object.keys(knowledgeBase),
+          knowledgeBaseType: typeof knowledgeBase,
+          hasKnowledgeBaseService: !!knowledgeBase.knowledgeBaseService,
+          knowledgeBaseServiceKeys: knowledgeBase.knowledgeBaseService ? Object.keys(knowledgeBase.knowledgeBaseService) : 'N/A'
+        });
+        throw new Error('searchKnowledge関数が見つかりません。knowledge-base.jsのエクスポート構造を確認してください。');
+      }
+    } catch (error) {
+      logger.error('❌ 知識ベース検索エラー:', error);
+      throw error;
+    }
+  }
+
   // RAG応答生成
   async generateRAGResponse(userQuery, images = [], context = {}) {
     try {
       logger.ai('RAG応答生成開始');
 
-      // 1. 知識ベース検索
-      const knowledgeResults = knowledgeBase.searchKnowledge(userQuery, {
+      // 1. 知識ベース検索（修正版）
+      const knowledgeResults = this._searchKnowledge(userQuery, {
         maxResults: 5,
         minScore: 0.1
       });
@@ -88,8 +117,8 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
     try {
       logger.ai('画像解析統合RAG応答生成開始');
 
-      // 知識ベース検索
-      const knowledgeResults = knowledgeBase.searchKnowledge(userQuery, {
+      // 知識ベース検索（修正版）
+      const knowledgeResults = this._searchKnowledge(userQuery, {
         maxResults: 3,
         minScore: 0.15
       });
@@ -137,7 +166,8 @@ ${visionContext}
     try {
       logger.ai('知識ベース限定応答生成開始');
 
-      const knowledgeResults = knowledgeBase.searchKnowledge(userQuery, {
+      // 知識ベース検索（修正版）
+      const knowledgeResults = this._searchKnowledge(userQuery, {
         maxResults: 3,
         minScore: 0.2 // より高い関連度を要求
       });
