@@ -1,7 +1,7 @@
 // services/rag-system.js - RAG（Retrieval-Augmented Generation）システム
 
 const logger = require('../utils/logger');
-const { searchKnowledge } = require('./knowledge-base');
+const knowledgeBase = require('./knowledge-base');
 const { generateAIResponse } = require('./openai-service');
 const { LIMITS } = require('../utils/constants');
 
@@ -28,7 +28,7 @@ class RAGSystem {
       logger.ai('RAG応答生成開始');
 
       // 1. 知識ベース検索
-      const knowledgeResults = searchKnowledge(userQuery, {
+      const knowledgeResults = knowledgeBase.searchKnowledge(userQuery, {
         maxResults: 5,
         minScore: 0.1
       });
@@ -89,7 +89,7 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
       logger.ai('画像解析統合RAG応答生成開始');
 
       // 知識ベース検索
-      const knowledgeResults = searchKnowledge(userQuery, {
+      const knowledgeResults = knowledgeBase.searchKnowledge(userQuery, {
         maxResults: 3,
         minScore: 0.15
       });
@@ -137,7 +137,7 @@ ${visionContext}
     try {
       logger.ai('知識ベース限定応答生成開始');
 
-      const knowledgeResults = searchKnowledge(userQuery, {
+      const knowledgeResults = knowledgeBase.searchKnowledge(userQuery, {
         maxResults: 3,
         minScore: 0.2 // より高い関連度を要求
       });
