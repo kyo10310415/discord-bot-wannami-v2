@@ -24,6 +24,7 @@ class KnowledgeBaseService {
       if (result) {
         this.isInitialized = true;
         logger.info('✅ 知識ベースサービス初期化完了');
+        logger.info(`📊 初期化後の文書数: ${this.documents.length}`); // 🆕 デバッグ情報
         return result;
       } else {
         console.log('⚠️ 知識ベース構築に失敗しましたが、サービスは初期化されました');
@@ -126,36 +127,56 @@ class KnowledgeBaseService {
       } = options;
 
       logger.info(`🔍 知識ベース検索: "${query}"`);
+      
+      // 🆕 デバッグ情報追加
+      logger.info(`📊 検索前の状態: 初期化=${this.isInitialized}, 文書数=${this.documents.length}`);
 
       // 知識ベースが初期化されていない場合
       if (!this.isInitialized || this.documents.length === 0) {
         logger.warn('⚠️ 知識ベースが初期化されていないか、文書が空です');
+        logger.warn(`詳細: isInitialized=${this.isInitialized}, documents.length=${this.documents.length}`);
         return [];
+      }
+
+      // 🆕 文書の内容サンプルをログ出力（最初の3件）
+      if (this.documents.length > 0) {
+        logger.info('📄 文書サンプル（最初の3件）:');
+        this.documents.slice(0, 3).forEach((doc, i) => {
+          logger.info(`  [${i + 1}] ${doc.source} (${doc.category}) - 文字数: ${doc.content.length}`);
+        });
       }
 
       // クエリを小文字化して検索準備
       const queryLower = query.toLowerCase();
       const queryKeywords = queryLower.split(/\s+/).filter(k => k.length > 1);
+      
+      logger.info(`🔑 検索キーワード: ${queryKeywords.join(', ')}`);
 
       // 各文書とのスコアリング
       const scoredDocuments = this.documents.map(doc => {
         const contentLower = doc.content.toLowerCase();
         let score = 0;
+        let matchDetails = []; // 🆕 マッチ詳細
 
         // キーワードマッチングスコア
         queryKeywords.forEach(keyword => {
           const matches = (contentLower.match(new RegExp(keyword, 'g')) || []).length;
-          score += matches * 0.1; // キーワード出現回数に応じてスコア加算
+          if (matches > 0) {
+            score += matches * 0.1; // キーワード出現回数に応じてスコア加算
+            matchDetails.push(`"${keyword}":${matches}回`);
+          }
         });
 
         // 完全一致ボーナス
         if (contentLower.includes(queryLower)) {
           score += 0.5;
+          matchDetails.push('完全一致+0.5');
         }
 
         // カテゴリ一致ボーナス
         if (doc.category && queryLower.includes(doc.category.toLowerCase())) {
           score += 0.3;
+          matchDetails.push('カテゴリ一致+0.3');
         }
 
         // スコアを0-1の範囲に正規化
@@ -167,6 +188,7 @@ class KnowledgeBaseService {
           similarity: normalizedScore, // rag-system.js互換性のため
           title: doc.source, // rag-system.js互換性のため
           answer: this._extractRelevantContent(doc.content, queryKeywords), // 関連部分を抽出
+          matchDetails: matchDetails, // 🆕 デバッグ用
           metadata: includeMetadata ? {
             source: doc.source,
             category: doc.category,
@@ -179,12 +201,23 @@ class KnowledgeBaseService {
       // スコアでソート
       scoredDocuments.sort((a, b) => b.score - a.score);
 
+      // 🆕 スコアの分布をログ出力
+      logger.info('📊 スコア分布（上位10件）:');
+      scoredDocuments.slice(0, 10).forEach((doc, i) => {
+        logger.info(`  [${i + 1}] ${doc.source}: ${doc.score.toFixed(3)} - ${doc.matchDetails.join(', ') || 'マッチなし'}`);
+      });
+
       // 最小スコアでフィルタリング & 上位結果のみ返す
       const results = scoredDocuments
         .filter(doc => doc.score >= minScore)
         .slice(0, Math.max(maxResults, topK));
 
       logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(2) || 0})`);
+      
+      // 🆕 フィルタリング情報
+      if (results.length === 0 && scoredDocuments.length > 0) {
+        logger.warn(`⚠️ minScore=${minScore}でフィルタリングされました。最高スコア: ${scoredDocuments[0].score.toFixed(3)}`);
+      }
 
       return results;
 
