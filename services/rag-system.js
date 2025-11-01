@@ -22,18 +22,18 @@ class RAGSystem {
     }
   }
 
-  // 知識ベース検索のヘルパーメソッド（3段階フォールバック）
-  _searchKnowledge(query, options) {
+  // 知識ベース検索のヘルパーメソッド（修正版）
+  _searchKnowledge(query, options = {}) {
     try {
-      // 方法1: knowledgeBaseServiceプロパティ経由
-      if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.searchKnowledge === 'function') {
-        logger.info('📚 検索方法: knowledgeBaseService経由');
-        return knowledgeBase.knowledgeBaseService.searchKnowledge(query, options);
-      }
-      // 方法2: 直接エクスポートされた関数
-      else if (typeof knowledgeBase.searchKnowledge === 'function') {
+      // 方法1: 直接エクスポートされた関数（推奨）
+      if (typeof knowledgeBase.searchKnowledge === 'function') {
         logger.info('📚 検索方法: 直接関数呼び出し');
         return knowledgeBase.searchKnowledge(query, options);
+      }
+      // 方法2: knowledgeBaseServiceプロパティ経由
+      else if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.searchKnowledge === 'function') {
+        logger.info('📚 検索方法: knowledgeBaseService経由');
+        return knowledgeBase.knowledgeBaseService.searchKnowledge(query, options);
       }
       // 方法3: エラー詳細をログ出力
       else {
@@ -59,7 +59,7 @@ class RAGSystem {
       // 1. 知識ベース検索（修正版）
       const knowledgeResults = this._searchKnowledge(userQuery, {
         maxResults: 5,
-        minScore: 0.1
+        minScore: 0.05
       });
 
       logger.info(`知識ベース検索結果: ${knowledgeResults.length}件`);
@@ -69,8 +69,10 @@ class RAGSystem {
       if (knowledgeResults.length > 0) {
         knowledgeContext = '【知識ベースからの関連情報】\n\n';
         knowledgeResults.forEach((result, index) => {
-          knowledgeContext += `${index + 1}. ${result.title}\n`;
-          knowledgeContext += `${result.content}\n`;
+          knowledgeContext += `${index + 1}. ${result.title || result.source}\n`;
+          // 🆕 修正: 長いコンテンツは要約して使用
+          const contentPreview = result.answer || result.content.substring(0, 500);
+          knowledgeContext += `${contentPreview}\n`;
           knowledgeContext += `(関連度: ${(result.score * 100).toFixed(1)}%)\n\n`;
         });
       }
@@ -89,11 +91,13 @@ class RAGSystem {
 - 専門用語は初心者にも分かるように説明
 - 具体例を交えた実践的なアドバイス
 - 必要に応じて段階的な手順を提示
+- **生のスライド内容をそのまま貼り付けず、要約して説明する**
 
 【知識ベース情報】
 ${knowledgeContext || '関連する知識ベース情報が見つかりませんでした。'}
 
-上記の知識ベース情報を参考に、ユーザーの質問に答えてください。`;
+上記の知識ベース情報を参考に、ユーザーの質問に答えてください。
+**重要**: スライドの生の内容（"--- スライド X ---"など）をそのまま出力せず、内容を理解して要約・整理してください。`;
 
       // 4. AI応答生成
       const aiResponse = await generateAIResponse(
@@ -120,7 +124,7 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
       // 知識ベース検索（修正版）
       const knowledgeResults = this._searchKnowledge(userQuery, {
         maxResults: 3,
-        minScore: 0.15
+        minScore: 0.05
       });
 
       // 画像コンテキスト追加
@@ -134,7 +138,8 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
       if (knowledgeResults.length > 0) {
         knowledgeContext = '【知識ベース情報】\n';
         knowledgeResults.forEach(result => {
-          knowledgeContext += `- ${result.title}: ${result.content}\n`;
+          const contentPreview = result.answer || result.content.substring(0, 300);
+          knowledgeContext += `- ${result.title || result.source}: ${contentPreview}\n`;
         });
       }
 
@@ -143,7 +148,8 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
 ${knowledgeContext}
 ${visionContext}
 
-ユーザーの質問と添付画像を確認して、適切なアドバイスを提供してください。`;
+ユーザーの質問と添付画像を確認して、適切なアドバイスを提供してください。
+**重要**: 知識ベースの内容を要約・整理して、わかりやすく説明してください。`;
 
       const response = await generateAIResponse(
         systemPrompt,
@@ -161,16 +167,18 @@ ${visionContext}
     }
   }
 
-  // 知識ベース限定応答
+  // 知識ベース限定応答（🆕 完全に書き直し）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
       logger.ai('知識ベース限定応答生成開始');
 
-      // 知識ベース検索（修正版）
+      // 知識ベース検索
       const knowledgeResults = this._searchKnowledge(userQuery, {
-        maxResults: 3,
-        minScore: 0.2 // より高い関連度を要求
+        maxResults: 5,
+        minScore: 0.05
       });
+
+      logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
 
       if (knowledgeResults.length === 0) {
         return `🤖 **わなみさんです！**\n\n申し訳ございません。「${userQuery}」に関する情報が知識ベースに見つかりませんでした。
@@ -191,23 +199,54 @@ ${visionContext}
 \`/soudan\` で相談メニューを表示し、専門サポートをご利用ください✨`;
       }
 
-      // 知識ベースの回答を組み合わせて返答
-      let response = `🤖 **わなみさんです！**\n\n`;
-      response += `「**${userQuery}**」について、知識ベースからお答えします！\n\n`;
-      
+      // 🆕 知識ベースの内容を整理してプロンプトに渡す
+      let knowledgeContext = '【参照資料】\n\n';
       knowledgeResults.forEach((result, index) => {
-        if (index === 0) {
-          response += `📚 **主な回答:**\n${result.answer}\n\n`;
-        } else {
-          response += `🔗 **関連情報:**\n${result.answer}\n\n`;
-        }
+        knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
+        // answerフィールドがあればそれを使用、なければcontentから抜粋
+        const content = result.answer || result.content.substring(0, 800);
+        knowledgeContext += `${content}\n\n`;
       });
 
-      response += `---\n🎯 *知識ベースからの回答 (関連度: ${(knowledgeResults[0].score * 100).toFixed(0)}%) - 更新済みデータ*\n\n`;
-      response += `📞 **さらに詳しいサポートが必要な場合:** \`/soudan\` で専門相談をご利用ください✨`;
+      // 🆕 AIに要約・整理を依頼
+      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
+
+【重要なルール】
+1. 以下の参照資料の内容**のみ**を使って回答してください
+2. 参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください
+3. 内容を理解して、**要約・整理・わかりやすく説明**してください
+4. 具体的なアドバイスと実践的な手順を提供してください
+5. 親しみやすく、でも専門的な口調で回答してください
+
+【参照資料】
+${knowledgeContext}
+
+【質問】
+${userQuery}
+
+【回答の形式】
+- 🎯 見出しで要点を明確に
+- 📝 箇条書きや番号付きリストで整理
+- 💡 具体例を交えて説明
+- ✨ 励ましの言葉も添える
+- 📚 出典（レッスン名など）を簡潔に記載
+
+**絶対に守ること**: "--- スライド X ---"のような生の内容を出力しないでください。`;
+
+      // AIで要約応答を生成
+      const aiResponse = await generateAIResponse(
+        systemPrompt,
+        userQuery,
+        [],
+        context
+      );
 
       logger.info('✅ 知識ベース限定応答生成完了');
-      return response;
+      
+      // 🆕 フッターを追加
+      const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*\n📞 **さらに詳しいサポート**: \`/soudan\` で専門相談をご利用ください✨`;
+      
+      return aiResponse + footer;
 
     } catch (error) {
       logger.errorDetail('知識ベース限定応答エラー:', error);
@@ -221,7 +260,7 @@ ${visionContext}
       initialized: this.initialized,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.0.0'
+      version: '2.1.0'
     };
   }
 }
