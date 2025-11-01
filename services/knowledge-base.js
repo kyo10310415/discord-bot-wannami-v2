@@ -24,7 +24,7 @@ class KnowledgeBaseService {
       if (result) {
         this.isInitialized = true;
         logger.info('✅ 知識ベースサービス初期化完了');
-        logger.info(`📊 初期化後の文書数: ${this.documents.length}`); // 🆕 デバッグ情報
+        logger.info(`📊 初期化後の文書数: ${this.documents.length}`);
         return result;
       } else {
         console.log('⚠️ 知識ベース構築に失敗しましたが、サービスは初期化されました');
@@ -116,19 +116,44 @@ class KnowledgeBaseService {
     }
   }
 
-  // 🆕 追加: 知識ベース検索機能
+  // 🆕 修正: 日本語対応の簡易トークナイザー
+  _tokenizeQuery(query) {
+    // 日本語と英語の両方に対応
+    const tokens = [];
+    
+    // 英数字の単語を抽出
+    const alphanumericWords = query.match(/[a-zA-Z0-9]+/g) || [];
+    tokens.push(...alphanumericWords);
+    
+    // 日本語: 2文字以上のひらがな・カタカナ・漢字を抽出
+    const hiragana = query.match(/[ぁ-ん]{2,}/g) || [];
+    const katakana = query.match(/[ァ-ヴ]{2,}/g) || [];
+    const kanji = query.match(/[一-龯]{2,}/g) || [];
+    
+    tokens.push(...hiragana, ...katakana, ...kanji);
+    
+    // さらに1文字のカタカナ・アルファベットも追加（X、SNSなど）
+    const singleChars = query.match(/[ァ-ヴA-Z]/g) || [];
+    tokens.push(...singleChars);
+    
+    // 小文字化して重複除去
+    const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
+    
+    return uniqueTokens;
+  }
+
+  // 🆕 修正: 知識ベース検索機能（日本語対応）
   searchKnowledge(query, options = {}) {
     try {
       const {
         maxResults = 5,
-        minScore = 0.1,
+        minScore = 0.05, // 🆕 minScoreを下げる（0.1 → 0.05）
         topK = 5,
         includeMetadata = true
       } = options;
 
       logger.info(`🔍 知識ベース検索: "${query}"`);
       
-      // 🆕 デバッグ情報追加
       logger.info(`📊 検索前の状態: 初期化=${this.isInitialized}, 文書数=${this.documents.length}`);
 
       // 知識ベースが初期化されていない場合
@@ -138,7 +163,7 @@ class KnowledgeBaseService {
         return [];
       }
 
-      // 🆕 文書の内容サンプルをログ出力（最初の3件）
+      // 文書の内容サンプルをログ出力（最初の3件）
       if (this.documents.length > 0) {
         logger.info('📄 文書サンプル（最初の3件）:');
         this.documents.slice(0, 3).forEach((doc, i) => {
@@ -146,24 +171,27 @@ class KnowledgeBaseService {
         });
       }
 
-      // クエリを小文字化して検索準備
-      const queryLower = query.toLowerCase();
-      const queryKeywords = queryLower.split(/\s+/).filter(k => k.length > 1);
+      // 🆕 日本語対応トークナイザーを使用
+      const queryTokens = this._tokenizeQuery(query);
       
-      logger.info(`🔑 検索キーワード: ${queryKeywords.join(', ')}`);
+      logger.info(`🔑 検索キーワード (${queryTokens.length}個): ${queryTokens.join(', ')}`);
+
+      // クエリ全体も小文字化
+      const queryLower = query.toLowerCase();
 
       // 各文書とのスコアリング
       const scoredDocuments = this.documents.map(doc => {
         const contentLower = doc.content.toLowerCase();
         let score = 0;
-        let matchDetails = []; // 🆕 マッチ詳細
+        let matchDetails = [];
 
         // キーワードマッチングスコア
-        queryKeywords.forEach(keyword => {
-          const matches = (contentLower.match(new RegExp(keyword, 'g')) || []).length;
+        queryTokens.forEach(token => {
+          const matches = (contentLower.match(new RegExp(token, 'gi')) || []).length;
           if (matches > 0) {
-            score += matches * 0.1; // キーワード出現回数に応じてスコア加算
-            matchDetails.push(`"${keyword}":${matches}回`);
+            const tokenScore = Math.min(matches * 0.05, 0.3); // 1トークンあたり最大0.3
+            score += tokenScore;
+            matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(2)})`);
           }
         });
 
@@ -174,10 +202,22 @@ class KnowledgeBaseService {
         }
 
         // カテゴリ一致ボーナス
-        if (doc.category && queryLower.includes(doc.category.toLowerCase())) {
-          score += 0.3;
-          matchDetails.push('カテゴリ一致+0.3');
+        if (doc.category) {
+          const categoryLower = doc.category.toLowerCase();
+          if (queryLower.includes(categoryLower) || categoryLower.includes(queryLower)) {
+            score += 0.3;
+            matchDetails.push('カテゴリ一致+0.3');
+          }
         }
+
+        // ファイル名一致ボーナス
+        const sourceLower = doc.source.toLowerCase();
+        queryTokens.forEach(token => {
+          if (sourceLower.includes(token)) {
+            score += 0.2;
+            matchDetails.push(`ファイル名一致("${token}")+0.2`);
+          }
+        });
 
         // スコアを0-1の範囲に正規化
         const normalizedScore = Math.min(score, 1.0);
@@ -185,10 +225,10 @@ class KnowledgeBaseService {
         return {
           ...doc,
           score: normalizedScore,
-          similarity: normalizedScore, // rag-system.js互換性のため
-          title: doc.source, // rag-system.js互換性のため
-          answer: this._extractRelevantContent(doc.content, queryKeywords), // 関連部分を抽出
-          matchDetails: matchDetails, // 🆕 デバッグ用
+          similarity: normalizedScore,
+          title: doc.source,
+          answer: this._extractRelevantContent(doc.content, queryTokens),
+          matchDetails: matchDetails,
           metadata: includeMetadata ? {
             source: doc.source,
             category: doc.category,
@@ -201,10 +241,11 @@ class KnowledgeBaseService {
       // スコアでソート
       scoredDocuments.sort((a, b) => b.score - a.score);
 
-      // 🆕 スコアの分布をログ出力
+      // スコアの分布をログ出力
       logger.info('📊 スコア分布（上位10件）:');
       scoredDocuments.slice(0, 10).forEach((doc, i) => {
-        logger.info(`  [${i + 1}] ${doc.source}: ${doc.score.toFixed(3)} - ${doc.matchDetails.join(', ') || 'マッチなし'}`);
+        const details = doc.matchDetails.length > 0 ? doc.matchDetails.join(', ') : 'マッチなし';
+        logger.info(`  [${i + 1}] ${doc.source}: ${doc.score.toFixed(3)} - ${details}`);
       });
 
       // 最小スコアでフィルタリング & 上位結果のみ返す
@@ -214,7 +255,7 @@ class KnowledgeBaseService {
 
       logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(2) || 0})`);
       
-      // 🆕 フィルタリング情報
+      // フィルタリング情報
       if (results.length === 0 && scoredDocuments.length > 0) {
         logger.warn(`⚠️ minScore=${minScore}でフィルタリングされました。最高スコア: ${scoredDocuments[0].score.toFixed(3)}`);
       }
@@ -227,7 +268,7 @@ class KnowledgeBaseService {
     }
   }
 
-  // 🆕 追加: 関連コンテンツ抽出（長い文書から関連部分を抜粋）
+  // 関連コンテンツ抽出（長い文書から関連部分を抜粋）
   _extractRelevantContent(content, keywords) {
     const maxLength = 500; // 最大文字数
     const contentLower = content.toLowerCase();
@@ -235,7 +276,7 @@ class KnowledgeBaseService {
     // キーワードが最初に出現する位置を探す
     let firstMatchIndex = -1;
     for (const keyword of keywords) {
-      const index = contentLower.indexOf(keyword);
+      const index = contentLower.indexOf(keyword.toLowerCase());
       if (index !== -1 && (firstMatchIndex === -1 || index < firstMatchIndex)) {
         firstMatchIndex = index;
       }
@@ -360,7 +401,7 @@ class KnowledgeBaseService {
     return this.documentImages;
   }
 
-  // 🆕 追加: 状態取得メソッド
+  // 状態取得メソッド
   getStatus() {
     return {
       initialized: this.isInitialized,
@@ -402,10 +443,10 @@ class KnowledgeBaseService {
   }
 }
 
-// 🆕 修正: シングルトンインスタンス作成
+// シングルトンインスタンス作成
 const knowledgeBaseService = new KnowledgeBaseService();
 
-// 🆕 修正: 複数の形式でexport（index.jsとの互換性確保）
+// 複数の形式でexport（index.jsとの互換性確保）
 module.exports = {
   // サービスインスタンス
   knowledgeBaseService,
@@ -414,7 +455,7 @@ module.exports = {
   buildKnowledgeBase: () => knowledgeBaseService.buildKnowledgeBase(),
   initialize: () => knowledgeBaseService.initialize(),
   initializeKnowledgeBase: () => knowledgeBaseService.initialize(),
-  searchKnowledge: (query, options) => knowledgeBaseService.searchKnowledge(query, options), // 🆕 追加
+  searchKnowledge: (query, options) => knowledgeBaseService.searchKnowledge(query, options),
   getDocumentImages: () => knowledgeBaseService.getDocumentImages(),
   getStats: () => knowledgeBaseService.getStats(),
   getStatus: () => knowledgeBaseService.getStatus(),
