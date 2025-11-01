@@ -137,7 +137,6 @@ ${visionContext}
     try {
       logger.ai('知識ベース限定応答生成開始');
 
-      const { searchKnowledge } = require('./knowledge-base');
       const knowledgeResults = searchKnowledge(userQuery, {
         maxResults: 3,
         minScore: 0.2 // より高い関連度を要求
