@@ -245,6 +245,16 @@ async function handleQuestionResponse(userId, userQuery, context = {}) {
 // AI対象ボタンの応答生成（🆕 ミッション提出対応版）
 async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, context) {
   try {
+    // 🆕 デバッグログ追加
+    logger.info(`🔍 [DEBUG] ======== ミッション判定デバッグ ========`);
+    logger.info(`🔍 [DEBUG] buttonId: "${buttonId}"`);
+    logger.info(`🔍 [DEBUG] BUTTON_IDS.MISSION_SUBMISSION: "${BUTTON_IDS.MISSION_SUBMISSION}"`);
+    logger.info(`🔍 [DEBUG] typeof buttonId: ${typeof buttonId}`);
+    logger.info(`🔍 [DEBUG] typeof BUTTON_IDS.MISSION_SUBMISSION: ${typeof BUTTON_IDS.MISSION_SUBMISSION}`);
+    logger.info(`🔍 [DEBUG] 厳密等価判定: ${buttonId === BUTTON_IDS.MISSION_SUBMISSION}`);
+    logger.info(`🔍 [DEBUG] 文字列判定: ${buttonId === 'mission_submission'}`);
+    logger.info(`🔍 [DEBUG] 最終判定結果: ${buttonId === BUTTON_IDS.MISSION_SUBMISSION || buttonId === 'mission_submission'}`);
+    logger.info(`🔍 [DEBUG] =======================================`);
     // 🆕 ミッション提出の場合は専用処理
     if (buttonId === BUTTON_IDS.MISSION_SUBMISSION || buttonId === 'mission_submission') {
       logger.info('📝 ミッション提出専用処理を実行');
