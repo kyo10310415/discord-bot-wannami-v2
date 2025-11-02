@@ -208,9 +208,7 @@ ${visionContext}
 • Live2Dモデルの扱い方
 • SNS運用とマーケティング
 • デザインとブランディング
-
-📞 **より詳しいサポートが必要な場合:**
-\`/soudan\` で相談メニューを表示し、専門サポートをご利用ください✨`;
+`;
       }
 
       // 🆕 知識ベースの内容を整理してプロンプトに渡す
@@ -272,7 +270,7 @@ ${userQuery}
       logger.info('✅ 知識ベース限定応答生成完了');
       
       // 🆕 フッターを追加
-      const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*\n📞 **さらに詳しいサポート**: \`/soudan\` で専門相談をご利用ください✨`;
+      const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
 
