@@ -1,4 +1,4 @@
-// services/google-apis.js - Google APIs連携サービス
+// services/google-apis.js - Google APIs連携サービス v2.1.0（メタデータ対応）
 
 const { GoogleAuth } = require('google-auth-library');
 const { google } = require('googleapis');
@@ -95,13 +95,15 @@ class GoogleAPIsService {
     }
   }
 
-  // 🆕 追加: URL一覧をスプレッドシートから読み込み（knowledge-base.jsとの互換性のため）
-  async loadUrlListFromSpreadsheet(spreadsheetId, range = 'A:D') {
+  // 🆕 修正版: URL一覧をスプレッドシートから読み込み（A-G列すべて取得）
+  async loadUrlListFromSpreadsheet(spreadsheetId) {
     try {
       await this.ensureInitialized();
       
       console.log(`📋 URL一覧読み込み開始: ${spreadsheetId}`);
       
+      // 🆕 A-G列すべてを取得
+      const range = 'A:G';
       const values = await this.readSpreadsheet(spreadsheetId, range);
       
       if (values.length === 0) {
@@ -109,27 +111,71 @@ class GoogleAPIsService {
         return [];
       }
 
-      // ヘッダー行をスキップして処理
-      const dataRows = values.slice(1);
+      console.log(`📄 ${values.length}行のデータを取得（ヘッダー含む）`);
+
+      // ヘッダー行をスキップして処理（i=1から開始）
+      const urlList = [];
       
-      const urlList = dataRows
-        .filter(row => row[1] && row[1].trim() && row[1] !== 'URLリンク' && row[1].startsWith('http')) // B列（URL）が必須、ヘッダー除外、HTTP/HTTPSのみ
-        .map((row, index) => ({
-          url: row[1] ? row[1].trim() : '',
-          fileName: row[0] ? row[0].trim() : `文書${index + 1}`,
-          category: row[2] ? row[2].trim() : 'general',
-          type: row[3] ? row[3].trim() : this.detectUrlType(row[1]),
-          rowIndex: index + 2
-        }))
-        .filter(item => item.url && item.url.startsWith('http')); // URLが空でなく、HTTPで始まるもののみ
+      for (let i = 1; i < values.length; i++) {
+        const row = values[i];
+        
+        // 空行チェック
+        if (!row[0] && !row[1]) {
+          console.log(`  ⏭️ [${i + 1}行目] 空行をスキップ`);
+          continue;
+        }
+
+        const urlInfo = {
+          fileName: row[0] || `Document_${i}`,
+          url: row[1] || '',
+          classification: row[2] || '',      // 🆕 C列: レッスン/ミッション
+          type: row[3] || '',                 // 🆕 D列: 種類
+          category: row[4] || '',             // 🆕 E列: カテゴリ
+          goodBadExample: row[5] || '',       // 🆕 F列: 良い例/悪い例
+          remarks: row[6] || '',              // 🆕 G列: 備考
+          rowIndex: i + 1
+        };
+
+        // URL検証
+        if (urlInfo.url && urlInfo.url.trim() && urlInfo.url.startsWith('http')) {
+          urlList.push(urlInfo);
+          
+          // 🆕 メタデータログ
+          console.log(`  ✅ [${i + 1}行目] ${urlInfo.fileName}`);
+          if (urlInfo.classification || urlInfo.goodBadExample) {
+            console.log(`     📋 分類: ${urlInfo.classification || 'なし'}, カテゴリ: ${urlInfo.category || 'なし'}, 良/悪: ${urlInfo.goodBadExample || 'なし'}`);
+          }
+        } else {
+          console.log(`  ❌ [${i + 1}行目] 無効なURL: ${urlInfo.fileName}`);
+        }
+      }
 
       console.log(`✅ URL一覧読み込み完了: ${urlList.length}件`);
       
-      // 読み込んだURLを表示（デバッグ用）
-      urlList.forEach((item, index) => {
-        console.log(`  ${index + 1}. ${item.fileName} (${item.type}) - ${item.url.substring(0, 50)}...`);
+      // 🆕 メタデータ集計
+      const stats = {
+        classification: {},
+        goodBadExample: {},
+        category: {}
+      };
+      
+      urlList.forEach(item => {
+        if (item.classification) {
+          stats.classification[item.classification] = (stats.classification[item.classification] || 0) + 1;
+        }
+        if (item.goodBadExample) {
+          stats.goodBadExample[item.goodBadExample] = (stats.goodBadExample[item.goodBadExample] || 0) + 1;
+        }
+        if (item.category) {
+          stats.category[item.category] = (stats.category[item.category] || 0) + 1;
+        }
       });
       
+      console.log('📊 メタデータ集計:');
+      console.log('  分類別:', stats.classification);
+      console.log('  良い例/悪い例:', stats.goodBadExample);
+      console.log('  カテゴリ別:', stats.category);
+
       return urlList;
 
     } catch (error) {
@@ -138,7 +184,7 @@ class GoogleAPIsService {
     }
   }
 
-  // 🆕 追加: URLタイプの自動検出（強化版）
+  // URLタイプの自動検出（強化版）
   detectUrlType(url) {
     if (!url || typeof url !== 'string') {
       console.log(`❓ URL形式不明: ${url}`);
@@ -183,7 +229,7 @@ class GoogleAPIsService {
     return 'unknown';
   }
 
-  // 🆕 追加: Google Slides読み込み（knowledge-base.jsとの互換性のため）
+  // Google Slides読み込み
   async loadGoogleSlides(url, fileName) {
     try {
       console.log(`📄 Google Slides読み込み: ${fileName}`);
@@ -235,7 +281,7 @@ class GoogleAPIsService {
       if (error.message.includes('permission') || error.message.includes('forbidden')) {
         console.log(`🔒 権限エラー: ${fileName} - Botアカウントに共有権限が必要です`);
         return { 
-          content: `${fileName}: Google Slides読み込みエラー - 共有権限が必要です。リンクを知っている全員に共有するか、discord-bot-wannami@wanamisan-474114.iam.gserviceaccount.com に編集権限を付与してください。`,
+          content: `${fileName}: Google Slides読み込みエラー - 共有権限が必要です。`,
           images: []
         };
       }
@@ -247,7 +293,7 @@ class GoogleAPIsService {
     }
   }
 
-  // 🆕 追加: Google Docs読み込み（knowledge-base.jsとの互換性のため）
+  // Google Docs読み込み
   async loadGoogleDocs(url, fileName) {
     try {
       console.log(`📄 Google Docs読み込み: ${fileName}`);
@@ -292,7 +338,7 @@ class GoogleAPIsService {
       if (error.message.includes('permission') || error.message.includes('forbidden')) {
         console.log(`🔒 権限エラー: ${fileName} - Botアカウントに共有権限が必要です`);
         return { 
-          content: `${fileName}: Google Docs読み込みエラー - 共有権限が必要です。リンクを知っている全員に共有するか、discord-bot-wannami@wanamisan-474114.iam.gserviceaccount.com に編集権限を付与してください。`,
+          content: `${fileName}: Google Docs読み込みエラー - 共有権限が必要です。`,
           images: []
         };
       }
@@ -304,13 +350,13 @@ class GoogleAPIsService {
     }
   }
 
-  // 🆕 追加: プレゼンテーションID抽出
+  // プレゼンテーションID抽出
   extractPresentationId(url) {
     const match = url.match(/\/presentation\/d\/([a-zA-Z0-9-_]+)/);
     return match ? match[1] : null;
   }
 
-  // 🆕 追加: 文書ID抽出
+  // 文書ID抽出
   extractDocumentId(url) {
     const match = url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/);
     return match ? match[1] : null;
@@ -473,9 +519,8 @@ module.exports = {
   initializeServices,
   readKnowledgeBase: (spreadsheetId) => googleAPIsService.readKnowledgeBase(spreadsheetId),
   testConnection: () => googleAPIsService.testConnection(),
-  // 🆕 追加: knowledge-base.jsとの互換性のため
-  loadUrlListFromSpreadsheet: (spreadsheetId, range) => googleAPIsService.loadUrlListFromSpreadsheet(spreadsheetId, range),
+  loadUrlListFromSpreadsheet: (spreadsheetId) => googleAPIsService.loadUrlListFromSpreadsheet(spreadsheetId),
   loadGoogleSlides: (url, fileName) => googleAPIsService.loadGoogleSlides(url, fileName),
   loadGoogleDocs: (url, fileName) => googleAPIsService.loadGoogleDocs(url, fileName),
-  detectUrlType: (url) => googleAPIsService.detectUrlType(url) // 🆕 追加: URL型検出関数を公開
+  detectUrlType: (url) => googleAPIsService.detectUrlType(url)
 };
