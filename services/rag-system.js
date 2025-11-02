@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG（Retrieval-Augmented Generation）システム v2.3.0
+// services/rag-system.js - RAG（Retrieval-Augmented Generation）システム v2.4.0
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -8,26 +8,23 @@ const { LIMITS } = require('../utils/constants');
 class RAGSystem {
   constructor() {
     this.initialized = false;
-    this.isInitializing = false; // 🆕 初期化中フラグ
-    this.initializationPromise = null; // 🆕 初期化プロミス
+    this.isInitializing = false;
+    this.initializationPromise = null;
     this.maxContextTokens = LIMITS.MAX_CONTEXT_LENGTH || 25000;
   }
 
   // RAGシステム初期化
   async initialize() {
-    // 既に初期化中の場合は、その完了を待つ
     if (this.isInitializing) {
       logger.info('⏳ 既に初期化処理中です。完了を待機...');
       return this.initializationPromise;
     }
 
-    // 既に初期化済みの場合
     if (this.initialized) {
       logger.info('✅ RAGシステムは既に初期化済みです');
       return true;
     }
 
-    // 初期化開始
     this.isInitializing = true;
     this.initializationPromise = this._performInitialization();
     
@@ -40,7 +37,6 @@ class RAGSystem {
     }
   }
 
-  // 実際の初期化処理（内部用）
   async _performInitialization() {
     try {
       this.initialized = true;
@@ -53,7 +49,6 @@ class RAGSystem {
     }
   }
 
-  // 🆕 初期化完了を待つ（タイムアウト付き）
   async waitForInitialization(timeoutMs = 30000) {
     if (this.initialized) {
       return true;
@@ -74,23 +69,18 @@ class RAGSystem {
     return true;
   }
 
-  // 知識ベース検索のヘルパーメソッド（修正版 + 初期化待機）
   async _searchKnowledge(query, options = {}) {
     try {
-      // 🆕 初期化待機
       await this.waitForInitialization();
 
-      // 方法1: 直接エクスポートされた関数（推奨）
       if (typeof knowledgeBase.searchKnowledge === 'function') {
         logger.info('📚 検索方法: 直接関数呼び出し');
         return knowledgeBase.searchKnowledge(query, options);
       }
-      // 方法2: knowledgeBaseServiceプロパティ経由
       else if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.searchKnowledge === 'function') {
         logger.info('📚 検索方法: knowledgeBaseService経由');
         return knowledgeBase.knowledgeBaseService.searchKnowledge(query, options);
       }
-      // 方法3: エラー詳細をログ出力
       else {
         logger.error('❌ searchKnowledge関数が見つかりません', {
           availableKeys: Object.keys(knowledgeBase),
@@ -106,12 +96,10 @@ class RAGSystem {
     }
   }
 
-  // RAG応答生成
   async generateRAGResponse(userQuery, images = [], context = {}) {
     try {
       logger.ai('RAG応答生成開始');
 
-      // 1. 知識ベース検索（修正版 + 初期化待機）
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
         minScore: 0.05
@@ -119,7 +107,6 @@ class RAGSystem {
 
       logger.info(`知識ベース検索結果: ${knowledgeResults.length}件`);
 
-      // 2. コンテキスト構築
       let knowledgeContext = '';
       if (knowledgeResults.length > 0) {
         knowledgeContext = '【知識ベースからの関連情報】\n\n';
@@ -131,7 +118,6 @@ class RAGSystem {
         });
       }
 
-      // 3. システムプロンプト作成
       const systemPrompt = `あなたは「わなみさん」という名前のVTuber育成スクールのアシスタントです。
 
 【重要な役割】
@@ -167,7 +153,6 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
 上記の知識ベース情報を参考に、ユーザーの質問に答えてください。
 **重要**: スライドの生の内容（"--- スライド X ---"など）をそのまま出力せず、内容を理解して要約・整理してください。`;
 
-      // 4. AI応答生成
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
@@ -184,24 +169,20 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
     }
   }
 
-  // 画像解析統合RAG応答
   async generateRAGResponseWithVision(userQuery, imageUrls = [], context = {}) {
     try {
       logger.ai('画像解析統合RAG応答生成開始');
 
-      // 知識ベース検索（修正版 + 初期化待機）
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 3,
         minScore: 0.05
       });
 
-      // 画像コンテキスト追加
       let visionContext = '';
       if (imageUrls.length > 0) {
         visionContext = `\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。画像の内容を確認して、適切なアドバイスを提供してください。`;
       }
 
-      // コンテキスト構築
       let knowledgeContext = '';
       if (knowledgeResults.length > 0) {
         knowledgeContext = '【知識ベース情報】\n';
@@ -235,59 +216,69 @@ ${visionContext}
     }
   }
 
-  // 🆕 ミッション提出専用応答生成（強化版）
+  // 🆕 ミッション提出専用応答生成（v2.4.0 - メタデータアクセス修正版）
   async generateMissionResponse(userQuery, context = {}) {
     try {
-      logger.ai('📝 ミッション提出応答生成開始');
+      logger.ai('📝 ===== ミッション提出専用処理開始 =====');
+      logger.info('📝 ユーザー入力:', userQuery);
 
-      // 🆕 初期化待機
+      // 初期化待機
       await this.waitForInitialization();
 
-      // ミッション関連の資料を検索（より広範囲に）
+      // ⚠️ 修正: includeMetadata: true を追加
+      logger.info('🔍 知識ベース検索開始（ミッション資料）...');
       const knowledgeResults = await this._searchKnowledge(userQuery, {
-        maxResults: 15, // 🆕 増やす
-        minScore: 0.02  // 🆕 閾値を下げる
+        maxResults: 15,
+        minScore: 0.02,
+        includeMetadata: true  // ⚠️ 追加！
       });
 
-      logger.info(`🔍 全検索結果: ${knowledgeResults.length}件`);
+      logger.info(`✅ 検索完了: ${knowledgeResults.length}件ヒット`);
 
-      // 🆕 メタデータで「ミッション」分類をフィルタリング
+      // 🔍 デバッグ: 検索結果の実際の構造を詳細に出力
+      if (knowledgeResults.length > 0) {
+        logger.info('\n🔍 ===== 検索結果サンプル（最初の3件） =====');
+        knowledgeResults.slice(0, 3).forEach((result, index) => {
+          logger.info(`\n📄 結果 ${index + 1}:`);
+          logger.info('  - score:', result.score);
+          logger.info('  - source:', result.source);
+          logger.info('  - metadata:', JSON.stringify(result.metadata, null, 2));
+          logger.info('  - content (先頭100文字):', result.content?.substring(0, 100));
+        });
+        logger.info('==========================================\n');
+      }
+
+      // ミッション資料のみをフィルタリング
       const missionDocs = knowledgeResults.filter(result => {
         const source = result.source || '';
         const metadata = result.metadata || {};
         const classification = metadata.classification || '';
         
-        // C列が「ミッション」または、ファイル名に「ミッション」が含まれる
-        return classification === 'ミッション' || source.includes('ミッション');
+        const isMatch = classification === 'ミッション' || source.includes('ミッション');
+        
+        // デバッグ: フィルタリング判定を詳細に出力
+        if (knowledgeResults.indexOf(result) < 3) {
+          logger.info(`🔍 フィルタリング判定 ${knowledgeResults.indexOf(result) + 1}:`, {
+            classification,
+            source,
+            isMatch,
+            metadata: result.metadata
+          });
+        }
+        
+        return isMatch;
       });
 
       logger.info(`📊 ミッション分類の資料: ${missionDocs.length}件`);
 
-      // 🆕 F列（良い例/悪い例）で分離
-      const goodExamples = missionDocs.filter(doc => {
-        const metadata = doc.metadata || {};
-        const goodBadExample = metadata.goodBadExample || '';
-        return goodBadExample === '良い例' || doc.source.includes('良い例');
-      });
-      
-      const badExamples = missionDocs.filter(doc => {
-        const metadata = doc.metadata || {};
-        const goodBadExample = metadata.goodBadExample || '';
-        return goodBadExample === '悪い例' || doc.source.includes('悪い例');
-      });
-
-      logger.info(`📊 良い例: ${goodExamples.length}件、悪い例: ${badExamples.length}件`);
-
-      // カテゴリ情報を取得
-      let missionCategory = '不明';
-      if (missionDocs.length > 0 && missionDocs[0].metadata) {
-        missionCategory = missionDocs[0].metadata.category || '不明';
-      }
-
-      logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
-
       if (missionDocs.length === 0) {
-        logger.warn('⚠️ ミッション資料が見つかりません');
+        logger.warn('⚠️ ミッション資料が見つかりませんでした');
+        logger.info('🔍 全検索結果の分類:', knowledgeResults.map(r => ({
+          source: r.source,
+          classification: r.metadata?.classification,
+          hasMetadata: !!r.metadata
+        })));
+        
         return `📝 **ミッション提出を受け付けました**
 
 「${userQuery}」
@@ -300,6 +291,29 @@ ${visionContext}
 
 引き続きサポートさせていただきます！✨`;
       }
+
+      // ⚠️ 修正: goodBadExampleとexampleTypeの両方をチェック（互換性確保）
+      const goodExamples = missionDocs.filter(doc => {
+        const metadata = doc.metadata || {};
+        const exampleType = metadata.goodBadExample || metadata.exampleType || '';
+        return exampleType === '良い例' || doc.source.includes('良い例');
+      });
+
+      const badExamples = missionDocs.filter(doc => {
+        const metadata = doc.metadata || {};
+        const exampleType = metadata.goodBadExample || metadata.exampleType || '';
+        return exampleType === '悪い例' || doc.source.includes('悪い例');
+      });
+
+      logger.info(`📊 良い例: ${goodExamples.length}件、悪い例: ${badExamples.length}件`);
+
+      // カテゴリ情報を取得
+      let missionCategory = '不明';
+      if (missionDocs.length > 0 && missionDocs[0].metadata) {
+        missionCategory = missionDocs[0].metadata.category || '不明';
+      }
+
+      logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
 
       // ミッション資料を整理
       let missionContext = '【ミッション評価基準】\n\n';
@@ -366,9 +380,9 @@ ${userQuery}
 
       logger.info('✅ ミッション提出応答生成完了');
       
-      // 🆕 合否判定を検出
       const isPassed = this._detectPassFailStatus(aiResponse);
       logger.info(`🎯 判定結果: ${isPassed ? '合格' : '不合格または要改善'}`);
+      logger.info('📝 ===== ミッション評価処理完了 =====\n');
 
       return aiResponse;
 
@@ -378,19 +392,15 @@ ${userQuery}
     }
   }
 
-  // 🆕 合格/不合格を検出
   _detectPassFailStatus(responseText) {
-    // 明確な合格表記
     if (responseText.includes('✅ 合格') || responseText.includes('評価結果: 合格')) {
       return true;
     }
 
-    // 明確な不合格表記
     if (responseText.includes('❌ 不合格') || responseText.includes('評価結果: 不合格')) {
       return false;
     }
 
-    // キーワードベースの判定（フォールバック）
     const passKeywords = ['合格', '素晴らしい', 'よくできました', '基準を満たして'];
     const failKeywords = ['不合格', '改善が必要', '再提出', '要修正'];
 
@@ -400,12 +410,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // 知識ベース限定応答
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
       logger.ai('知識ベース限定応答生成開始');
 
-      // 知識ベース検索（初期化待機）
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
         minScore: 0.05
@@ -430,7 +438,6 @@ ${userQuery}
 `;
       }
 
-      // 知識ベースの内容を整理してプロンプトに渡す
       let knowledgeContext = '【参照資料】\n\n';
       knowledgeResults.forEach((result, index) => {
         knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
@@ -438,7 +445,6 @@ ${userQuery}
         knowledgeContext += `${content}\n\n`;
       });
 
-      // AIに要約・整理を依頼
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
 【重要なルール】
@@ -477,7 +483,6 @@ ${userQuery}
 
 **絶対に守ること**: "--- スライド X ---"のような生の内容を出力しないでください。`;
 
-      // AIで要約応答を生成
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
@@ -487,7 +492,6 @@ ${userQuery}
 
       logger.info('✅ 知識ベース限定応答生成完了');
       
-      // フッターを追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
@@ -498,37 +502,31 @@ ${userQuery}
     }
   }
 
-  // ユーティリティ: 待機
   _sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // ステータス取得
   getStatus() {
     return {
       initialized: this.initialized,
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.3.0'
+      version: '2.4.0'
     };
   }
 }
 
-// シングルトンインスタンス
 const ragSystem = new RAGSystem();
 
-// 初期化関数
 async function initializeRAG() {
   await ragSystem.initialize();
 }
 
-// generateKnowledgeOnlyResponse関数をエクスポート
 async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
   return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
 }
 
-// 🆕 generateMissionResponse関数をエクスポート
 async function generateMissionResponse(userQuery, context = {}) {
   return await ragSystem.generateMissionResponse(userQuery, context);
 }
