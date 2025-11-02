@@ -39,7 +39,7 @@ const BUTTON_RESPONSES = {
     categoryName: "SNS運用",
     contextInfo: "SNS戦略、コンテンツ作成、ファン獲得、効果的な投稿方法について",
     examples: [
-      "Twitterでフォロワーを増やす方法",
+      "Xでフォロワーを増やす方法",
       "バズる動画の作り方のコツ",
       "アンチコメントへの対処法"
     ]
@@ -117,7 +117,7 @@ function generateQuestionPrompt(buttonResponse, buttonId, user) {
   const { title, categoryName, examples } = buttonResponse;
   
   let content = `✨ **${title}** ✨\n\n`;
-  content += `🤖 **AI知識ベース回答システム**\n`;
+  content += `🤖 **AI回答システム**\n`;
   content += `${categoryName}に関する質問をお聞かせください！\n\n`;
   
   content += `📝 **質問の送信方法:**\n`;
@@ -130,11 +130,6 @@ function generateQuestionPrompt(buttonResponse, buttonId, user) {
   
   content += `\n⏰ **制限時間: 3分間**\n`;
   content += `3分以内に質問をお送りください。時間を過ぎると自動的にキャンセルされます。\n\n`;
-  
-  content += `📚 **知識ベース限定回答**\n`;
-  content += `• VTuber活動に特化した専門情報のみ回答\n`;
-  content += `• 知識ベース外の情報は「分からない」と正直に回答\n`;
-  content += `• 画像添付での質問も可能です\n\n`;
   
   content += `準備ができましたら、ご質問をどうぞ！✨`;
   
