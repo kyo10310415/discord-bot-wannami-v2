@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG（Retrieval-Augmented Generation）システム v2.4.0
+// services/rag-system.js - RAG（Retrieval-Augmented Generation）システム v2.5.0
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -13,7 +13,6 @@ class RAGSystem {
     this.maxContextTokens = LIMITS.MAX_CONTEXT_LENGTH || 25000;
   }
 
-  // RAGシステム初期化
   async initialize() {
     if (this.isInitializing) {
       logger.info('⏳ 既に初期化処理中です。完了を待機...');
@@ -102,7 +101,8 @@ class RAGSystem {
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
-        minScore: 0.05
+        minScore: 0.05,
+        includeMetadata: true
       });
 
       logger.info(`知識ベース検索結果: ${knowledgeResults.length}件`);
@@ -175,7 +175,8 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 3,
-        minScore: 0.05
+        minScore: 0.05,
+        includeMetadata: true
       });
 
       let visionContext = '';
@@ -216,74 +217,110 @@ ${visionContext}
     }
   }
 
-  // 🆕 ミッション提出専用応答生成（v2.4.0 - メタデータアクセス修正版）
+  // 🆕 ミッション提出専用応答生成（v2.5.0 - 検索アルゴリズム大幅改善版）
   async generateMissionResponse(userQuery, context = {}) {
     try {
       logger.ai('📝 ===== ミッション提出専用処理開始 =====');
       logger.info('📝 ユーザー入力:', userQuery);
 
-      // 初期化待機
       await this.waitForInitialization();
 
-      // ⚠️ 修正: includeMetadata: true を追加
+      // 🆕 検索クエリの最適化
+      let searchQuery = userQuery;
+      
+      // 「レッスンXのミッション」パターンを検出
+      const lessonMatch = userQuery.match(/レッスン(\d+)/);
+      if (lessonMatch) {
+        const lessonNumber = lessonMatch[1];
+        logger.info(`📚 レッスン番号を検出: ${lessonNumber}`);
+        
+        // 「レッスンX」を除去して「ミッション」のみで検索
+        searchQuery = userQuery.replace(/レッスン\d+の?/g, '').trim();
+        
+        // もし検索クエリが空になったら「ミッション」を追加
+        if (!searchQuery || searchQuery.length < 2) {
+          searchQuery = 'ミッション';
+        }
+        
+        logger.info(`🔍 最適化された検索クエリ: "${userQuery}" → "${searchQuery}"`);
+      }
+
       logger.info('🔍 知識ベース検索開始（ミッション資料）...');
-      const knowledgeResults = await this._searchKnowledge(userQuery, {
-        maxResults: 15,
-        minScore: 0.02,
-        includeMetadata: true  // ⚠️ 追加！
+      
+      // 🆕 検索パラメータを大幅に緩和
+      const knowledgeResults = await this._searchKnowledge(searchQuery, {
+        maxResults: 50,    // さらに増やす
+        minScore: 0.005,   // かなり低い閾値
+        includeMetadata: true
       });
 
       logger.info(`✅ 検索完了: ${knowledgeResults.length}件ヒット`);
 
-      // 🔍 デバッグ: 検索結果の実際の構造を詳細に出力
       if (knowledgeResults.length > 0) {
-        logger.info('\n🔍 ===== 検索結果サンプル（最初の3件） =====');
-        knowledgeResults.slice(0, 3).forEach((result, index) => {
-          logger.info(`\n📄 結果 ${index + 1}:`);
-          logger.info('  - score:', result.score);
-          logger.info('  - source:', result.source);
-          logger.info('  - metadata:', JSON.stringify(result.metadata, null, 2));
-          logger.info('  - content (先頭100文字):', result.content?.substring(0, 100));
+        logger.info('\n🔍 ===== 検索結果サンプル（最初の10件） =====');
+        knowledgeResults.slice(0, 10).forEach((result, index) => {
+          logger.info(`📄 [${index + 1}] ${result.source} - スコア:${result.score.toFixed(3)} - 分類:${result.metadata?.classification || 'なし'} - 例:${result.metadata?.goodBadExample || 'なし'}`);
         });
         logger.info('==========================================\n');
       }
 
-      // ミッション資料のみをフィルタリング
+      // 🆕 ミッション資料のみをフィルタリング（優先順位付き）
       const missionDocs = knowledgeResults.filter(result => {
         const source = result.source || '';
         const metadata = result.metadata || {};
         const classification = metadata.classification || '';
         
-        const isMatch = classification === 'ミッション' || source.includes('ミッション');
-        
-        // デバッグ: フィルタリング判定を詳細に出力
-        if (knowledgeResults.indexOf(result) < 3) {
-          logger.info(`🔍 フィルタリング判定 ${knowledgeResults.indexOf(result) + 1}:`, {
-            classification,
-            source,
-            isMatch,
-            metadata: result.metadata
-          });
-        }
-        
-        return isMatch;
+        return classification === 'ミッション' || source.includes('ミッション');
       });
 
       logger.info(`📊 ミッション分類の資料: ${missionDocs.length}件`);
 
-      if (missionDocs.length === 0) {
+      // 🆕 レッスン番号でさらにフィルタリング（該当する場合）
+      let filteredMissionDocs = missionDocs;
+      if (lessonMatch) {
+        const lessonNumber = lessonMatch[1];
+        const lessonSpecificDocs = missionDocs.filter(doc => {
+          const source = doc.source || '';
+          const content = doc.content || '';
+          
+          // ファイル名または内容に「レッスンX」が含まれる
+          return source.includes(`レッスン${lessonNumber}`) || 
+                 content.includes(`レッスン${lessonNumber}`);
+        });
+        
+        if (lessonSpecificDocs.length > 0) {
+          logger.info(`📚 レッスン${lessonNumber}専用のミッション: ${lessonSpecificDocs.length}件`);
+          filteredMissionDocs = lessonSpecificDocs;
+        } else {
+          logger.warn(`⚠️ レッスン${lessonNumber}専用のミッションが見つかりませんでした。全ミッション資料を使用します。`);
+        }
+      }
+
+      if (filteredMissionDocs.length === 0) {
         logger.warn('⚠️ ミッション資料が見つかりませんでした');
-        logger.info('🔍 全検索結果の分類:', knowledgeResults.map(r => ({
-          source: r.source,
-          classification: r.metadata?.classification,
-          hasMetadata: !!r.metadata
-        })));
+        
+        const classificationCounts = knowledgeResults.reduce((acc, r) => {
+          const cls = r.metadata?.classification || '未分類';
+          acc[cls] = (acc[cls] || 0) + 1;
+          return acc;
+        }, {});
+        
+        logger.info('🔍 検索結果の分類別集計:', classificationCounts);
         
         return `📝 **ミッション提出を受け付けました**
 
 「${userQuery}」
 
 現在、該当するミッションの評価基準が見つかりませんでした。
+
+**🔍 検索情報:**
+• 検索結果: ${knowledgeResults.length}件
+• ミッション分類: ${missionDocs.length}件
+• 検索クエリ: "${searchQuery}"
+
+**📋 考えられる原因:**
+• スプレッドシートにミッション資料のURLが設定されていない
+• ミッション資料の内容が読み込まれていない
 
 📞 **次のステップ**:
 • \`②プライベート相談\` で個別フィードバックを受ける
@@ -292,14 +329,14 @@ ${visionContext}
 引き続きサポートさせていただきます！✨`;
       }
 
-      // ⚠️ 修正: goodBadExampleとexampleTypeの両方をチェック（互換性確保）
-      const goodExamples = missionDocs.filter(doc => {
+      // 良い例/悪い例を分離
+      const goodExamples = filteredMissionDocs.filter(doc => {
         const metadata = doc.metadata || {};
         const exampleType = metadata.goodBadExample || metadata.exampleType || '';
         return exampleType === '良い例' || doc.source.includes('良い例');
       });
 
-      const badExamples = missionDocs.filter(doc => {
+      const badExamples = filteredMissionDocs.filter(doc => {
         const metadata = doc.metadata || {};
         const exampleType = metadata.goodBadExample || metadata.exampleType || '';
         return exampleType === '悪い例' || doc.source.includes('悪い例');
@@ -309,8 +346,8 @@ ${visionContext}
 
       // カテゴリ情報を取得
       let missionCategory = '不明';
-      if (missionDocs.length > 0 && missionDocs[0].metadata) {
-        missionCategory = missionDocs[0].metadata.category || '不明';
+      if (filteredMissionDocs.length > 0 && filteredMissionDocs[0].metadata) {
+        missionCategory = filteredMissionDocs[0].metadata.category || '不明';
       }
 
       logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
@@ -320,17 +357,17 @@ ${visionContext}
       
       if (goodExamples.length > 0) {
         missionContext += '## ✅ 良い例の特徴\n';
-        goodExamples.slice(0, 3).forEach((doc, index) => {
-          const content = doc.answer || doc.content.substring(0, 600);
-          missionContext += `${index + 1}. ${doc.source} (関連度: ${(doc.score * 100).toFixed(0)}%)\n${content}\n\n`;
+        goodExamples.slice(0, 5).forEach((doc, index) => {
+          const content = doc.answer || doc.content.substring(0, 800);
+          missionContext += `${index + 1}. ${doc.source}\n${content}\n\n`;
         });
       }
 
       if (badExamples.length > 0) {
         missionContext += '## ❌ 悪い例（避けるべきポイント）\n';
-        badExamples.slice(0, 3).forEach((doc, index) => {
-          const content = doc.answer || doc.content.substring(0, 600);
-          missionContext += `${index + 1}. ${doc.source} (関連度: ${(doc.score * 100).toFixed(0)}%)\n${content}\n\n`;
+        badExamples.slice(0, 5).forEach((doc, index) => {
+          const content = doc.answer || doc.content.substring(0, 800);
+          missionContext += `${index + 1}. ${doc.source}\n${content}\n\n`;
         });
       }
 
@@ -416,7 +453,8 @@ ${userQuery}
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
-        minScore: 0.05
+        minScore: 0.05,
+        includeMetadata: true
       });
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
@@ -512,7 +550,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.4.0'
+      version: '2.5.0'
     };
   }
 }
