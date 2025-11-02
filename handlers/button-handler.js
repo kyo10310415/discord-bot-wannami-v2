@@ -1,4 +1,4 @@
-// handlers/button-handler.js - ボタンクリック処理ハンドラー
+// handlers/button-handler.js - ボタンクリック処理ハンドラー v2.1.0
 
 const logger = require('../utils/logger');
 const { createDiscordResponse } = require('../utils/verification');
@@ -47,11 +47,12 @@ const BUTTON_RESPONSES = {
   
   [BUTTON_IDS.MISSION_SUBMISSION]: {
     title: "🎯 ミッション提出",
-    categoryName: "ミッション",
-    contextInfo: "ミッション内容、提出方法、評価基準、次のステップについて",
+    categoryName: "ミッション評価",
+    contextInfo: "ミッション成果物の提出と評価",
     examples: [
-      "次のチャットでミッションをご提出ください",
-      "レッスン番号も忘れずに入力ください"
+      "レッスン3のミッション成果物を提出します",
+      "作成した動画のURL: https://...",
+      "デザイン作品の説明: ..."
     ]
   }
 };
@@ -82,8 +83,13 @@ async function handleButtonClick(interaction, client) {
     let responseContent;
     
     if (isAITarget) {
-      // AI対応ボタン: 質問入力を促すメッセージを表示
-      responseContent = generateQuestionPrompt(buttonResponse, buttonId, user);
+      // 🆕 ミッション提出ボタンの特別なメッセージ
+      if (buttonId === BUTTON_IDS.MISSION_SUBMISSION) {
+        responseContent = generateMissionPrompt(buttonResponse, buttonId, user);
+      } else {
+        // その他のAI対応ボタン: 質問入力を促すメッセージを表示
+        responseContent = generateQuestionPrompt(buttonResponse, buttonId, user);
+      }
       
       // 質問待ち状態を登録（3分間のタイムアウト付き）
       registerQuestionWait(user.id, buttonId, interaction.channel_id);
@@ -110,6 +116,36 @@ async function handleButtonClick(interaction, client) {
       flags: 0
     });
   }
+}
+
+// 🆕 ミッション提出専用プロンプト生成
+function generateMissionPrompt(buttonResponse, buttonId, user) {
+  const { title, categoryName } = buttonResponse;
+  
+  let content = `✨ **${title}** ✨\n\n`;
+  content += `📝 **ミッション提出システム**\n`;
+  content += `あなたのミッション成果物を提出してください！AIが自動で評価します。\n\n`;
+  
+  content += `📤 **提出方法:**\n`;
+  content += `このメッセージに返信するか、このチャンネルで **@わなみさん [ミッション内容]** とメンションしてください\n\n`;
+  
+  content += `💡 **提出例:**\n`;
+  content += `1. レッスン3のミッション成果物を提出します。作成したサムネイルデザインは以下のURLです: https://...\n`;
+  content += `2. デザインのコンセプトは「明るく親しみやすい印象」を意識しました。\n`;
+  content += `3. 添付画像: [画像を添付]\n\n`;
+  
+  content += `🎯 **評価内容:**\n`;
+  content += `• 良い例との比較\n`;
+  content += `• 悪い例（避けるべき点）のチェック\n`;
+  content += `• 合格/不合格の判定\n`;
+  content += `• 具体的な改善アドバイス\n\n`;
+  
+  content += `⏰ **制限時間: 3分間**\n`;
+  content += `3分以内にミッション内容をお送りください。\n\n`;
+  
+  content += `準備ができましたら、成果物を提出してください！✨`;
+  
+  return content;
 }
 
 // AI対象ボタンの質問入力促進メッセージ生成
@@ -193,7 +229,7 @@ async function handleQuestionResponse(userId, userQuery, context = {}) {
     const { buttonId } = waitInfo;
     const buttonResponse = BUTTON_RESPONSES[buttonId];
     
-    logger.ai(`質問応答処理開始: ${userId} - ${buttonId}`);
+    logger.ai(`🧠 [AI] 質問応答処理開始: ${userId} - ${buttonId}`);
     
     // AI応答生成
     const aiResponse = await generateAIButtonResponse(buttonResponse, buttonId, userQuery, context);
@@ -206,11 +242,11 @@ async function handleQuestionResponse(userId, userQuery, context = {}) {
   }
 }
 
-// AI対象ボタンの応答生成（🆕 修正版）
+// AI対象ボタンの応答生成（🆕 ミッション提出対応版）
 async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, context) {
   try {
     // 🆕 ミッション提出の場合は専用処理
-    if (buttonId === 'mission_submission') {
+    if (buttonId === BUTTON_IDS.MISSION_SUBMISSION || buttonId === 'mission_submission') {
       logger.info('📝 ミッション提出専用処理を実行');
       const { generateMissionResponse } = require('../services/rag-system');
       
@@ -223,7 +259,8 @@ async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, con
       // ミッション専用の応答フォーマット
       let response = `🎯 **${buttonResponse.title} - 評価結果**\n\n`;
       response += `${aiResponse}\n\n`;
-      response += `---\n📚 *ミッション評価システム*`;
+      response += `---\n📚 *ミッション評価システム*\n`;
+      response += `※最終判定は担任の先生が行います。`;
       
       return response;
     }
@@ -242,10 +279,6 @@ async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, con
       
       case BUTTON_IDS.SNS_CONSULTATION:
         basePrompt = 'SNS運用に関する相談にお答えします';
-        break;
-      
-      case BUTTON_IDS.MISSION_SUBMISSION:
-        basePrompt = 'ミッション提出に関してサポートします';
         break;
       
       default:
@@ -355,7 +388,7 @@ async function handleButtonClickGateway(interaction, client) {
         data: {
           content: "申し訳ございません。このボタンはまだ準備中です🙏\n" +
                   "他のボタンをお試しいただくか、直接わなみさんにお声がけください✨",
-          flags: 0 // EPHEMERAL
+          flags: 0
         }
       };
     }
@@ -366,10 +399,15 @@ async function handleButtonClickGateway(interaction, client) {
     let responseContent;
     
     if (isAITarget) {
-      // AI対応ボタン: 質問入力を促すメッセージを表示
-      responseContent = generateQuestionPrompt(buttonResponse, buttonId, user);
+      // 🆕 ミッション提出ボタンの特別なメッセージ
+      if (buttonId === BUTTON_IDS.MISSION_SUBMISSION) {
+        responseContent = generateMissionPrompt(buttonResponse, buttonId, user);
+      } else {
+        // その他のAI対応ボタン: 質問入力を促すメッセージを表示
+        responseContent = generateQuestionPrompt(buttonResponse, buttonId, user);
+      }
       
-      // 質問待ち状態を登録（３分間のタイムアウト付き）
+      // 質問待ち状態を登録（3分間のタイムアウト付き）
       registerQuestionWait(user.id, buttonId, interaction.channelId);
       
     } else {
