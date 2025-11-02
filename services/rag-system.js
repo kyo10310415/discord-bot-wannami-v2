@@ -70,7 +70,6 @@ class RAGSystem {
         knowledgeContext = '【知識ベースからの関連情報】\n\n';
         knowledgeResults.forEach((result, index) => {
           knowledgeContext += `${index + 1}. ${result.title || result.source}\n`;
-          // 🆕 修正: 長いコンテンツは要約して使用
           const contentPreview = result.answer || result.content.substring(0, 500);
           knowledgeContext += `${contentPreview}\n`;
           knowledgeContext += `(関連度: ${(result.score * 100).toFixed(1)}%)\n\n`;
@@ -181,7 +180,117 @@ ${visionContext}
     }
   }
 
-  // 知識ベース限定応答（🆕 完全に書き直し）
+  // 🆕 ミッション提出専用応答生成
+  async generateMissionResponse(userQuery, context = {}) {
+    try {
+      logger.ai('ミッション提出応答生成開始');
+
+      // ミッション関連の資料を検索
+      const knowledgeResults = this._searchKnowledge(userQuery, {
+        maxResults: 10,
+        minScore: 0.03
+      });
+
+      // ミッション資料のみをフィルタリング（良い例/悪い例）
+      const missionDocs = knowledgeResults.filter(result => 
+        result.source && result.source.includes('ミッション')
+      );
+
+      const goodExamples = missionDocs.filter(doc => 
+        doc.metadata?.category === '良い例' || doc.source.includes('良い例')
+      );
+      
+      const badExamples = missionDocs.filter(doc => 
+        doc.metadata?.category === '悪い例' || doc.source.includes('悪い例')
+      );
+
+      logger.info(`🔍 ミッション資料: ${missionDocs.length}件（良い例: ${goodExamples.length}件、悪い例: ${badExamples.length}件）`);
+
+      if (missionDocs.length === 0) {
+        return `📝 **ミッション提出を受け付けました**
+
+「${userQuery}」
+
+現在、該当するミッションの評価基準が見つかりませんでした。
+
+📞 **次のステップ**:
+• \`②プライベート相談\` で個別フィードバックを受ける
+• 担任の先生に直接確認する
+
+引き続きサポートさせていただきます！✨`;
+      }
+
+      // ミッション資料を整理
+      let missionContext = '【ミッション評価基準】\n\n';
+      
+      if (goodExamples.length > 0) {
+        missionContext += '## ✅ 良い例の特徴\n';
+        goodExamples.forEach((doc, index) => {
+          const content = doc.answer || doc.content.substring(0, 600);
+          missionContext += `${index + 1}. ${doc.source}\n${content}\n\n`;
+        });
+      }
+
+      if (badExamples.length > 0) {
+        missionContext += '## ❌ 悪い例（避けるべきポイント）\n';
+        badExamples.forEach((doc, index) => {
+          const content = doc.answer || doc.content.substring(0, 600);
+          missionContext += `${index + 1}. ${doc.source}\n${content}\n\n`;
+        });
+      }
+
+      // AIにミッション評価を依頼
+      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師で、ミッション提出を評価します。
+
+【あなたの役割】
+1. 提出されたミッション内容を評価する
+2. 良い例と悪い例を参考に、**合格か不合格かを明確に判定する**
+3. 具体的な改善ポイントを提示する
+4. 励ましの言葉で次のステップを示す
+
+【評価基準】
+${missionContext}
+
+【提出されたミッション】
+${userQuery}
+
+【回答フォーマット】
+🎯 **判定結果**: 【✅ 合格】または【❌ 不合格（要修正）】
+
+📊 **評価ポイント**:
+• 良い点: （具体的に）
+• 改善が必要な点: （具体的に）
+
+💡 **改善アドバイス**:
+（不合格の場合、どこをどう修正すべきか具体的に。合格の場合は更なる向上のヒント）
+
+✨ **次のステップ**:
+（合格の場合は次のミッションへ、不合格の場合は修正の進め方）
+
+**重要な指示**:
+- 必ず「✅ 合格」または「❌ 不合格（要修正）」のどちらかを最初に明示すること
+- 評価は厳格に、でも励ましの言葉も忘れずに
+- スライドやドキュメントの生テキストをコピペしない
+- 具体的で実践的なアドバイスを提供`;
+
+      const aiResponse = await generateAIResponse(
+        systemPrompt,
+        userQuery,
+        [],
+        context
+      );
+
+      logger.info('✅ ミッション提出応答生成完了');
+      
+      return aiResponse;
+
+    } catch (error) {
+      logger.errorDetail('❌ ミッション提出応答エラー:', error);
+      return '申し訳ございません。現在ミッション評価システムにアクセスできません。しばらく待ってから再度お試しください。';
+    }
+  }
+
+  // 知識ベース限定応答
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
       logger.ai('知識ベース限定応答生成開始');
@@ -211,16 +320,15 @@ ${visionContext}
 `;
       }
 
-      // 🆕 知識ベースの内容を整理してプロンプトに渡す
+      // 知識ベースの内容を整理してプロンプトに渡す
       let knowledgeContext = '【参照資料】\n\n';
       knowledgeResults.forEach((result, index) => {
         knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
-        // answerフィールドがあればそれを使用、なければcontentから抜粋
         const content = result.answer || result.content.substring(0, 800);
         knowledgeContext += `${content}\n\n`;
       });
 
-      // 🆕 AIに要約・整理を依頼
+      // AIに要約・整理を依頼
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
 【重要なルール】
@@ -269,7 +377,7 @@ ${userQuery}
 
       logger.info('✅ 知識ベース限定応答生成完了');
       
-      // 🆕 フッターを追加
+      // フッターを追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
@@ -286,7 +394,7 @@ ${userQuery}
       initialized: this.initialized,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.1.0'
+      version: '2.2.0'
     };
   }
 }
@@ -304,8 +412,14 @@ async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
   return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
 }
 
+// 🆕 generateMissionResponse関数をエクスポート
+async function generateMissionResponse(userQuery, context = {}) {
+  return await ragSystem.generateMissionResponse(userQuery, context);
+}
+
 module.exports = {
   ragSystem,
   initializeRAG,
-  generateKnowledgeOnlyResponse
+  generateKnowledgeOnlyResponse,
+  generateMissionResponse  // 🆕 追加
 };
