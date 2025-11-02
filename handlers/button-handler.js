@@ -206,9 +206,29 @@ async function handleQuestionResponse(userId, userQuery, context = {}) {
   }
 }
 
-// AI対象ボタンの応答生成
+// AI対象ボタンの応答生成（🆕 修正版）
 async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, context) {
   try {
+    // 🆕 ミッション提出の場合は専用処理
+    if (buttonId === 'mission_submission') {
+      logger.info('📝 ミッション提出専用処理を実行');
+      const { generateMissionResponse } = require('../services/rag-system');
+      
+      const aiResponse = await generateMissionResponse(userQuery, {
+        ...context,
+        buttonContext: buttonId,
+        responseType: 'mission_evaluation'
+      });
+      
+      // ミッション専用の応答フォーマット
+      let response = `🎯 **${buttonResponse.title} - 評価結果**\n\n`;
+      response += `${aiResponse}\n\n`;
+      response += `---\n📚 *ミッション評価システム*`;
+      
+      return response;
+    }
+    
+    // その他のAIボタン（レッスン質問、SNS相談など）
     const { ragSystem } = require('../services/rag-system');
     
     // ボタンに応じた基本プロンプトを設定
@@ -249,8 +269,7 @@ async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, con
     let response = `🎯 **${buttonResponse.title} - AI回答**\n\n`;
     response += `「**${userQuery}**」についてお答えします！\n\n`;
     response += `${aiResponse}\n\n`;
-    response += `---\n✨ *AI知識ベースからの回答* ✨\n`;
-    response += `📞 **さらに詳しいサポートが必要な場合:** \`/soudan\` で他の相談メニューもご利用ください`;
+    response += `---\n✨ *AI知識ベースからの回答* ✨`;
     
     return response;
     
