@@ -1,4 +1,4 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.1.0（メタデータ対応）
+// services/knowledge-base.js - 知識ベース構築サービス v2.1.1（デバッグログ追加版）
 
 const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
@@ -13,12 +13,10 @@ class KnowledgeBaseService {
     this.isInitialized = false;
   }
 
-  // 初期化メソッド
   async initialize() {
     try {
       console.log('📚 知識ベースサービス初期化開始...');
       
-      // 知識ベース構築を実行
       const result = await this.buildKnowledgeBase();
       
       if (result) {
@@ -38,16 +36,13 @@ class KnowledgeBaseService {
     }
   }
 
-  // 統合知識ベース構築（🆕 メタデータ対応）
   async buildKnowledgeBase() {
     try {
       console.log('📚 知識ベース構築開始...');
       
-      // 前回の文書内画像をクリア
       this.documentImages = [];
       this.documents = [];
       
-      // スプレッドシートからURL一覧を取得（全列：A-G）
       const urlList = await googleAPIsService.loadUrlListFromSpreadsheet(KNOWLEDGE_SPREADSHEET_ID);
       if (urlList.length === 0) {
         console.log('❌ スプレッドシートにURLが見つかりません');
@@ -59,7 +54,6 @@ class KnowledgeBaseService {
       const documents = [];
       let totalImages = 0;
 
-      // 各URLの内容を読み込み
       for (const urlInfo of urlList) {
         console.log(`📖 読み込み中: ${urlInfo.fileName}`);
         
@@ -67,20 +61,16 @@ class KnowledgeBaseService {
           const result = await this.loadContentFromUrl(urlInfo);
           
           if (result) {
-            // 🆕 メタデータを含めて保存
             documents.push({
               source: urlInfo.fileName,
               url: urlInfo.url,
-              // メタデータ（スプレッドシートのC-G列）
-              classification: urlInfo.classification || '',  // C列: レッスン/ミッション
-              type: urlInfo.type || '',                      // D列: 種類
-              category: urlInfo.category || '',              // E列: カテゴリ
-              goodBadExample: urlInfo.goodBadExample || '',  // F列: 良い例/悪い例
-              remarks: urlInfo.remarks || '',                // G列: 備考
-              // コンテンツ
+              classification: urlInfo.classification || '',
+              type: urlInfo.type || '',
+              category: urlInfo.category || '',
+              goodBadExample: urlInfo.goodBadExample || '',
+              remarks: urlInfo.remarks || '',
               content: result.content,
               images: result.images || [],
-              // メタデータをネストしても保持
               metadata: {
                 classification: urlInfo.classification || '',
                 type: urlInfo.type || '',
@@ -90,7 +80,6 @@ class KnowledgeBaseService {
               }
             });
 
-            // 文書内画像を統合
             if (result.images && result.images.length > 0) {
               this.documentImages.push(...result.images);
               totalImages += result.images.length;
@@ -98,7 +87,6 @@ class KnowledgeBaseService {
           }
         } catch (error) {
           console.error(`❌ ${urlInfo.fileName} 読み込み失敗:`, error.message);
-          // エラーがあっても他のドキュメントの処理を続行
           documents.push({
             source: urlInfo.fileName,
             url: urlInfo.url,
@@ -119,11 +107,9 @@ class KnowledgeBaseService {
           });
         }
         
-        // APIレート制限対策で少し待機
         await this.sleep(200);
       }
 
-      // 構築した文書を保存
       this.documents = documents;
       this.lastBuildTime = new Date().toISOString();
 
@@ -132,7 +118,6 @@ class KnowledgeBaseService {
       console.log(`🖼️ 総画像数: ${totalImages}`);
       console.log(`📊 総文字数: ${documents.reduce((sum, doc) => sum + doc.content.length, 0)}`);
 
-      // 🆕 分類別集計
       const classificationCounts = documents.reduce((acc, doc) => {
         const cls = doc.classification || '未分類';
         acc[cls] = (acc[cls] || 0) + 1;
@@ -148,33 +133,26 @@ class KnowledgeBaseService {
     }
   }
 
-  // 日本語対応の簡易トークナイザー
   _tokenizeQuery(query) {
-    // 日本語と英語の両方に対応
     const tokens = [];
     
-    // 英数字の単語を抽出
     const alphanumericWords = query.match(/[a-zA-Z0-9]+/g) || [];
     tokens.push(...alphanumericWords);
     
-    // 日本語: 2文字以上のひらがな・カタカナ・漢字を抽出
     const hiragana = query.match(/[ぁ-ん]{2,}/g) || [];
     const katakana = query.match(/[ァ-ヴ]{2,}/g) || [];
     const kanji = query.match(/[一-龯]{2,}/g) || [];
     
     tokens.push(...hiragana, ...katakana, ...kanji);
     
-    // さらに1文字のカタカナ・アルファベットも追加（X、SNSなど）
     const singleChars = query.match(/[ァ-ヴA-Z]/g) || [];
     tokens.push(...singleChars);
     
-    // 小文字化して重複除去
     const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
     
     return uniqueTokens;
   }
 
-  // 知識ベース検索機能（日本語対応 + メタデータフィルタリング）
   searchKnowledge(query, options = {}) {
     try {
       const {
@@ -182,21 +160,19 @@ class KnowledgeBaseService {
         minScore = 0.05,
         topK = 5,
         includeMetadata = true,
-        filters = {} // 🆕 フィルタオプション
+        filters = {}
       } = options;
 
       logger.info(`🔍 知識ベース検索: "${query}"`);
-      
+      logger.info(`📊 検索オプション: maxResults=${maxResults}, minScore=${minScore}, includeMetadata=${includeMetadata}`);
       logger.info(`📊 検索前の状態: 初期化=${this.isInitialized}, 文書数=${this.documents.length}`);
 
-      // 知識ベースが初期化されていない場合
       if (!this.isInitialized || this.documents.length === 0) {
         logger.warn('⚠️ 知識ベースが初期化されていないか、文書が空です');
         logger.warn(`詳細: isInitialized=${this.isInitialized}, documents.length=${this.documents.length}`);
         return [];
       }
 
-      // 文書の内容サンプルをログ出力（最初の3件）
       if (this.documents.length > 0) {
         logger.info('📄 文書サンプル（最初の3件）:');
         this.documents.slice(0, 3).forEach((doc, i) => {
@@ -204,15 +180,11 @@ class KnowledgeBaseService {
         });
       }
 
-      // 日本語対応トークナイザーを使用
       const queryTokens = this._tokenizeQuery(query);
-      
       logger.info(`🔑 検索キーワード (${queryTokens.length}個): ${queryTokens.join(', ')}`);
 
-      // クエリ全体も小文字化
       const queryLower = query.toLowerCase();
 
-      // 🆕 メタデータフィルタリングを事前に適用
       let filteredDocuments = this.documents;
       
       if (filters.classification) {
@@ -236,13 +208,11 @@ class KnowledgeBaseService {
         logger.info(`🔍 カテゴリフィルタ適用: ${filters.category} (${filteredDocuments.length}件)`);
       }
 
-      // 各文書とのスコアリング
       const scoredDocuments = filteredDocuments.map(doc => {
         const contentLower = doc.content.toLowerCase();
         let score = 0;
         let matchDetails = [];
 
-        // キーワードマッチングスコア
         queryTokens.forEach(token => {
           const matches = (contentLower.match(new RegExp(token, 'gi')) || []).length;
           if (matches > 0) {
@@ -252,13 +222,11 @@ class KnowledgeBaseService {
           }
         });
 
-        // 完全一致ボーナス
         if (contentLower.includes(queryLower)) {
           score += 0.5;
           matchDetails.push('完全一致+0.5');
         }
 
-        // カテゴリ一致ボーナス
         if (doc.category) {
           const categoryLower = doc.category.toLowerCase();
           if (queryLower.includes(categoryLower) || categoryLower.includes(queryLower)) {
@@ -267,7 +235,6 @@ class KnowledgeBaseService {
           }
         }
 
-        // 🆕 分類一致ボーナス（ミッション検索時に重要）
         if (doc.classification) {
           const classificationLower = doc.classification.toLowerCase();
           if (queryLower.includes(classificationLower) || classificationLower.includes(queryLower)) {
@@ -276,7 +243,6 @@ class KnowledgeBaseService {
           }
         }
 
-        // ファイル名一致ボーナス
         const sourceLower = doc.source.toLowerCase();
         queryTokens.forEach(token => {
           if (sourceLower.includes(token)) {
@@ -285,7 +251,6 @@ class KnowledgeBaseService {
           }
         });
 
-        // スコアを0-1の範囲に正規化
         const normalizedScore = Math.min(score, 1.0);
 
         return {
@@ -307,24 +272,29 @@ class KnowledgeBaseService {
         };
       });
 
-      // スコアでソート
       scoredDocuments.sort((a, b) => b.score - a.score);
 
-      // スコアの分布をログ出力
       logger.info('📊 スコア分布（上位10件）:');
       scoredDocuments.slice(0, 10).forEach((doc, i) => {
         const details = doc.matchDetails.length > 0 ? doc.matchDetails.join(', ') : 'マッチなし';
         logger.info(`  [${i + 1}] ${doc.source} [${doc.classification}/${doc.goodBadExample}]: ${doc.score.toFixed(3)} - ${details}`);
       });
 
-      // 最小スコアでフィルタリング & 上位結果のみ返す
       const results = scoredDocuments
         .filter(doc => doc.score >= minScore)
         .slice(0, Math.max(maxResults, topK));
 
       logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(2) || 0})`);
+
+      // 🔍 デバッグ: 検索結果のメタデータサンプルを出力
+      if (results.length > 0) {
+        logger.info('🔍 検索結果のメタデータサンプル（最初の3件）:');
+        results.slice(0, 3).forEach((result, idx) => {
+          logger.info(`  ${idx + 1}. [${result.metadata?.classification || 'なし'}/${result.metadata?.goodBadExample || 'なし'}] ${result.source}`);
+          logger.info(`     メタデータ詳細:`, JSON.stringify(result.metadata, null, 2));
+        });
+      }
       
-      // フィルタリング情報
       if (results.length === 0 && scoredDocuments.length > 0) {
         logger.warn(`⚠️ minScore=${minScore}でフィルタリングされました。最高スコア: ${scoredDocuments[0].score.toFixed(3)}`);
       }
@@ -337,12 +307,10 @@ class KnowledgeBaseService {
     }
   }
 
-  // 関連コンテンツ抽出（長い文書から関連部分を抜粋）
   _extractRelevantContent(content, keywords) {
     const maxLength = 500;
     const contentLower = content.toLowerCase();
 
-    // キーワードが最初に出現する位置を探す
     let firstMatchIndex = -1;
     for (const keyword of keywords) {
       const index = contentLower.indexOf(keyword.toLowerCase());
@@ -351,7 +319,6 @@ class KnowledgeBaseService {
       }
     }
 
-    // キーワードが見つかった場合、その周辺を抽出
     if (firstMatchIndex !== -1) {
       const start = Math.max(0, firstMatchIndex - 100);
       const end = Math.min(content.length, firstMatchIndex + maxLength - 100);
@@ -360,15 +327,12 @@ class KnowledgeBaseService {
       return (start > 0 ? '...' : '') + excerpt + (end < content.length ? '...' : '');
     }
 
-    // キーワードが見つからない場合、先頭から抽出
     return content.substring(0, maxLength) + (content.length > maxLength ? '...' : '');
   }
 
-  // URL先のコンテンツを読み込む
   async loadContentFromUrl(urlInfo) {
     const { url, fileName, category, type } = urlInfo;
     
-    // URLから自動で形式を検出
     const detectedType = detectUrlType(url);
     
     console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
@@ -412,7 +376,6 @@ class KnowledgeBaseService {
     }
   }
 
-  // Notionコンテンツから画像情報を抽出
   extractImagesFromNotionContent(content, fileName) {
     const images = [];
     const imageMatches = content.match(/\[🖼️ 画像: ([^\]]+)\]/g);
@@ -432,7 +395,6 @@ class KnowledgeBaseService {
     return images;
   }
 
-  // 直接画像URLの情報を抽出
   extractDirectImageInfo(url, fileName) {
     return [{
       source: 'direct_url',
@@ -443,7 +405,6 @@ class KnowledgeBaseService {
     }];
   }
 
-  // WEBコンテンツから画像情報を抽出
   extractImagesFromWebContent(content, fileName) {
     const images = [];
     const imageMatches = content.match(/\[🖼️ 画像: ([^\]]+)\]/g);
@@ -463,12 +424,10 @@ class KnowledgeBaseService {
     return images;
   }
 
-  // 文書内画像の取得
   getDocumentImages() {
     return this.documentImages;
   }
 
-  // 状態取得メソッド
   getStatus() {
     return {
       initialized: this.isInitialized,
@@ -482,7 +441,6 @@ class KnowledgeBaseService {
     };
   }
 
-  // 統計情報
   getStats() {
     return {
       totalDocuments: this.documents.length,
@@ -495,12 +453,10 @@ class KnowledgeBaseService {
     };
   }
 
-  // ユーティリティ: 待機
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // リセット
   reset() {
     this.documents = [];
     this.documentImages = [];
@@ -510,10 +466,8 @@ class KnowledgeBaseService {
   }
 }
 
-// シングルトンインスタンス作成
 const knowledgeBaseService = new KnowledgeBaseService();
 
-// 複数の形式でexport
 module.exports = {
   knowledgeBaseService,
   buildKnowledgeBase: () => knowledgeBaseService.buildKnowledgeBase(),
