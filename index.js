@@ -1,5 +1,5 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
-// Version: 15.3.0 - 重複表示・インタラクションエラー修正版
+// Version: 15.4.0 - Bot User ID確認機能・デバッグログ追加版
 
 const express = require('express');
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionType } = require('discord.js');
@@ -12,7 +12,7 @@ const discordHandler = require('./handlers/discord-handler');
 const mentionHandler = require('./handlers/mention-handler');
 const buttonHandler = require('./handlers/button-handler');
 const { initializeServices } = require('./services/google-apis');
-const knowledgeBase = require('./services/knowledge-base'); // 🆕 修正: モジュール全体をインポート
+const knowledgeBase = require('./services/knowledge-base');
 const { initializeRAG } = require('./services/rag-system');
 
 const app = express();
@@ -70,8 +70,33 @@ function verifySignature(req) {
 
 // Discord Bot Events
 client.once('ready', async () => {
-  logger.startup('Discord Bot for わなみさん', '15.3.0', env.PORT);
+  logger.startup('Discord Bot for わなみさん', '15.4.0', env.PORT);
   logger.info(`🔗 サーバー数: ${client.guilds.cache.size}`);
+  
+  // ✅ 修正: Bot User IDの確認と検証
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  logger.info('🆔 Bot User ID 確認');
+  logger.info(`  実際のBot User ID: ${client.user.id}`);
+  
+  const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
+  logger.info(`  設定されたBOT_USER_ID: ${configuredBotId}`);
+  
+  // ✅ 修正: IDの一致確認
+  if (client.user.id === configuredBotId) {
+    logger.success('  ✅ Bot User IDが正しく設定されています');
+  } else {
+    logger.error('  ❌ Bot User IDが一致しません！');
+    logger.error(`     実際のID: ${client.user.id}`);
+    logger.error(`     設定値: ${configuredBotId}`);
+    logger.error('     → 環境変数のBOT_USER_IDを修正してください');
+    logger.error('');
+    logger.error('  🔧 修正方法:');
+    logger.error('     1. Render.com Dashboard にアクセス');
+    logger.error('     2. Environment タブを開く');
+    logger.error(`     3. BOT_USER_ID を ${client.user.id} に変更`);
+    logger.error('     4. サービスを再起動');
+  }
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   try {
     // 各種サービス初期化
@@ -81,7 +106,7 @@ client.once('ready', async () => {
     await initializeServices();
     logger.success('✅ Google APIs初期化完了');
     
-    // 🆕 修正: 知識ベース初期化（正しいメソッド呼び出し）
+    // 知識ベース初期化
     await knowledgeBase.initialize();
     logger.success('✅ 知識ベース初期化完了');
     
@@ -112,7 +137,7 @@ client.on('messageCreate', async (message) => {
 // ボタンインタラクション対応（Gateway経由）
 client.on('interactionCreate', async (interaction) => {
   try {
-    // MESSAGE_COMPONENTタイプの判定（Discord.js v14では .isMessageComponent() メソッドを使用）
+    // MESSAGE_COMPONENTタイプの判定
     if (interaction.isMessageComponent()) {
       logger.discord(`インタラクション受信: ${interaction.customId} by ${interaction.user.username}`);
       
@@ -187,7 +212,7 @@ app.post('/interactions', async (req, res) => {
 // 知識ベース管理エンドポイント
 app.get('/api/knowledge-base/status', (req, res) => {
   try {
-    const stats = knowledgeBase.getStats(); // 🆕 修正: 直接呼び出し
+    const stats = knowledgeBase.getStats();
     res.json(stats);
   } catch (error) {
     logger.errorDetail('知識ベース状態取得エラー:', error);
@@ -198,10 +223,33 @@ app.get('/api/knowledge-base/status', (req, res) => {
 // 知識ベース手動更新エンドポイント
 app.post('/api/knowledge-base/refresh', async (req, res) => {
   try {
-    const success = await knowledgeBase.buildKnowledgeBase(); // 🆕 修正: 直接呼び出し
+    const success = await knowledgeBase.buildKnowledgeBase();
     res.json({ success: !!success, timestamp: new Date().toISOString() });
   } catch (error) {
     logger.errorDetail('知識ベース更新エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// ✅ 追加: Bot User ID 確認エンドポイント
+app.get('/api/bot/user-id', (req, res) => {
+  try {
+    const actualId = client.user?.id || 'Bot未接続';
+    const configuredId = process.env.BOT_USER_ID || '1420328163497607199';
+    const isMatch = actualId === configuredId;
+    
+    res.json({
+      actual_bot_user_id: actualId,
+      configured_bot_user_id: configuredId,
+      is_match: isMatch,
+      status: isMatch ? '✅ 正常' : '❌ 不一致',
+      recommendation: isMatch ? 
+        'Bot User IDは正しく設定されています' : 
+        `環境変数 BOT_USER_ID を ${actualId} に変更してください`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.errorDetail('Bot User ID確認エラー:', error);
     res.status(500).json({ error: 'サービスエラー' });
   }
 });
@@ -210,6 +258,11 @@ app.post('/api/knowledge-base/refresh', async (req, res) => {
 app.get('/', (req, res) => {
   try {
     const status = env.getStatus();
+    
+    // ✅ 追加: Bot User IDの状態
+    const actualBotId = client.user?.id || 'Not connected';
+    const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
+    const botIdMatch = actualBotId === configuredBotId;
     
     // 各サービスの状態取得
     let servicesStatus = {};
@@ -221,7 +274,7 @@ app.get('/', (req, res) => {
       servicesStatus = {
         google_apis: googleAPIsService.getStatus(),
         openai: openAIService.getStatus(),
-        knowledge_base: knowledgeBase.getStatus(), // 🆕 修正
+        knowledge_base: knowledgeBase.getStatus(),
         rag_system: ragSystem.getStatus()
       };
     } catch (serviceError) {
@@ -230,18 +283,26 @@ app.get('/', (req, res) => {
     
     res.json({
       status: 'Discord Bot for わなみさん - Running (Full Version)',
-      version: '15.3.0',
+      version: '15.4.0',
       timestamp: new Date().toISOString(),
       environment: {
         node_env: process.env.NODE_ENV || 'development',
         port: env.PORT,
-        uptime: Math.floor(process.uptime())
+        uptime: Math.floor(process.uptime()),
+        log_level: process.env.LOG_LEVEL || 'info'
       },
       discord: {
         bot_connected: client.isReady(),
         guilds: client.guilds?.cache.size || 0,
         user: client.user?.tag || 'Not connected',
-        latency: client.ws.ping || 0
+        latency: client.ws.ping || 0,
+        // ✅ 追加: Bot User ID状態
+        bot_user_id: {
+          actual: actualBotId,
+          configured: configuredBotId,
+          match: botIdMatch,
+          status: botIdMatch ? '✅ 正常' : '❌ 不一致'
+        }
       },
       environment_vars: status,
       services: servicesStatus,
@@ -260,12 +321,20 @@ app.get('/', (req, res) => {
         '✅ 回答不能システム',
         '✅ ミッション特別処理',
         '✅ モジュール化アーキテクチャ',
+        '✅ Bot User ID検証機能',
+        '✅ デバッグログシステム',
         '🚀 完全機能版'
       ],
       performance: {
         memory_usage: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
         cpu_usage: process.cpuUsage(),
         node_version: process.version
+      },
+      // ✅ 追加: デバッグ情報
+      debug: {
+        bot_id_check_endpoint: '/api/bot/user-id',
+        knowledge_base_status: '/api/knowledge-base/status',
+        knowledge_base_refresh: 'POST /api/knowledge-base/refresh'
       }
     });
   } catch (error) {
@@ -319,7 +388,15 @@ async function startServer() {
     
     // Express サーバー起動
     app.listen(env.PORT, () => {
-      logger.startup('Discord Bot Server', '15.3.0', env.PORT);
+      logger.success(`🌐 Expressサーバー起動: ポート ${env.PORT}`);
+      logger.info('');
+      logger.info('📊 利用可能なエンドポイント:');
+      logger.info(`   GET  / - ヘルスチェック`);
+      logger.info(`   GET  /api/bot/user-id - Bot User ID確認`);
+      logger.info(`   GET  /api/knowledge-base/status - 知識ベース状態`);
+      logger.info(`   POST /api/knowledge-base/refresh - 知識ベース更新`);
+      logger.info(`   POST /interactions - Discord Interactions`);
+      logger.info('');
     });
     
   } catch (error) {
