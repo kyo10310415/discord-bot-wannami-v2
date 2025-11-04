@@ -29,13 +29,17 @@ const colorize = (color, text) => `${color}${text}${colors.reset}`;
 
 class Logger {
   constructor() {
-    this.logLevel = process.env.LOG_LEVEL || 'info';
+    // ✅ 修正: LOG_LEVELの初期値をDEBUGに変更（開発時）
+    this.logLevel = process.env.LOG_LEVEL?.toLowerCase() || 'info';
     this.levels = {
       error: 0,
       warn: 1,
       info: 2,
-      debug: 3
+      debug: 3  // ✅ 追加: debugレベル
     };
+    
+    // ✅ 追加: 起動時にログレベルを表示
+    console.log(colorize(colors.gray, `🔧 ログレベル: ${this.logLevel.toUpperCase()}`));
   }
 
   // ログレベルチェック
@@ -85,7 +89,7 @@ class Logger {
     console.log(colorize(colors.cyan, `ℹ️ ${message}`), ...args);
   }
 
-  // デバッグログ
+  // ✅ 修正: デバッグログ（ログレベルチェック追加）
   debug(message, ...args) {
     if (this.shouldLog('debug')) {
       console.log(colorize(colors.gray, `🐛 ${message}`), ...args);
@@ -99,27 +103,44 @@ class Logger {
 
   // Discord関連ログ
   discord(message, ...args) {
-    this.log('info', `💬 ${message}`, ...args);
+    if (this.shouldLog('info')) {
+      console.log(colorize(colors.magenta, `💬 ${message}`), ...args);
+    }
   }
 
   // API関連ログ
   api(message, ...args) {
-    this.log('info', `🔗 [API] ${message}`, ...args);
+    if (this.shouldLog('info')) {
+      console.log(colorize(colors.blue, `🔗 [API] ${message}`), ...args);
+    }
   }
 
   // AI関連ログ
   ai(message, ...args) {
-    this.log('info', `🧠 [AI] ${message}`, ...args);
+    if (this.shouldLog('info')) {
+      console.log(colorize(colors.cyan, `🧠 [AI] ${message}`), ...args);
+    }
   }
 
   // 画像関連ログ
   image(message, ...args) {
-    this.log('info', `🖼️ ${message}`, ...args);
+    if (this.shouldLog('info')) {
+      console.log(colorize(colors.yellow, `🖼️ ${message}`), ...args);
+    }
   }
 
   // 知識ベース関連ログ
   knowledge(message, ...args) {
-    this.log('info', `📚 [Knowledge] ${message}`, ...args);
+    if (this.shouldLog('info')) {
+      console.log(colorize(colors.blue, `📚 [Knowledge] ${message}`), ...args);
+    }
+  }
+
+  // ✅ 追加: RAG関連ログ（既存コードとの互換性）
+  rag(message, ...args) {
+    if (this.shouldLog('info')) {
+      console.log(colorize(colors.cyan, `🔍 [RAG] ${message}`), ...args);
+    }
   }
 
   // パフォーマンス測定開始
@@ -140,23 +161,33 @@ class Logger {
 
   // ファイル操作ログ
   file(action, filename, ...args) {
-    this.log('info', `📁 [File] ${action}: ${filename}`, ...args);
+    if (this.shouldLog('info')) {
+      console.log(colorize(colors.cyan, `📁 [File] ${action}: ${filename}`), ...args);
+    }
   }
 
   // HTTP リクエストログ
   http(method, url, status, ...args) {
+    if (!this.shouldLog('info')) return;
+    
     const statusColor = status >= 400 ? colors.red : status >= 300 ? colors.yellow : colors.green;
-    this.log('info', `🌐 [HTTP] ${method} ${url} ${colorize(statusColor, status)}`, ...args);
+    console.log(
+      colorize(colors.blue, `🌐 [HTTP] ${method} ${url}`),
+      colorize(statusColor, status),
+      ...args
+    );
   }
 
   // セキュリティ関連ログ
   security(message, ...args) {
-    this.log('warn', `🔒 [Security] ${message}`, ...args);
+    console.log(colorize(colors.red + colors.bright, `🔒 [Security] ${message}`), ...args);
   }
 
   // 統計情報ログ
   stats(message, data, ...args) {
-    this.log('info', `📊 [Stats] ${message}`, ...args);
+    if (!this.shouldLog('info')) return;
+    
+    console.log(colorize(colors.green, `📊 [Stats] ${message}`), ...args);
     if (data && typeof data === 'object') {
       Object.entries(data).forEach(([key, value]) => {
         console.log(`  ${colorize(colors.cyan, key)}: ${colorize(colors.white, value)}`);
@@ -196,6 +227,7 @@ class Logger {
     console.log(colorize(colors.green, `🕐 Time: ${new Date().toISOString()}`));
     console.log(colorize(colors.green, `🔧 Node.js: ${process.version}`));
     console.log(colorize(colors.green, `🎯 Environment: ${process.env.NODE_ENV || 'development'}`));
+    console.log(colorize(colors.green, `📊 Log Level: ${this.logLevel.toUpperCase()}`));
     console.log(colorize(colors.green, line + '\n'));
   }
 
