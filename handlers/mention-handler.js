@@ -4,8 +4,12 @@ const logger = require('../utils/logger');
 const { isBotMentioned, extractContentFromMention } = require('../utils/verification');
 const { hasImageAttachments, extractImageUrls } = require('../utils/image-utils');
 
-// Bot User IDを環境変数から取得（フォールバック値も設定）
+// ✅ 修正: Bot User IDを環境変数から取得（フォールバック値も設定）
+// 重要: .envファイルで正しいBot User IDを設定してください
 const BOT_USER_ID = process.env.BOT_USER_ID || '1420328163497607199';
+
+// ✅ 修正: 起動時にBot User IDをログ出力（デバッグ用）
+logger.info(`🆔 設定されたBOT_USER_ID: ${BOT_USER_ID}`);
 
 // @わなみさんメンション処理
 async function handleMessage(message, client) {
@@ -13,9 +17,25 @@ async function handleMessage(message, client) {
     // Botメッセージは無視
     if (message.author.bot) return;
     
+    // ✅ 修正: デバッグログ追加（メッセージ受信時の詳細情報）
+    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.debug('📨 メッセージ受信');
+    logger.debug(`  送信者ID: ${message.author.id}`);
+    logger.debug(`  送信者名: ${message.author.tag}`);
+    logger.debug(`  内容: ${message.content}`);
+    
     // メンション検出
     const mentions = message.mentions?.users?.map(user => ({ id: user.id })) || [];
+    
+    // ✅ 修正: メンション一覧をデバッグログに出力
+    logger.debug(`  メンション一覧: ${mentions.map(m => m.id).join(', ') || 'なし'}`);
+    logger.debug(`  設定されたBOT_USER_ID: ${BOT_USER_ID}`);
+    
     const isMentioned = isBotMentioned(message.content, mentions, BOT_USER_ID);
+    
+    // ✅ 修正: Bot判定結果をログ出力
+    logger.debug(`  🤖 Bot判定結果: ${isMentioned ? '✅ メンション検出' : '❌ メンションなし'}`);
+    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     // ロールメンション処理も統合
     const roleMentions = message.mentions?.roles;
