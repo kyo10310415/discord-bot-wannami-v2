@@ -1,6 +1,7 @@
 // utils/verification.js - Discord署名検証ユーティリティ
 
 const nacl = require('tweetnacl');
+const logger = require('./logger'); // ✅ 追加: loggerをインポート
 
 // Discord署名検証関数
 function verifyDiscordSignature(signature, timestamp, body, publicKey) {
@@ -14,10 +15,10 @@ function verifyDiscordSignature(signature, timestamp, body, publicKey) {
     
     const isValid = nacl.sign.detached.verify(message, signatureBuffer, publicKeyBuffer);
     
-    console.log(`🔒 Discord署名検証: ${isValid ? '成功' : '失敗'}`);
+    logger.info(`🔒 Discord署名検証: ${isValid ? '成功' : '失敗'}`);
     return isValid;
   } catch (error) {
-    console.error('❌ 署名検証エラー:', error.message);
+    logger.error('❌ 署名検証エラー:', error.message);
     return false;
   }
 }
@@ -27,7 +28,7 @@ function parseDiscordBody(rawBody) {
   try {
     return JSON.parse(rawBody.toString());
   } catch (error) {
-    console.error('❌ Discord JSONパースエラー:', error.message);
+    logger.error('❌ Discord JSONパースエラー:', error.message);
     throw new Error('Invalid JSON in request body');
   }
 }
@@ -147,32 +148,63 @@ function createSuccessResponse(content, components = null) {
   return createDiscordResponse('CHANNEL_MESSAGE_WITH_SOURCE', data);
 }
 
-// Bot IDの検証
+// ✅ 修正: Bot IDの検証（詳細ログ付き）
 function isBotMentioned(content, mentions, botUserId) {
-  if (!content || !mentions || !botUserId) return false;
+  // ✅ 追加: 入力パラメータのデバッグログ
+  logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  logger.debug('🔍 isBotMentioned() 呼び出し');
+  logger.debug(`  content: "${content}"`);
+  logger.debug(`  mentions配列: ${JSON.stringify(mentions.map(m => m.id))}`);
+  logger.debug(`  botUserId: ${botUserId}`);
+  
+  if (!content || !mentions || !botUserId) {
+    logger.debug('  ❌ 必須パラメータが不足しています');
+    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    return false;
+  }
   
   // メンション配列からBot IDを検索
   const botMentioned = mentions.some(mention => mention.id === botUserId);
+  logger.debug(`  mentions配列チェック: ${botMentioned ? '✅ 一致' : '❌ 不一致'}`);
   
   // コンテンツ内でのメンション文字列チェック（バックアップ）
-  const mentionInContent = content.includes(`<@${botUserId}>`) || content.includes(`<@!${botUserId}>`);
+  const mentionPattern1 = `<@${botUserId}>`;
+  const mentionPattern2 = `<@!${botUserId}>`;
+  const hasMentionPattern1 = content.includes(mentionPattern1);
+  const hasMentionPattern2 = content.includes(mentionPattern2);
+  const mentionInContent = hasMentionPattern1 || hasMentionPattern2;
+  
+  logger.debug(`  コンテンツチェック (${mentionPattern1}): ${hasMentionPattern1 ? '✅ 含む' : '❌ 含まない'}`);
+  logger.debug(`  コンテンツチェック (${mentionPattern2}): ${hasMentionPattern2 ? '✅ 含む' : '❌ 含まない'}`);
   
   const mentioned = botMentioned || mentionInContent;
-  console.log(`🏷️ Bot メンション検出: ${mentioned ? 'あり' : 'なし'}`);
+  
+  // ✅ 修正: loggerを使用
+  logger.info(`🏷️ Bot メンション検出: ${mentioned ? 'あり' : 'なし'}`);
+  logger.debug(`  最終判定: ${mentioned ? '✅ メンション検出' : '❌ メンションなし'}`);
+  logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   return mentioned;
 }
 
-// メンションからコンテンツを抽出
+// ✅ 修正: メンションからコンテンツを抽出（詳細ログ付き）
 function extractContentFromMention(content, botUserId) {
-  if (!content) return '';
+  if (!content) {
+    logger.debug('📝 メンション除去: コンテンツが空です');
+    return '';
+  }
+  
+  logger.debug(`📝 メンション除去前: "${content}"`);
   
   // Bot IDのメンション部分を除去
   let cleanContent = content
     .replace(new RegExp(`<@!?${botUserId}>`, 'g'), '')
     .trim();
   
-  console.log(`📝 メンション除去後: "${cleanContent}"`);
+  // ✅ 修正: loggerを使用
+  logger.info(`📝 メンション除去後: "${cleanContent}"`);
+  logger.debug(`  除去パターン: <@!?${botUserId}>`);
+  
   return cleanContent;
 }
 
@@ -180,19 +212,19 @@ function extractContentFromMention(content, botUserId) {
 function validateDiscordRequest(signature, timestamp, body, publicKey) {
   // 署名が存在するかチェック
   if (!signature) {
-    console.warn('⚠️ Discord署名ヘッダーが存在しません');
+    logger.warn('⚠️ Discord署名ヘッダーが存在しません');
     return false;
   }
   
   // タイムスタンプが存在するかチェック
   if (!timestamp) {
-    console.warn('⚠️ Discordタイムスタンプヘッダーが存在しません');
+    logger.warn('⚠️ Discordタイムスタンプヘッダーが存在しません');
     return false;
   }
   
   // 公開鍵が設定されているかチェック
   if (!publicKey) {
-    console.warn('⚠️ Discord公開鍵が設定されていません');
+    logger.warn('⚠️ Discord公開鍵が設定されていません');
     return false;
   }
   
