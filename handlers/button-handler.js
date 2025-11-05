@@ -1,4 +1,4 @@
-// handlers/button-handler.js - ボタンクリック処理ハンドラー v2.1.0
+// handlers/button-handler.js - ボタンクリック処理ハンドラー v2.1.1 (画像URL対応)
 
 const logger = require('../utils/logger');
 const { createDiscordResponse } = require('../utils/verification');
@@ -255,16 +255,31 @@ async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, con
     logger.info(`🔍 [DEBUG] 文字列判定: ${buttonId === 'mission_submission'}`);
     logger.info(`🔍 [DEBUG] 最終判定結果: ${buttonId === BUTTON_IDS.MISSION_SUBMISSION || buttonId === 'mission_submission'}`);
     logger.info(`🔍 [DEBUG] =======================================`);
+    
     // 🆕 ミッション提出の場合は専用処理
     if (buttonId === BUTTON_IDS.MISSION_SUBMISSION || buttonId === 'mission_submission') {
       logger.info('📝 ミッション提出専用処理を実行');
       const { generateMissionResponse } = require('../services/rag-system');
       
-      const aiResponse = await generateMissionResponse(userQuery, {
-        ...context,
-        buttonContext: buttonId,
-        responseType: 'mission_evaluation'
-      });
+      // 🔧 修正箇所開始 (v2.1.1) - 画像URL対応
+      // contextからimageUrlsを抽出
+      const imageUrls = context.imageUrls || [];
+      logger.info(`🖼️ 画像添付: ${imageUrls.length}件`);
+      if (imageUrls.length > 0) {
+        logger.info(`🖼️ 画像URL詳細: ${JSON.stringify(imageUrls)}`);
+      }
+      
+      // generateMissionResponseの第2引数としてimageUrlsを渡す
+      const aiResponse = await generateMissionResponse(
+        userQuery,
+        imageUrls,  // ← 追加！第2引数として画像URLを渡す
+        {
+          ...context,
+          buttonContext: buttonId,
+          responseType: 'mission_evaluation'
+        }
+      );
+      // 🔧 修正箇所終了
       
       // ミッション専用の応答フォーマット
       let response = `🎯 **${buttonResponse.title} - 評価結果**\n\n`;
