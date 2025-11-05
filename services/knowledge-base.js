@@ -308,7 +308,7 @@ class KnowledgeBaseService {
   }
 
   _extractRelevantContent(content, keywords) {
-    const maxLength = 500;
+    const maxLength = 2000;
     const contentLower = content.toLowerCase();
 
     let firstMatchIndex = -1;
