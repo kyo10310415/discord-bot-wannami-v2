@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG（Retrieval-Augmented Generation）システム v2.5.0
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.6.0 (画像URL対応)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -217,11 +217,12 @@ ${visionContext}
     }
   }
 
-  // 🆕 ミッション提出専用応答生成（v2.5.0 - 検索アルゴリズム大幅改善版）
-  async generateMissionResponse(userQuery, context = {}) {
+  // 🔧 修正: ミッション提出専用応答生成（v2.6.0 - 画像URL対応版）
+  async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
       logger.ai('📝 ===== ミッション提出専用処理開始 =====');
       logger.info('📝 ユーザー入力:', userQuery);
+      logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
 
       await this.waitForInitialization();
 
@@ -371,6 +372,13 @@ ${visionContext}
         });
       }
 
+      // 🔧 画像情報をシステムプロンプトに追加
+      let imageContext = '';
+      if (imageUrls.length > 0) {
+        imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。\n画像の内容を確認して、ミッション評価に反映してください。\n`;
+        logger.info('🖼️ 画像情報をシステムプロンプトに追加');
+      }
+
       // AIにミッション評価を依頼
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師で、ミッション提出を評価します。
 
@@ -385,6 +393,7 @@ ${missionCategory}
 
 【評価基準】
 ${missionContext}
+${imageContext}
 
 【提出されたミッション】
 ${userQuery}
@@ -406,12 +415,17 @@ ${userQuery}
 - 必ず「✅ 合格」または「❌ 不合格（要修正）」のどちらかを最初に明示すること
 - 評価は厳格に、でも励ましの言葉も忘れずに
 - スライドやドキュメントの生テキストをコピペしない
-- 具体的で実践的なアドバイスを提供`;
+- 具体的で実践的なアドバイスを提供
+- 添付画像がある場合は、画像の内容も評価に含める`;
+
+      // 🔧 画像URLをOpenAI APIに渡す形式に変換
+      const imageMessages = imageUrls.map(url => ({ url }));
+      logger.info(`🖼️ OpenAI APIに渡す画像: ${imageMessages.length}件`);
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        [],
+        imageMessages,  // ← 画像URLを渡す
         context
       );
 
@@ -550,7 +564,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.5.0'
+      version: '2.6.0'
     };
   }
 }
@@ -565,8 +579,9 @@ async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
   return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
 }
 
-async function generateMissionResponse(userQuery, context = {}) {
-  return await ragSystem.generateMissionResponse(userQuery, context);
+// 🔧 修正: module.exportsのシグネチャも更新
+async function generateMissionResponse(userQuery, imageUrls = [], context = {}) {
+  return await ragSystem.generateMissionResponse(userQuery, imageUrls, context);
 }
 
 module.exports = {
