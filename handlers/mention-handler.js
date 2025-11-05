@@ -1,8 +1,7 @@
-// handlers/mention-handler.js - メンション処理ハンドラー
+// handlers/mention-handler.js - メンション処理ハンドラー v2.0.1 (画像URL修正版)
 
 const logger = require('../utils/logger');
 const { isBotMentioned, extractContentFromMention } = require('../utils/verification');
-const { hasImageAttachments, extractImageUrls } = require('../utils/image-utils');
 
 // ✅ 修正: Bot User IDを環境変数から取得（フォールバック値も設定）
 // 重要: .envファイルで正しいBot User IDを設定してください
@@ -10,6 +9,28 @@ const BOT_USER_ID = process.env.BOT_USER_ID || '1420328163497607199';
 
 // ✅ 修正: 起動時にBot User IDをログ出力（デバッグ用）
 logger.info(`🆔 設定されたBOT_USER_ID: ${BOT_USER_ID}`);
+
+// 🔧 画像添付チェック関数（インライン実装）
+function hasImageAttachments(attachments) {
+  if (!attachments || attachments.length === 0) return false;
+  
+  return attachments.some(att => {
+    const contentType = att.contentType || att.content_type || '';
+    return contentType.startsWith('image/');
+  });
+}
+
+// 🔧 画像URL抽出関数（インライン実装）
+function extractImageUrls(attachments) {
+  if (!attachments || attachments.length === 0) return [];
+  
+  return attachments
+    .filter(att => {
+      const contentType = att.contentType || att.content_type || '';
+      return contentType.startsWith('image/');
+    })
+    .map(att => att.url);
+}
 
 // @わなみさんメンション処理
 async function handleMessage(message, client) {
@@ -52,12 +73,24 @@ async function handleMessage(message, client) {
     // メンションからコンテンツを抽出
     const userQuery = extractContentFromMention(message.content, BOT_USER_ID);
     
-    // 画像添付の確認
+    // 🔧 画像添付の確認（修正版）
     const attachments = Array.from(message.attachments.values());
+    logger.debug(`📎 添付ファイル数: ${attachments.length}`);
+    
+    // 添付ファイルの詳細をログ出力
+    if (attachments.length > 0) {
+      attachments.forEach((att, index) => {
+        logger.debug(`  [${index + 1}] ${att.name || 'unnamed'} - ${att.contentType || att.content_type || 'unknown type'} - ${att.url}`);
+      });
+    }
+    
     const hasImages = hasImageAttachments(attachments);
     const imageUrls = hasImages ? extractImageUrls(attachments) : [];
     
-    logger.image(`画像添付: ${hasImages ? `${imageUrls.length}枚` : 'なし'}`);
+    logger.image(`🖼️ 画像添付: ${hasImages ? `${imageUrls.length}枚` : 'なし'}`);
+    if (imageUrls.length > 0) {
+      logger.image(`🖼️ 画像URL: ${imageUrls.join(', ')}`);
+    }
     
     // 応答処理開始のタイピング表示
     await message.channel.sendTyping();
@@ -74,13 +107,18 @@ async function handleMessage(message, client) {
     if (isUserWaitingForQuestion(message.author.id)) {
       // ボタンクリック後の質問応答処理
       try {
-        const buttonResponse = await handleQuestionResponse(message.author.id, userQuery, {
+        // 🔧 contextオブジェクトに画像URLを確実に含める
+        const context = {
           username: message.author.username,
           channelName: message.channel.name,
           guildName: message.guild?.name || 'DM',
           hasImages: hasImages,
-          imageUrls: imageUrls
-        });
+          imageUrls: imageUrls  // ← 確実に含める
+        };
+        
+        logger.debug(`🔍 handleQuestionResponseに渡すcontext:`, JSON.stringify(context, null, 2));
+        
+        const buttonResponse = await handleQuestionResponse(message.author.id, userQuery, context);
         
         if (buttonResponse) {
           // ボタン質問の応答を送信
