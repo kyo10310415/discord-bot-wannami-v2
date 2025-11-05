@@ -112,7 +112,7 @@ class RAGSystem {
         knowledgeContext = '【知識ベースからの関連情報】\n\n';
         knowledgeResults.forEach((result, index) => {
           knowledgeContext += `${index + 1}. ${result.title || result.source}\n`;
-          const contentPreview = result.answer || result.content.substring(0, 500);
+          const contentPreview = result.answer || result.content.substring(0, 2000);
           knowledgeContext += `${contentPreview}\n`;
           knowledgeContext += `(関連度: ${(result.score * 100).toFixed(1)}%)\n\n`;
         });
