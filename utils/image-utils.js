@@ -1,32 +1,64 @@
 // utils/image-utils.js - 画像関連ユーティリティ
 
-// 画像添付検出関数
+const logger = require('./logger');
+
+// ✅ 修正: 画像添付検出関数
 function hasImageAttachments(attachments) {
-  if (!attachments || !Array.isArray(attachments)) return false;
+  if (!attachments || !Array.isArray(attachments)) {
+    logger.debug('画像添付チェック: 添付ファイルなし');
+    return false;
+  }
   
-  return attachments.some(attachment => {
-    const isImage = attachment.content_type && attachment.content_type.startsWith('image/');
+  const hasImages = attachments.some(attachment => {
+    // ✅ contentType (キャメルケース) に変更
+    const isImage = attachment.contentType && attachment.contentType.startsWith('image/');
     if (isImage) {
-      console.log(`🖼️ 画像添付検出: ${attachment.filename} (${attachment.content_type})`);
+      logger.debug(`🖼️ 画像添付検出: ${attachment.name} (${attachment.contentType})`);
+    } else {
+      logger.debug(`❌ 画像ではない: ${attachment.name} (ContentType: ${attachment.contentType || '不明'})`);
     }
     return isImage;
   });
+  
+  logger.debug(`画像添付チェック結果: ${hasImages}`);
+  return hasImages;
 }
 
-// 画像URL抽出関数
+// ✅ 修正: 画像URL抽出関数
 function extractImageUrls(attachments) {
-  if (!attachments || !Array.isArray(attachments)) return [];
+  if (!attachments || !Array.isArray(attachments)) {
+    logger.debug('画像URL抽出: 添付ファイルなし');
+    return [];
+  }
   
   const imageUrls = attachments
-    .filter(attachment => attachment.content_type && attachment.content_type.startsWith('image/'))
+    // ✅ contentType に変更
+    .filter(attachment => {
+      const isImage = attachment.contentType && attachment.contentType.startsWith('image/');
+      logger.debug(`フィルタ判定: ${attachment.name} -> ${isImage ? '✅ 画像' : '❌ 非画像'}`);
+      return isImage;
+    })
     .map(attachment => ({
       url: attachment.url,
-      filename: attachment.filename,
-      content_type: attachment.content_type,
-      size: attachment.size
+      // ✅ filename -> name に変更
+      filename: attachment.name,
+      // ✅ content_type -> contentType に変更
+      content_type: attachment.contentType,
+      contentType: attachment.contentType,  // 互換性のため両方保持
+      size: attachment.size,
+      width: attachment.width,
+      height: attachment.height
     }));
     
-  console.log(`🖼️ 抽出された画像URL数: ${imageUrls.length}`);
+  logger.info(`🖼️ 抽出された画像URL数: ${imageUrls.length}`);
+  
+  // ✅ デバッグ: 抽出された画像URLを詳細表示
+  if (imageUrls.length > 0) {
+    imageUrls.forEach((img, idx) => {
+      logger.debug(`  [${idx + 1}] ${img.filename}: ${img.url}`);
+    });
+  }
+  
   return imageUrls;
 }
 
@@ -62,6 +94,7 @@ function normalizeImageInfo(imageData) {
       url: imageData,
       filename: extractFilenameFromUrl(imageData),
       content_type: 'image/unknown',
+      contentType: 'image/unknown',
       size: null,
       detail: 'high'
     };
@@ -70,8 +103,12 @@ function normalizeImageInfo(imageData) {
   return {
     url: imageData.url,
     filename: imageData.filename || extractFilenameFromUrl(imageData.url),
-    content_type: imageData.content_type || 'image/unknown',
+    // ✅ 両方のプロパティ名をサポート
+    content_type: imageData.content_type || imageData.contentType || 'image/unknown',
+    contentType: imageData.contentType || imageData.content_type || 'image/unknown',
     size: imageData.size || null,
+    width: imageData.width || null,
+    height: imageData.height || null,
     detail: imageData.detail || 'high'
   };
 }
@@ -83,12 +120,15 @@ function extractFilenameFromUrl(url) {
     const pathname = urlObj.pathname;
     const filename = pathname.split('/').pop();
     
+    // クエリパラメータを除去
+    const cleanFilename = filename.split('?')[0];
+    
     // ファイル名が空またはない場合はデフォルト
-    if (!filename || filename === '') {
+    if (!cleanFilename || cleanFilename === '') {
       return 'image';
     }
     
-    return filename;
+    return cleanFilename;
   } catch (error) {
     return 'image';
   }
@@ -123,9 +163,9 @@ function convertToVisionFormat(images, detail = 'high') {
 
 // 画像メタデータの取得（非同期）
 async function getImageMetadata(imageUrl) {
-  const axios = require('axios');
-  
   try {
+    const axios = require('axios');
+    
     const response = await axios.head(imageUrl, {
       timeout: 5000,
       headers: {
@@ -141,7 +181,7 @@ async function getImageMetadata(imageUrl) {
       accessible: true
     };
   } catch (error) {
-    console.warn(`⚠️ 画像メタデータ取得失敗: ${imageUrl}`, error.message);
+    logger.warn(`⚠️ 画像メタデータ取得失敗: ${imageUrl}`, error.message);
     return {
       contentType: null,
       contentLength: null,
@@ -168,7 +208,7 @@ function calculateImageStats(images) {
     const imageInfo = normalizeImageInfo(img);
     
     // コンテンツタイプ別集計
-    const contentType = imageInfo.content_type || 'unknown';
+    const contentType = imageInfo.contentType || 'unknown';
     stats.byContentType[contentType] = (stats.byContentType[contentType] || 0) + 1;
     
     // サイズ集計
