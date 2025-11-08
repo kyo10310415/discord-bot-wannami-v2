@@ -1,36 +1,14 @@
-// handlers/mention-handler.js - メンション処理ハンドラー v2.0.1 (画像URL修正版)
+// handlers/mention-handler.js - メンション処理ハンドラー
 
 const logger = require('../utils/logger');
 const { isBotMentioned, extractContentFromMention } = require('../utils/verification');
+const { hasImageAttachments, extractImageUrls } = require('../utils/image-utils');
 
-// ✅ 修正: Bot User IDを環境変数から取得（フォールバック値も設定）
-// 重要: .envファイルで正しいBot User IDを設定してください
+// Bot User IDを環境変数から取得（フォールバック値も設定）
 const BOT_USER_ID = process.env.BOT_USER_ID || '1420328163497607199';
 
-// ✅ 修正: 起動時にBot User IDをログ出力（デバッグ用）
+// 起動時にBot User IDをログ出力
 logger.info(`🆔 設定されたBOT_USER_ID: ${BOT_USER_ID}`);
-
-// 🔧 画像添付チェック関数（インライン実装）
-function hasImageAttachments(attachments) {
-  if (!attachments || attachments.length === 0) return false;
-  
-  return attachments.some(att => {
-    const contentType = att.contentType || att.content_type || '';
-    return contentType.startsWith('image/');
-  });
-}
-
-// 🔧 画像URL抽出関数（インライン実装）
-function extractImageUrls(attachments) {
-  if (!attachments || attachments.length === 0) return [];
-  
-  return attachments
-    .filter(att => {
-      const contentType = att.contentType || att.content_type || '';
-      return contentType.startsWith('image/');
-    })
-    .map(att => att.url);
-}
 
 // @わなみさんメンション処理
 async function handleMessage(message, client) {
@@ -38,7 +16,7 @@ async function handleMessage(message, client) {
     // Botメッセージは無視
     if (message.author.bot) return;
     
-    // ✅ 修正: デバッグログ追加（メッセージ受信時の詳細情報）
+    // ✅ デバッグログ: メッセージ受信
     logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     logger.debug('📨 メッセージ受信');
     logger.debug(`  送信者ID: ${message.author.id}`);
@@ -48,13 +26,14 @@ async function handleMessage(message, client) {
     // メンション検出
     const mentions = message.mentions?.users?.map(user => ({ id: user.id })) || [];
     
-    // ✅ 修正: メンション一覧をデバッグログに出力
+    // ✅ デバッグログ: メンション一覧
     logger.debug(`  メンション一覧: ${mentions.map(m => m.id).join(', ') || 'なし'}`);
     logger.debug(`  設定されたBOT_USER_ID: ${BOT_USER_ID}`);
+    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     const isMentioned = isBotMentioned(message.content, mentions, BOT_USER_ID);
     
-    // ✅ 修正: Bot判定結果をログ出力
+    // ✅ デバッグログ: Bot判定結果
     logger.debug(`  🤖 Bot判定結果: ${isMentioned ? '✅ メンション検出' : '❌ メンションなし'}`);
     logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
@@ -62,8 +41,6 @@ async function handleMessage(message, client) {
     const roleMentions = message.mentions?.roles;
     if (roleMentions && roleMentions.size > 0) {
       logger.discord(`ロールメンション検出: ${roleMentions.size}個`);
-      // 特定のロールに対する特別な処理を実装可能
-      // 例：管理者ロール、生徒ロール、講師ロール等
     }
     
     if (!isMentioned) return;
@@ -73,24 +50,49 @@ async function handleMessage(message, client) {
     // メンションからコンテンツを抽出
     const userQuery = extractContentFromMention(message.content, BOT_USER_ID);
     
-    // 🔧 画像添付の確認（修正版）
-    const attachments = Array.from(message.attachments.values());
-    logger.debug(`📎 添付ファイル数: ${attachments.length}`);
+    // ✅ 画像添付の詳細確認（デバッグログ追加）
+    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    logger.debug('🖼️ 添付ファイル確認');
+    logger.debug(`  メッセージID: ${message.id}`);
+    logger.debug(`  添付ファイル数: ${message.attachments.size}`);
     
-    // 添付ファイルの詳細をログ出力
-    if (attachments.length > 0) {
-      attachments.forEach((att, index) => {
-        logger.debug(`  [${index + 1}] ${att.name || 'unnamed'} - ${att.contentType || att.content_type || 'unknown type'} - ${att.url}`);
+    // 添付ファイルの詳細ログ
+    if (message.attachments.size > 0) {
+      let attachmentIndex = 1;
+      message.attachments.forEach((attachment) => {
+        logger.debug(`  [${attachmentIndex}] ファイル情報:`);
+        logger.debug(`      ID: ${attachment.id}`);
+        logger.debug(`      名前: ${attachment.name}`);
+        logger.debug(`      URL: ${attachment.url}`);
+        logger.debug(`      Proxy URL: ${attachment.proxyURL || 'なし'}`);
+        logger.debug(`      ContentType: ${attachment.contentType || '不明'}`);
+        logger.debug(`      サイズ: ${attachment.size} bytes (${(attachment.size / 1024).toFixed(2)} KB)`);
+        logger.debug(`      幅: ${attachment.width || '不明'}`);
+        logger.debug(`      高さ: ${attachment.height || '不明'}`);
+        logger.debug(`      Ephemeral: ${attachment.ephemeral || false}`);
+        attachmentIndex++;
       });
+    } else {
+      logger.debug('  添付ファイルなし');
     }
     
+    const attachments = Array.from(message.attachments.values());
     const hasImages = hasImageAttachments(attachments);
     const imageUrls = hasImages ? extractImageUrls(attachments) : [];
     
-    logger.image(`🖼️ 画像添付: ${hasImages ? `${imageUrls.length}枚` : 'なし'}`);
-    if (imageUrls.length > 0) {
-      logger.image(`🖼️ 画像URL: ${imageUrls.join(', ')}`);
+    logger.info(`🖼️ 画像添付: ${hasImages ? `${imageUrls.length}枚` : 'なし'}`);
+    
+    // ✅ 画像URL詳細ログ
+    if (hasImages && imageUrls.length > 0) {
+      logger.debug('  画像URL一覧:');
+      imageUrls.forEach((url, index) => {
+        logger.debug(`    [${index + 1}] ${url}`);
+      });
+      logger.info(`✅ 画像検出成功: ${imageUrls.length}枚の画像が添付されています`);
+    } else {
+      logger.debug('  画像なし（hasImageAttachments()がfalseを返しました）');
     }
+    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     // 応答処理開始のタイピング表示
     await message.channel.sendTyping();
@@ -107,18 +109,13 @@ async function handleMessage(message, client) {
     if (isUserWaitingForQuestion(message.author.id)) {
       // ボタンクリック後の質問応答処理
       try {
-        // 🔧 contextオブジェクトに画像URLを確実に含める
-        const context = {
+        const buttonResponse = await handleQuestionResponse(message.author.id, userQuery, {
           username: message.author.username,
           channelName: message.channel.name,
           guildName: message.guild?.name || 'DM',
           hasImages: hasImages,
-          imageUrls: imageUrls  // ← 確実に含める
-        };
-        
-        logger.debug(`🔍 handleQuestionResponseに渡すcontext:`, JSON.stringify(context, null, 2));
-        
-        const buttonResponse = await handleQuestionResponse(message.author.id, userQuery, context);
+          imageUrls: imageUrls
+        });
         
         if (buttonResponse) {
           // ボタン質問の応答を送信
@@ -135,6 +132,17 @@ async function handleMessage(message, client) {
     // 通常の知識ベース限定応答処理
     try {
       const { generateKnowledgeOnlyResponse } = require('../services/rag-system');
+      
+      // ✅ デバッグログ: RAGシステムに渡すパラメータ
+      logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      logger.debug('🤖 RAGシステムに送信するパラメータ:');
+      logger.debug(`  クエリ: "${userQuery}"`);
+      logger.debug(`  画像あり: ${hasImages}`);
+      logger.debug(`  画像URL数: ${imageUrls.length}`);
+      if (imageUrls.length > 0) {
+        logger.debug(`  画像URL: ${JSON.stringify(imageUrls, null, 2)}`);
+      }
+      logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
       // 知識ベース限定応答生成
       const response = await generateKnowledgeOnlyResponse(userQuery, {
@@ -208,13 +216,11 @@ async function showConsultationMenu(message) {
     
     const content = `🤖 **わなみさんです！**
 
-VTuber育成スクールへようこそ！
 どのようなご相談でしょうか？下のボタンから選択してください✨
 
 **📚 知識ベース限定回答システム**
 • **@わなみさん [質問]** で知識ベースから正確な回答
 • VTuber活動に特化した専門情報のみ回答
-• 知識ベース外の情報は「分からない」と正直に回答
 
 **📞 専門サポートメニュー**
 下のボタンから選択して、より詳しいサポートを受けられます！`;
