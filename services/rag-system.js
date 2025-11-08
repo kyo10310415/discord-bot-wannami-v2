@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.6.0 (画像URL対応)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.6.1 (画像URL対応修正版)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -218,12 +218,17 @@ ${visionContext}
     }
   }
 
-  // 🔧 修正: ミッション提出専用応答生成（v2.6.0 - 画像URL対応版）
+  // 🔧 修正: ミッション提出専用応答生成（v2.6.1 - 画像URL対応修正版）
   async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
       logger.ai('📝 ===== ミッション提出専用処理開始 =====');
       logger.info('📝 ユーザー入力:', userQuery);
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
+      
+      // ✅ 画像URLの詳細ログ
+      if (imageUrls.length > 0) {
+        logger.info('🖼️ 画像URL詳細:', imageUrls);
+      }
 
       await this.waitForInitialization();
 
@@ -419,14 +424,24 @@ ${userQuery}
 - 具体的で実践的なアドバイスを提供
 - 添付画像がある場合は、画像の内容も評価に含める`;
 
-      // 🔧 画像URLをOpenAI APIに渡す形式に変換
-      const imageMessages = imageUrls.map(url => ({ url }));
-      logger.info(`🖼️ OpenAI APIに渡す画像: ${imageMessages.length}件`);
+      // ✅ 修正: 画像URLをOpenAI Vision API形式に変換
+      const imageMessages = imageUrls && imageUrls.length > 0
+        ? imageUrls.map(imgUrl => ({
+            url: typeof imgUrl === 'string' ? imgUrl : imgUrl.url,
+            detail: "high"  // 高品質な画像解析
+          }))
+        : [];
 
+      logger.info(`🖼️ OpenAI APIに渡す画像メッセージ: ${imageMessages.length}件`);
+      if (imageMessages.length > 0) {
+        logger.info('🖼️ 画像メッセージ詳細:', imageMessages);
+      }
+
+      // ✅ 修正: imageMessages を generateAIResponse に渡す
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        imageMessages,  // ← 画像URLを渡す
+        imageMessages,  // ← ここを修正！
         context
       );
 
@@ -462,9 +477,17 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
+  // ✅ 修正: generateKnowledgeOnlyResponse に画像対応を追加（v2.6.1）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
       logger.ai('知識ベース限定応答生成開始');
+      
+      // ✅ 画像情報のデバッグログ追加
+      const imageUrls = context.imageUrls || [];
+      logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
+      if (imageUrls.length > 0) {
+        logger.info('🖼️ 画像URL詳細:', imageUrls);
+      }
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
@@ -498,6 +521,13 @@ ${userQuery}
         knowledgeContext += `${content}\n\n`;
       });
 
+      // ✅ 画像情報をシステムプロンプトに追加
+      let imageContext = '';
+      if (imageUrls.length > 0) {
+        imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。画像の内容を確認して回答に活用してください。\n`;
+        logger.info('🖼️ 画像情報をシステムプロンプトに追加');
+      }
+
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
 【重要なルール】
@@ -506,6 +536,7 @@ ${userQuery}
 3. 内容を理解して、**要約・整理・わかりやすく説明**してください
 4. 具体的なアドバイスと実践的な手順を提供してください
 5. 親しみやすく、でも専門的な口調で回答してください
+6. 添付画像がある場合は、画像の内容も確認して回答に反映してください
 
 【重要なスクールのルール】
 - **コラボ配信の禁止**
@@ -523,6 +554,7 @@ X:
 
 【参照資料】
 ${knowledgeContext}
+${imageContext}
 
 【質問】
 ${userQuery}
@@ -536,10 +568,24 @@ ${userQuery}
 
 **絶対に守ること**: "--- スライド X ---"のような生の内容を出力しないでください。`;
 
+      // ✅ 修正: 画像URLをOpenAI Vision API形式に変換
+      const imageMessages = imageUrls && imageUrls.length > 0
+        ? imageUrls.map(imgUrl => ({
+            url: typeof imgUrl === 'string' ? imgUrl : imgUrl.url,
+            detail: "high"  // 高品質な画像解析
+          }))
+        : [];
+
+      logger.info(`🖼️ OpenAI APIに渡す画像メッセージ: ${imageMessages.length}件`);
+      if (imageMessages.length > 0) {
+        logger.info('🖼️ 画像メッセージ詳細:', imageMessages);
+      }
+
+      // ✅ 修正: imageMessages を generateAIResponse に渡す
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        [],
+        imageMessages,  // ← ここを修正！（空配列 [] → imageMessages）
         context
       );
 
@@ -565,7 +611,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.6.0'
+      version: '2.6.1'  // ✅ バージョン更新
     };
   }
 }
