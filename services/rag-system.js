@@ -164,7 +164,6 @@ class RAGSystem {
 - 専門用語は初心者にも分かるように説明
 - 具体例を交えた実践的なアドバイス
 - 必要に応じて段階的な手順を提示
-- **生のスライド内容をそのまま貼り付けず、要約して説明する**
 
 【重要なスクールのルール】
 - **コラボ配信の禁止**
@@ -239,7 +238,7 @@ ${visionContext}
         systemPrompt,
         userQuery,
         imageUrls.map(url => ({ url })),
-        context
+        { ...context, temperature: 0 } 
       );
 
       logger.success('画像解析統合RAG応答生成完了');
@@ -459,7 +458,7 @@ ${userQuery}
         systemPrompt,
         userQuery,
         imageMessages,
-        context
+        { ...context, temperature: 0 } 
       );
 
       logger.info('✅ ミッション提出応答生成完了');
