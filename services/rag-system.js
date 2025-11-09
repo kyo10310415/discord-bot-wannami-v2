@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.0 (知識ベース厳格モード)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.1 (バランス調整版)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -477,10 +477,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✅ 修正: generateKnowledgeOnlyResponse を知識ベース厳格モードに変更（v2.7.0）
+  // ✅ 修正: generateKnowledgeOnlyResponse をバランス調整版に変更（v2.7.1）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('🔒 知識ベース厳格モード: 応答生成開始');
+      logger.ai('📚 知識ベース優先モード: 応答生成開始');
       
       // ✅ 画像情報のデバッグログ追加
       const imageUrls = context.imageUrls || [];
@@ -572,25 +572,20 @@ ${userQuery}
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // 🔧 システムプロンプトを「知識ベース限定」に厳格化
+      // ✅ 修正: システムプロンプトをバランス調整（厳格すぎない）
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
-【🔒 絶対に守るべき制約】
-1. **以下の参照資料の内容のみを使って回答してください**
-2. **参照資料に書かれていない情報は絶対に使わないでください**
-3. **一般的な知識や推測で補完しないでください**
-4. **参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください**
-5. **内容を理解して、要約・整理・わかりやすく説明してください**
-6. **参照資料から答えられない場合は、「この情報は知識ベースに含まれていません」と正直に伝えてください**
+【回答の基本方針】
+1. 以下の参照資料を**最優先**で活用してください
+2. 参照資料の内容を理解して、わかりやすく要約・整理して説明してください
+3. 参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください
+4. 具体的なアドバイスと実践的な手順を提供してください
+5. 親しみやすく、でも専門的な口調で回答してください
+6. 添付画像がある場合は、画像の内容も確認して回答に反映してください
+7. **一般的な知識や推測で補完しないでください**
+8. **参照資料から答えられない場合は、「この情報は知識ベースに含まれていません」と正直に伝えてください**
 
-【回答作成のルール】
-• 参照資料の内容を自分の言葉で要約する
-• 具体的なアドバイスと実践的な手順を提供する
-• 親しみやすく、でも専門的な口調で回答する
-• 絵文字を適度に使用（🎥✨💡など）
-• 必ず出典（レッスン名など）を明記する
-
-【重要なスクールのルール（参照資料に含まれる場合のみ言及）】
+【重要なスクールのルール】
 - コラボ配信の禁止
 - 活動者や生徒同士の横のつながり禁止
 YouTube:
@@ -620,12 +615,7 @@ ${userQuery}
 
 📚 **出典**: [レッスン名または資料名]
 
-**🔒 重要な確認事項:**
-- 参照資料に情報がない場合: 「この情報は現在の知識ベースに含まれていません。詳しくは担任の先生にお尋ねください。」と回答
-- 参照資料の情報のみで回答を構成
-- 一般知識や推測を混ぜない
-
-**絶対に守ること**: "--- スライド X ---"のような生の内容を出力しないでください。`;
+**重要**: "--- スライド X ---"のような生の内容を出力しないでください。参照資料の内容をしっかり読んで、自分の言葉でわかりやすく説明してください。`;
 
       // ✅ 修正: 画像URLをOpenAI Vision API形式に変換
       const imageMessages = imageUrls && imageUrls.length > 0
@@ -640,7 +630,7 @@ ${userQuery}
         logger.info('🖼️ 画像メッセージ詳細:', imageMessages);
       }
 
-      logger.info('🤖 AI応答生成中（知識ベース厳格モード）...');
+      logger.info('🤖 AI応答生成中（知識ベース優先モード）...');
 
       // ✅ 修正: imageMessages を generateAIResponse に渡す
       const aiResponse = await generateAIResponse(
@@ -650,7 +640,7 @@ ${userQuery}
         context
       );
 
-      logger.info('✅ 知識ベース厳格モード: 応答生成完了');
+      logger.info('✅ 知識ベース優先モード: 応答生成完了');
       
       // フッター情報を追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
@@ -673,7 +663,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.7.0'  // ✅ バージョン更新（知識ベース厳格モード）
+      version: '2.7.1'  // ✅ バージョン更新（バランス調整版）
     };
   }
 }
