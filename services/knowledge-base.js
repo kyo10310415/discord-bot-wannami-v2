@@ -1,4 +1,4 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.1.1（デバッグログ追加版）
+// services/knowledge-base.js - 知識ベース構築サービス v2.2.0（スコア上限撤廃版）
 
 const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
@@ -213,6 +213,7 @@ class KnowledgeBaseService {
         let score = 0;
         let matchDetails = [];
 
+        // トークンマッチング
         queryTokens.forEach(token => {
           const matches = (contentLower.match(new RegExp(token, 'gi')) || []).length;
           if (matches > 0) {
@@ -222,11 +223,13 @@ class KnowledgeBaseService {
           }
         });
 
+        // 完全一致ボーナス
         if (contentLower.includes(queryLower)) {
           score += 0.5;
           matchDetails.push('完全一致+0.5');
         }
 
+        // カテゴリ一致ボーナス
         if (doc.category) {
           const categoryLower = doc.category.toLowerCase();
           if (queryLower.includes(categoryLower) || categoryLower.includes(queryLower)) {
@@ -235,6 +238,7 @@ class KnowledgeBaseService {
           }
         }
 
+        // 分類一致ボーナス
         if (doc.classification) {
           const classificationLower = doc.classification.toLowerCase();
           if (queryLower.includes(classificationLower) || classificationLower.includes(queryLower)) {
@@ -243,6 +247,7 @@ class KnowledgeBaseService {
           }
         }
 
+        // ファイル名一致ボーナス
         const sourceLower = doc.source.toLowerCase();
         queryTokens.forEach(token => {
           if (sourceLower.includes(token)) {
@@ -251,12 +256,14 @@ class KnowledgeBaseService {
           }
         });
 
-        const normalizedScore = Math.min(score, 1.0);
+        // ✅ 修正: スコアの正規化を削除（上限なし）
+        // const normalizedScore = Math.min(score, 1.0);  // ❌ 削除
 
         return {
           ...doc,
-          score: normalizedScore,
-          similarity: normalizedScore,
+          score: score,  // ✅ 修正: 生のスコアをそのまま使用（上限なし）
+          rawScore: score,  // デバッグ用
+          similarity: score,  // ✅ 修正
           title: doc.source,
           answer: this._extractRelevantContent(doc.content, queryTokens),
           matchDetails: matchDetails,
@@ -272,31 +279,38 @@ class KnowledgeBaseService {
         };
       });
 
+      // スコアでソート（降順）
       scoredDocuments.sort((a, b) => b.score - a.score);
 
-      logger.info('📊 スコア分布（上位10件）:');
+      // ✅ 追加: スコア分布の詳細ログ
+      logger.info('\n📊 ===== スコア計算詳細（上位10件） =====');
       scoredDocuments.slice(0, 10).forEach((doc, i) => {
         const details = doc.matchDetails.length > 0 ? doc.matchDetails.join(', ') : 'マッチなし';
-        logger.info(`  [${i + 1}] ${doc.source} [${doc.classification}/${doc.goodBadExample}]: ${doc.score.toFixed(3)} - ${details}`);
+        logger.info(`[${i + 1}] ${doc.source} [${doc.classification}/${doc.goodBadExample}]`);
+        logger.info(`    スコア: ${doc.score.toFixed(3)} (上限なし)`);
+        logger.info(`    マッチ詳細: ${details}`);
       });
+      logger.info('==========================================\n');
 
+      // minScoreでフィルタリング
       const results = scoredDocuments
         .filter(doc => doc.score >= minScore)
         .slice(0, Math.max(maxResults, topK));
 
-      logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(2) || 0})`);
+      logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(3) || 0})`);
 
       // 🔍 デバッグ: 検索結果のメタデータサンプルを出力
       if (results.length > 0) {
         logger.info('🔍 検索結果のメタデータサンプル（最初の3件）:');
         results.slice(0, 3).forEach((result, idx) => {
           logger.info(`  ${idx + 1}. [${result.metadata?.classification || 'なし'}/${result.metadata?.goodBadExample || 'なし'}] ${result.source}`);
-          logger.info(`     メタデータ詳細:`, JSON.stringify(result.metadata, null, 2));
+          logger.info(`     スコア: ${result.score.toFixed(3)}, メタデータ:`, JSON.stringify(result.metadata, null, 2));
         });
       }
       
       if (results.length === 0 && scoredDocuments.length > 0) {
         logger.warn(`⚠️ minScore=${minScore}でフィルタリングされました。最高スコア: ${scoredDocuments[0].score.toFixed(3)}`);
+        logger.warn(`💡 ヒント: minScoreを下げるか、より関連性の高いキーワードで検索してください`);
       }
 
       return results;
