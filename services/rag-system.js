@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.6.1 (画像URL対応修正版)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.0 (知識ベース厳格モード)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -477,10 +477,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✅ 修正: generateKnowledgeOnlyResponse に画像対応を追加（v2.6.1）
+  // ✅ 修正: generateKnowledgeOnlyResponse を知識ベース厳格モードに変更（v2.7.0）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始');
+      logger.ai('🔒 知識ベース厳格モード: 応答生成開始');
       
       // ✅ 画像情報のデバッグログ追加
       const imageUrls = context.imageUrls || [];
@@ -489,35 +489,79 @@ ${userQuery}
         logger.info('🖼️ 画像URL詳細:', imageUrls);
       }
 
+      // 🔧 検索閾値を大幅に下げる (0.05 → 0.01)
       const knowledgeResults = await this._searchKnowledge(userQuery, {
-        maxResults: 5,
-        minScore: 0.05,
+        maxResults: 10,      // 5件 → 10件に増加
+        minScore: 0.01,      // 0.05 → 0.01 に大幅緩和
         includeMetadata: true
       });
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
 
-      if (knowledgeResults.length === 0) {
-        return `🤖 **わなみさんです！**\n\n申し訳ございません。「${userQuery}」に関する情報が知識ベースに見つかりませんでした。
-
-**🔍 他の質問方法を試してみてください：**
-• より具体的なキーワードで質問
-• 関連する別の表現で質問
-• \`/soudan\` コマンドから該当するカテゴリを選択
-
-**📚 現在の知識ベースには以下の情報が含まれています：**
-• VTuber活動の基本
-• 配信技術と機材設定
-• Live2Dモデルの扱い方
-• SNS運用とマーケティング
-• デザインとブランディング
-`;
+      // 🔧 検索結果の詳細ログ（上位5件）
+      if (knowledgeResults.length > 0) {
+        logger.info('\n📊 ===== 検索結果詳細（上位5件） =====');
+        knowledgeResults.slice(0, 5).forEach((result, index) => {
+          logger.info(`[${index + 1}] ${result.source} (スコア: ${result.score.toFixed(3)})`);
+        });
+        logger.info('======================================\n');
       }
 
+      // 🔧 検索結果が0件の場合は明確に「見つかりません」と返す
+      if (knowledgeResults.length === 0) {
+        logger.warn('⚠️ 知識ベースに関連情報が見つかりませんでした');
+        
+        return `🤖 **わなみさんです！**
+
+申し訳ございません。「**${userQuery}**」に関する情報が知識ベースに見つかりませんでした。
+
+**🔍 検索情報:**
+• 検索キーワード: "${userQuery}"
+• 検索結果: 0件
+• 検索閾値: 0.01（非常に低い閾値で検索済み）
+
+**💡 より良い検索結果を得るためのヒント:**
+
+1️⃣ **カテゴリ名を含めて質問**
+   例: 「VTuber活動のルールを教えて」
+   例: 「配信の頻度について知りたい」
+   例: 「SNS運用の方法を教えて」
+
+2️⃣ **レッスン番号を指定**
+   例: 「レッスン1の内容を教えて」
+   例: 「レッスン5のミッションについて」
+
+3️⃣ **具体的なキーワードを使用**
+   例: 「コラボ配信は禁止？」
+   例: 「YouTubeの配信頻度は？」
+   例: 「Xの投稿ルールは？」
+
+**📚 知識ベースに含まれる主なカテゴリ:**
+• VTuber活動の基本ルール
+• YouTube配信の運用方法
+• SNS（X/Twitter）運用
+• 配信技術と機材設定
+• デザインとブランディング
+• ミッション提出と評価
+
+**🙋 他の方法:**
+• \`/soudan\` コマンドからカテゴリを選択
+• より具体的な質問に言い換える
+• レッスン資料のタイトルで検索
+
+もう一度、違う言葉で質問してみてくださいね！✨`;
+      }
+
+      // 🔧 検索結果が少ない場合も警告
+      if (knowledgeResults.length < 3) {
+        logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件（推奨: 3件以上）`);
+      }
+
+      // 知識ベースの内容を整理
       let knowledgeContext = '【参照資料】\n\n';
       knowledgeResults.forEach((result, index) => {
         knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
-        const content = result.answer || result.content.substring(0, 800);
+        const content = result.answer || result.content.substring(0, 1000);  // 800 → 1000に増加
         knowledgeContext += `${content}\n\n`;
       });
 
@@ -528,29 +572,36 @@ ${userQuery}
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
+      // 🔧 システムプロンプトを「知識ベース限定」に厳格化
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
-【重要なルール】
-1. 以下の参照資料の内容**のみ**を使って回答してください
-2. 参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください
-3. 内容を理解して、**要約・整理・わかりやすく説明**してください
-4. 具体的なアドバイスと実践的な手順を提供してください
-5. 親しみやすく、でも専門的な口調で回答してください
-6. 添付画像がある場合は、画像の内容も確認して回答に反映してください
+【🔒 絶対に守るべき制約】
+1. **以下の参照資料の内容のみを使って回答してください**
+2. **参照資料に書かれていない情報は絶対に使わないでください**
+3. **一般的な知識や推測で補完しないでください**
+4. **参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください**
+5. **内容を理解して、要約・整理・わかりやすく説明してください**
+6. **参照資料から答えられない場合は、「この情報は知識ベースに含まれていません」と正直に伝えてください**
 
-【重要なスクールのルール】
-- **コラボ配信の禁止**
-- **活動者や生徒同士の横のつながり禁止**
+【回答作成のルール】
+• 参照資料の内容を自分の言葉で要約する
+• 具体的なアドバイスと実践的な手順を提供する
+• 親しみやすく、でも専門的な口調で回答する
+• 絵文字を適度に使用（🎥✨💡など）
+• 必ず出典（レッスン名など）を明記する
+
+【重要なスクールのルール（参照資料に含まれる場合のみ言及）】
+- コラボ配信の禁止
+- 活動者や生徒同士の横のつながり禁止
 YouTube:
-- 週4回以上の配信をする
+- 週4回以上の配信
 - 1回1時間半以上の配信
-- YouTube企画の基本にのっとってあたりコンテンツを見つける
 X:
 - 1日2回以上の日常ポスト
 - 画像付きのポスト
 - ハッシュタグは2つまで
-- Xの企画基本編にのっとって企画を週に2回実施
-- XのDMは案件のみ対応で活動者やファンとのDMは禁止
+- 週に2回企画実施
+- XのDMは案件のみ対応
 
 【参照資料】
 ${knowledgeContext}
@@ -560,11 +611,19 @@ ${imageContext}
 ${userQuery}
 
 【回答の形式】
-- 🎯 見出しで要点を明確に
-- 📝 箇条書きや番号付きリストで整理
-- 💡 具体例を交えて説明
-- ✨ 励ましの言葉も添える（励ましの言葉という見出しは出さない）
-- 📚 出典（レッスン名など）を簡潔に記載
+🎯 **[要点の見出し]**
+• 箇条書きや番号付きリストで整理
+• 具体例を交えて説明
+
+💡 **[アドバイス]**
+• 実践的な手順を提示
+
+📚 **出典**: [レッスン名または資料名]
+
+**🔒 重要な確認事項:**
+- 参照資料に情報がない場合: 「この情報は現在の知識ベースに含まれていません。詳しくは担任の先生にお尋ねください。」と回答
+- 参照資料の情報のみで回答を構成
+- 一般知識や推測を混ぜない
 
 **絶対に守ること**: "--- スライド X ---"のような生の内容を出力しないでください。`;
 
@@ -581,6 +640,8 @@ ${userQuery}
         logger.info('🖼️ 画像メッセージ詳細:', imageMessages);
       }
 
+      logger.info('🤖 AI応答生成中（知識ベース厳格モード）...');
+
       // ✅ 修正: imageMessages を generateAIResponse に渡す
       const aiResponse = await generateAIResponse(
         systemPrompt,
@@ -589,8 +650,9 @@ ${userQuery}
         context
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了');
+      logger.info('✅ 知識ベース厳格モード: 応答生成完了');
       
+      // フッター情報を追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
@@ -611,7 +673,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.6.1'  // ✅ バージョン更新
+      version: '2.7.0'  // ✅ バージョン更新（知識ベース厳格モード）
     };
   }
 }
