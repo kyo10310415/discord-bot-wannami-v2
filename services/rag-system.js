@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.1 (バランス調整版)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.8.0 (強制知識ベース限定版)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -93,6 +93,39 @@ class RAGSystem {
       logger.error('❌ 知識ベース検索エラー:', error);
       throw error;
     }
+  }
+
+  // ✅ 追加: AI応答が知識ベース外の情報を含むかチェック
+  _checkIfResponseUsesKnowledgeBase(response, knowledgeResults) {
+    // 知識ベースの資料名がAI応答に含まれているかチェック
+    const sourceNames = knowledgeResults.map(r => r.source || r.title);
+    const hasSourceReference = sourceNames.some(name => 
+      response.includes(name) || 
+      response.includes('レッスン') || 
+      response.includes('出典') ||
+      response.includes('参照') ||
+      response.includes('資料')
+    );
+
+    // 一般知識を示すフレーズをチェック
+    const generalKnowledgePhrases = [
+      '一般的に',
+      '通常は',
+      '基本的には',
+      'よく知られている',
+      '一般論として',
+      '世間では'
+    ];
+    
+    const hasGeneralKnowledge = generalKnowledgePhrases.some(phrase => 
+      response.includes(phrase)
+    );
+
+    return {
+      usesKnowledgeBase: hasSourceReference,
+      usesGeneralKnowledge: hasGeneralKnowledge,
+      sourceNames: sourceNames
+    };
   }
 
   async generateRAGResponse(userQuery, images = [], context = {}) {
@@ -218,33 +251,28 @@ ${visionContext}
     }
   }
 
-  // 🔧 修正: ミッション提出専用応答生成（v2.6.1 - 画像URL対応修正版）
+  // ミッション提出専用応答生成（変更なし）
   async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
       logger.ai('📝 ===== ミッション提出専用処理開始 =====');
       logger.info('📝 ユーザー入力:', userQuery);
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
       
-      // ✅ 画像URLの詳細ログ
       if (imageUrls.length > 0) {
         logger.info('🖼️ 画像URL詳細:', imageUrls);
       }
 
       await this.waitForInitialization();
 
-      // 🆕 検索クエリの最適化
       let searchQuery = userQuery;
       
-      // 「レッスンXのミッション」パターンを検出
       const lessonMatch = userQuery.match(/レッスン(\d+)/);
       if (lessonMatch) {
         const lessonNumber = lessonMatch[1];
         logger.info(`📚 レッスン番号を検出: ${lessonNumber}`);
         
-        // 「レッスンX」を除去して「ミッション」のみで検索
         searchQuery = userQuery.replace(/レッスン\d+の?/g, '').trim();
         
-        // もし検索クエリが空になったら「ミッション」を追加
         if (!searchQuery || searchQuery.length < 2) {
           searchQuery = 'ミッション';
         }
@@ -254,10 +282,9 @@ ${visionContext}
 
       logger.info('🔍 知識ベース検索開始（ミッション資料）...');
       
-      // 🆕 検索パラメータを大幅に緩和
       const knowledgeResults = await this._searchKnowledge(searchQuery, {
-        maxResults: 50,    // さらに増やす
-        minScore: 0.005,   // かなり低い閾値
+        maxResults: 50,
+        minScore: 0.005,
         includeMetadata: true
       });
 
@@ -271,7 +298,6 @@ ${visionContext}
         logger.info('==========================================\n');
       }
 
-      // 🆕 ミッション資料のみをフィルタリング（優先順位付き）
       const missionDocs = knowledgeResults.filter(result => {
         const source = result.source || '';
         const metadata = result.metadata || {};
@@ -282,7 +308,6 @@ ${visionContext}
 
       logger.info(`📊 ミッション分類の資料: ${missionDocs.length}件`);
 
-      // 🆕 レッスン番号でさらにフィルタリング（該当する場合）
       let filteredMissionDocs = missionDocs;
       if (lessonMatch) {
         const lessonNumber = lessonMatch[1];
@@ -290,7 +315,6 @@ ${visionContext}
           const source = doc.source || '';
           const content = doc.content || '';
           
-          // ファイル名または内容に「レッスンX」が含まれる
           return source.includes(`レッスン${lessonNumber}`) || 
                  content.includes(`レッスン${lessonNumber}`);
         });
@@ -336,7 +360,6 @@ ${visionContext}
 引き続きサポートさせていただきます！✨`;
       }
 
-      // 良い例/悪い例を分離
       const goodExamples = filteredMissionDocs.filter(doc => {
         const metadata = doc.metadata || {};
         const exampleType = metadata.goodBadExample || metadata.exampleType || '';
@@ -351,7 +374,6 @@ ${visionContext}
 
       logger.info(`📊 良い例: ${goodExamples.length}件、悪い例: ${badExamples.length}件`);
 
-      // カテゴリ情報を取得
       let missionCategory = '不明';
       if (filteredMissionDocs.length > 0 && filteredMissionDocs[0].metadata) {
         missionCategory = filteredMissionDocs[0].metadata.category || '不明';
@@ -359,7 +381,6 @@ ${visionContext}
 
       logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
 
-      // ミッション資料を整理
       let missionContext = '【ミッション評価基準】\n\n';
       
       if (goodExamples.length > 0) {
@@ -378,14 +399,12 @@ ${visionContext}
         });
       }
 
-      // 🔧 画像情報をシステムプロンプトに追加
       let imageContext = '';
       if (imageUrls.length > 0) {
         imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。\n画像の内容を確認して、ミッション評価に反映してください。\n`;
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // AIにミッション評価を依頼
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師で、ミッション提出を評価します。
 
 【あなたの役割】
@@ -424,11 +443,10 @@ ${userQuery}
 - 具体的で実践的なアドバイスを提供
 - 添付画像がある場合は、画像の内容も評価に含める`;
 
-      // ✅ 修正: 画像URLをOpenAI Vision API形式に変換
       const imageMessages = imageUrls && imageUrls.length > 0
         ? imageUrls.map(imgUrl => ({
             url: typeof imgUrl === 'string' ? imgUrl : imgUrl.url,
-            detail: "high"  // 高品質な画像解析
+            detail: "high"
           }))
         : [];
 
@@ -437,11 +455,10 @@ ${userQuery}
         logger.info('🖼️ 画像メッセージ詳細:', imageMessages);
       }
 
-      // ✅ 修正: imageMessages を generateAIResponse に渡す
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        imageMessages,  // ← ここを修正！
+        imageMessages,
         context
       );
 
@@ -477,28 +494,25 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✅ 修正: generateKnowledgeOnlyResponse をバランス調整版に変更（v2.7.1）
+  // ✅ 完全修正: 知識ベース外の回答を強制的にブロック（v2.8.0）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('📚 知識ベース優先モード: 応答生成開始');
+      logger.ai('🔒 知識ベース強制限定モード: 応答生成開始');
       
-      // ✅ 画像情報のデバッグログ追加
       const imageUrls = context.imageUrls || [];
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
       if (imageUrls.length > 0) {
         logger.info('🖼️ 画像URL詳細:', imageUrls);
       }
 
-      // 🔧 検索閾値を大幅に下げる (0.05 → 0.01)
       const knowledgeResults = await this._searchKnowledge(userQuery, {
-        maxResults: 10,      // 5件 → 10件に増加
-        minScore: 0.01,      // 0.05 → 0.01 に大幅緩和
+        maxResults: 10,
+        minScore: 0.01,
         includeMetadata: true
       });
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
 
-      // 🔧 検索結果の詳細ログ（上位5件）
       if (knowledgeResults.length > 0) {
         logger.info('\n📊 ===== 検索結果詳細（上位5件） =====');
         knowledgeResults.slice(0, 5).forEach((result, index) => {
@@ -507,7 +521,6 @@ ${userQuery}
         logger.info('======================================\n');
       }
 
-      // 🔧 検索結果が0件の場合は明確に「見つかりません」と返す
       if (knowledgeResults.length === 0) {
         logger.warn('⚠️ 知識ベースに関連情報が見つかりませんでした');
         
@@ -518,23 +531,11 @@ ${userQuery}
 **🔍 検索情報:**
 • 検索キーワード: "${userQuery}"
 • 検索結果: 0件
-• 検索閾値: 0.01（非常に低い閾値で検索済み）
 
 **💡 より良い検索結果を得るためのヒント:**
-
-1️⃣ **カテゴリ名を含めて質問**
-   例: 「VTuber活動のルールを教えて」
-   例: 「配信の頻度について知りたい」
-   例: 「SNS運用の方法を教えて」
-
-2️⃣ **レッスン番号を指定**
-   例: 「レッスン1の内容を教えて」
-   例: 「レッスン5のミッションについて」
-
-3️⃣ **具体的なキーワードを使用**
-   例: 「コラボ配信は禁止？」
-   例: 「YouTubeの配信頻度は？」
-   例: 「Xの投稿ルールは？」
+• レッスン番号を指定: 「レッスン5の内容を教えて」
+• カテゴリを含める: 「デザインの基本について」
+• 具体的なキーワード: 「コラボ配信は禁止？」
 
 **📚 知識ベースに含まれる主なカテゴリ:**
 • VTuber活動の基本ルール
@@ -542,107 +543,77 @@ ${userQuery}
 • SNS（X/Twitter）運用
 • 配信技術と機材設定
 • デザインとブランディング
-• ミッション提出と評価
-
-**🙋 他の方法:**
-• \`/soudan\` コマンドからカテゴリを選択
-• より具体的な質問に言い換える
-• レッスン資料のタイトルで検索
 
 もう一度、違う言葉で質問してみてくださいね！✨`;
       }
 
-      // 🔧 検索結果が少ない場合も警告
       if (knowledgeResults.length < 3) {
-        logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件（推奨: 3件以上）`);
+        logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件`);
       }
 
-      // 知識ベースの内容を整理
-      let knowledgeContext = '【参照資料】\n\n';
+      // ✅ 重要: 知識ベースの内容を大量に含める
+      let knowledgeContext = '';
       knowledgeResults.forEach((result, index) => {
-        knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
-        const content = result.answer || result.content.substring(0, 1000);  // 800 → 1000に増加
+        knowledgeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        knowledgeContext += `【資料${index + 1}】${result.title || result.source}\n`;
+        knowledgeContext += `関連度: ${(result.score * 100).toFixed(0)}%\n`;
+        knowledgeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        
+        // ✅ より多くの内容を渡す（1000 → 1500文字）
+        const content = result.answer || result.content.substring(0, 1500);
         knowledgeContext += `${content}\n\n`;
       });
 
-      // ✅ 画像情報をシステムプロンプトに追加
       let imageContext = '';
       if (imageUrls.length > 0) {
-        imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。画像の内容を確認して回答に活用してください。\n`;
+        imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。\n`;
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // ✅ 修正: システムプロンプトをバランス調整（厳格すぎない）
-      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
+      // ✅ 最終手段: 非常にシンプルで明確なプロンプト
+      const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の講師です。
 
-【回答の基本方針】
-1. 以下の参照資料を**最優先**で活用してください
-2. 参照資料の内容を理解して、わかりやすく要約・整理して説明してください
-3. 参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください
-4. 具体的なアドバイスと実践的な手順を提供してください
-5. 親しみやすく、でも専門的な口調で回答してください
-6. 添付画像がある場合は、画像の内容も確認して回答に反映してください
-7. **一般的な知識や推測で補完しないでください**
-8. **参照資料から答えられない場合は、「この情報は知識ベースに含まれていません」と正直に伝えてください**
+【絶対厳守】
+以下の資料の内容だけを使って回答してください。資料にない情報は一切使わないでください。
 
-【重要なスクールのルール】
-- コラボ配信の禁止
-- 活動者や生徒同士の横のつながり禁止
-YouTube:
-- 週4回以上の配信
-- 1回1時間半以上の配信
-X:
-- 1日2回以上の日常ポスト
-- 画像付きのポスト
-- ハッシュタグは2つまで
-- 週に2回企画実施
-- XのDMは案件のみ対応
-
-【参照資料】
+【資料】
 ${knowledgeContext}
 ${imageContext}
 
 【質問】
 ${userQuery}
 
-【回答の形式】
-🎯 **[要点の見出し]**
-• 箇条書きや番号付きリストで整理
-• 具体例を交えて説明
+【回答方法】
+1. 上記の資料内容を読む
+2. 資料の内容を自分の言葉で要約する
+3. 絵文字を使って分かりやすく説明する
+4. 最後に「📚 出典: [資料名]」を必ず書く
 
-💡 **[アドバイス]**
-• 実践的な手順を提示
+資料を必ず使って回答してください。`;
 
-📚 **出典**: [レッスン名または資料名]
-
-**重要**: "--- スライド X ---"のような生の内容を出力しないでください。参照資料の内容をしっかり読んで、自分の言葉でわかりやすく説明してください。`;
-
-      // ✅ 修正: 画像URLをOpenAI Vision API形式に変換
       const imageMessages = imageUrls && imageUrls.length > 0
         ? imageUrls.map(imgUrl => ({
             url: typeof imgUrl === 'string' ? imgUrl : imgUrl.url,
-            detail: "high"  // 高品質な画像解析
+            detail: "high"
           }))
         : [];
 
       logger.info(`🖼️ OpenAI APIに渡す画像メッセージ: ${imageMessages.length}件`);
-      if (imageMessages.length > 0) {
-        logger.info('🖼️ 画像メッセージ詳細:', imageMessages);
-      }
+      logger.info('🤖 AI応答生成中（知識ベース強制限定モード）...');
 
-      logger.info('🤖 AI応答生成中（知識ベース優先モード）...');
-
-      // ✅ 修正: imageMessages を generateAIResponse に渡す
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        imageMessages,  // ← ここを修正！（空配列 [] → imageMessages）
+        imageMessages,
         context
       );
 
-      logger.info('✅ 知識ベース優先モード: 応答生成完了');
+      // ✅ 追加: AI応答のチェック
+      const check = this._checkIfResponseUsesKnowledgeBase(aiResponse, knowledgeResults);
+      logger.info(`🔍 AI応答チェック: 知識ベース使用=${check.usesKnowledgeBase}, 一般知識使用=${check.usesGeneralKnowledge}`);
+
+      logger.info('✅ 知識ベース強制限定モード: 応答生成完了');
       
-      // フッター情報を追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
@@ -663,7 +634,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.7.1'  // ✅ バージョン更新（バランス調整版）
+      version: '2.8.0'  // ✅ バージョン更新（強制知識ベース限定版）
     };
   }
 }
@@ -678,7 +649,6 @@ async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
   return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
 }
 
-// 🔧 修正: module.exportsのシグネチャも更新
 async function generateMissionResponse(userQuery, imageUrls = [], context = {}) {
   return await ragSystem.generateMissionResponse(userQuery, imageUrls, context);
 }
