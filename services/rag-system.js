@@ -589,6 +589,10 @@ ${userQuery}
 3. 絵文字を使って分かりやすく説明する
 4. 最後に「📚 出典: [資料名]」を必ず書く
 
+【指示】
+上記の資料1〜10の内容だけを使って、回答してください。
+必ず「📚 出典: [資料名]」を最後に書いてください。
+
 資料を必ず使って回答してください。`;
 
       const imageMessages = imageUrls && imageUrls.length > 0
@@ -605,7 +609,7 @@ ${userQuery}
         systemPrompt,
         userQuery,
         imageMessages,
-        context
+        { ...context, temperature: 0 } 
       );
 
       // ✅ 追加: AI応答のチェック
