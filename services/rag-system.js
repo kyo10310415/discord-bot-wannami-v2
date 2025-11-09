@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.8.0 (強制知識ベース限定版)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.9.1 (クエリ最適化版)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -66,6 +66,47 @@ class RAGSystem {
 
     logger.info('✅ RAGシステム初期化完了を確認');
     return true;
+  }
+
+  // ✅ 新機能: 長いクエリから重要キーワードだけを抽出
+  _extractKeyKeywords(query) {
+    const queryLower = query.toLowerCase();
+    
+    // 重要なトピックキーワードの優先リスト
+    const topicKeywords = [
+      'VTuber', 'vtuber', '名前', 'チャンネル名', 'ハンドルネーム', 
+      'ブランド', '配信', 'YouTube', 'X', 'デザイン', 'サムネイル',
+      'ミッション', '課題', 'レッスン', '3H', 'HERO', 'HUB', 'HELP',
+      'マーケティング', '企画', 'コンセプト', 'ターゲット', '差別化',
+      'コラボ', 'SNS', 'イラスト', 'Live2D', 'モデリング',
+      '音声', 'ボイスチェンジャー', 'OBS', '配信設定', 'BGM',
+      '告知', 'プロモーション', '視聴者', 'リスナー', 'ファン',
+      '収益化', 'スパチャ', 'メンバーシップ', 'グッズ', '案件',
+      'トラブル', '炎上', 'アンチ', 'メンタル', 'モチベーション',
+      '目標', '戦略', '分析', '改善', 'フィードバック',
+      'キャラクター', 'ペルソナ', 'キャラ設定', '世界観', 'ストーリー',
+      'スクール', 'ルール', '禁止', '推奨'
+    ];
+    
+    // クエリから重要キーワードだけを抽出
+    const foundKeywords = [];
+    topicKeywords.forEach(keyword => {
+      if (queryLower.includes(keyword.toLowerCase())) {
+        foundKeywords.push(keyword);
+      }
+    });
+    
+    // 重要キーワードが見つかった場合は最適化版を返す
+    if (foundKeywords.length > 0) {
+      logger.info(`🔍 クエリ最適化: ${foundKeywords.length}個の重要キーワードを抽出`);
+      logger.info(`   元のクエリ: "${query.substring(0, 100)}${query.length > 100 ? '...' : ''}"`);
+      logger.info(`   最適化後: "${foundKeywords.join(' ')}"`);
+      return foundKeywords.join(' ');
+    }
+    
+    // 見つからない場合は元のクエリをそのまま返す
+    logger.info('🔍 重要キーワードが見つからなかったため、元のクエリを使用');
+    return query;
   }
 
   async _searchKnowledge(query, options = {}) {
@@ -493,7 +534,7 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✅ 完全修正: 知識ベース外の回答を強制的にブロック（v2.8.0）
+  // ✅ v2.9.1: クエリ最適化機能を追加（知識ベース強制限定モード）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
       logger.ai('🔒 知識ベース強制限定モード: 応答生成開始');
@@ -504,7 +545,15 @@ ${userQuery}
         logger.info('🖼️ 画像URL詳細:', imageUrls);
       }
 
-      const knowledgeResults = await this._searchKnowledge(userQuery, {
+      // ✅ クエリ最適化を適用
+      const originalQuery = userQuery;
+      const optimizedQuery = this._extractKeyKeywords(userQuery);
+      
+      logger.info(`🔍 クエリ最適化適用:`);
+      logger.info(`   元のクエリ: "${originalQuery}"`);
+      logger.info(`   最適化後: "${optimizedQuery}"`);
+
+      const knowledgeResults = await this._searchKnowledge(optimizedQuery, {
         maxResults: 10,
         minScore: 0.01,
         includeMetadata: true
@@ -525,10 +574,11 @@ ${userQuery}
         
         return `🤖 **わなみさんです！**
 
-申し訳ございません。「**${userQuery}**」に関する情報が知識ベースに見つかりませんでした。
+申し訳ございません。「**${originalQuery}**」に関する情報が知識ベースに見つかりませんでした。
 
 **🔍 検索情報:**
-• 検索キーワード: "${userQuery}"
+• 元の検索キーワード: "${originalQuery}"
+• 最適化後のキーワード: "${optimizedQuery}"
 • 検索結果: 0件
 
 **💡 より良い検索結果を得るためのヒント:**
@@ -550,7 +600,7 @@ ${userQuery}
         logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件`);
       }
 
-      // ✅ 重要: 知識ベースの内容を大量に含める
+      // 知識ベースの内容を大量に含める
       let knowledgeContext = '';
       knowledgeResults.forEach((result, index) => {
         knowledgeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -558,7 +608,6 @@ ${userQuery}
         knowledgeContext += `関連度: ${(result.score * 100).toFixed(0)}%\n`;
         knowledgeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
         
-        // ✅ より多くの内容を渡す（1000 → 1500文字）
         const content = result.answer || result.content.substring(0, 1500);
         knowledgeContext += `${content}\n\n`;
       });
@@ -569,7 +618,6 @@ ${userQuery}
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // ✅ 最終手段: 非常にシンプルで明確なプロンプト
       const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の講師です。
 
 【絶対厳守】
@@ -580,7 +628,7 @@ ${knowledgeContext}
 ${imageContext}
 
 【質問】
-${userQuery}
+${originalQuery}
 
 【回答方法】
 1. 上記の資料内容を読む
@@ -606,12 +654,12 @@ ${userQuery}
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
-        userQuery,
+        originalQuery,
         imageMessages,
         { ...context, temperature: 0 } 
       );
 
-      // ✅ 追加: AI応答のチェック
+      // AI応答のチェック
       const check = this._checkIfResponseUsesKnowledgeBase(aiResponse, knowledgeResults);
       logger.info(`🔍 AI応答チェック: 知識ベース使用=${check.usesKnowledgeBase}, 一般知識使用=${check.usesGeneralKnowledge}`);
 
@@ -637,7 +685,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.8.0'  // ✅ バージョン更新（強制知識ベース限定版）
+      version: '2.9.1'  // ✅ バージョン更新（クエリ最適化版）
     };
   }
 }
