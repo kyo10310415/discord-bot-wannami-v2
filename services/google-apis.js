@@ -1,8 +1,8 @@
-// services/google-apis.js - Google APIs連携サービス v2.2.0（.txt対応版）
+// services/google-apis.js - Google APIs連携サービス v2.3.0（Google Drive .txt対応版）
 
 const { GoogleAuth } = require('google-auth-library');
 const { google } = require('googleapis');
-const axios = require('axios');  // ✅ 追加: .txtファイル読み込み用
+const axios = require('axios');
 const logger = require('../utils/logger');
 const env = require('../config/environment');
 
@@ -144,7 +144,7 @@ class GoogleAPIsService {
           // メタデータログ
           console.log(`  ✅ [${i + 1}行目] ${urlInfo.fileName}`);
           if (urlInfo.classification || urlInfo.goodBadExample) {
-            console.log(`     📋 分類: ${urlInfo.classification || 'なし'}, カテゴリ: ${urlInfo.category || 'なし'}, 良/悪: ${urlInfo.goodBadExample || 'なし'}`);
+            console.log(`     📋 分類: ${urlInfo.classification || 'なし'}, カテゴリ: ${urlInfo.category || 'なし'}, 種類: ${urlInfo.type || 'なし'}, 良/悪: ${urlInfo.goodBadExample || 'なし'}`);
           }
         } else {
           console.log(`  ❌ [${i + 1}行目] 無効なURL: ${urlInfo.fileName}`);
@@ -157,7 +157,8 @@ class GoogleAPIsService {
       const stats = {
         classification: {},
         goodBadExample: {},
-        category: {}
+        category: {},
+        type: {}
       };
       
       urlList.forEach(item => {
@@ -170,10 +171,14 @@ class GoogleAPIsService {
         if (item.category) {
           stats.category[item.category] = (stats.category[item.category] || 0) + 1;
         }
+        if (item.type) {
+          stats.type[item.type] = (stats.type[item.type] || 0) + 1;
+        }
       });
       
       console.log('📊 メタデータ集計:');
       console.log('  分類別:', stats.classification);
+      console.log('  種類別:', stats.type);
       console.log('  良い例/悪い例:', stats.goodBadExample);
       console.log('  カテゴリ別:', stats.category);
 
@@ -184,76 +189,85 @@ class GoogleAPIsService {
       throw error;
     }
   }
-  
-// services/google-apis.js の detectUrlType() メソッドを以下に置き換え
 
-// ✅ 修正版: URLタイプの自動検出（判定順序を最適化）
-detectUrlType(url) {
-  if (!url || typeof url !== 'string') {
-    console.log(`❓ URL形式不明: ${url}`);
+  // ✅ 新規追加: Google Drive URLをダウンロードURLに変換
+  convertGoogleDriveUrl(url) {
+    const fileIdMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (fileIdMatch) {
+      const fileId = fileIdMatch[1];
+      const downloadUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+      console.log(`🔄 Google Drive URL変換:`);
+      console.log(`   元のURL: ${url}`);
+      console.log(`   変換後: ${downloadUrl}`);
+      return downloadUrl;
+    }
+    console.log(`⚠️ Google Drive URL変換失敗: ファイルIDが見つかりません`);
+    return url;
+  }
+
+  // ✅ 修正: URLタイプの自動検出（Google Drive対応）
+  detectUrlType(url) {
+    if (!url || typeof url !== 'string') {
+      console.log(`❓ URL形式不明: ${url}`);
+      return 'unknown';
+    }
+    
+    const urlLower = url.toLowerCase().trim();
+    
+    // 1. Google Slides検出
+    if (urlLower.includes('docs.google.com/presentation') || urlLower.includes('/presentation/d/')) {
+      console.log(`📊 Google Slides検出: ${url.substring(0, 50)}...`);
+      return 'google_slides';
+    }
+    
+    // 2. Google Docs検出
+    if (urlLower.includes('docs.google.com/document') || urlLower.includes('/document/d/')) {
+      console.log(`📄 Google Docs検出: ${url.substring(0, 50)}...`);
+      return 'google_docs';
+    }
+    
+    // 3. Notion検出
+    if (urlLower.includes('notion.so') || urlLower.includes('notion.site')) {
+      console.log(`📝 Notion検出: ${url.substring(0, 50)}...`);
+      return 'notion';
+    }
+    
+    // 4. .txtファイル検出（直接的な拡張子）
+    if (urlLower.endsWith('.txt') || 
+        urlLower.includes('.txt?') || 
+        urlLower.includes('.txt#')) {
+      console.log(`📝 テキストファイル(.txt)検出: ${url.substring(0, 50)}...`);
+      return 'text_file';
+    }
+    
+    // 5. 画像ファイル検出
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+    const hasImageExtension = imageExtensions.some(ext => {
+      return urlLower.endsWith(ext) || urlLower.match(new RegExp(`\\${ext}[\\?#]`));
+    });
+    
+    if (hasImageExtension || urlLower.includes('cdn.discordapp.com')) {
+      console.log(`🖼️ 画像ファイル検出: ${url.substring(0, 50)}...`);
+      return 'image';
+    }
+    
+    // ✅ 6. Google Driveファイル検出（専用の識別子を返す）
+    if (urlLower.includes('drive.google.com/file')) {
+      console.log(`📁 Google Driveファイル検出: ${url.substring(0, 50)}...`);
+      return 'google_drive_file';
+    }
+    
+    // 7. 一般ウェブサイト
+    if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
+      console.log(`🌐 ウェブサイト検出: ${url.substring(0, 50)}...`);
+      return 'website';
+    }
+    
+    console.log(`❓ 未知のURL形式: ${url}`);
     return 'unknown';
   }
-  
-  const urlLower = url.toLowerCase().trim();
-  
-  // 1. Google Slides検出（より正確なパターン）
-  if (urlLower.includes('docs.google.com/presentation') || urlLower.includes('/presentation/d/')) {
-    console.log(`📊 Google Slides検出: ${url.substring(0, 50)}...`);
-    return 'google_slides';
-  }
-  
-  // 2. Google Docs検出（より正確なパターン）
-  if (urlLower.includes('docs.google.com/document') || urlLower.includes('/document/d/')) {
-    console.log(`📄 Google Docs検出: ${url.substring(0, 50)}...`);
-    return 'google_docs';
-  }
-  
-  // 3. Notion検出
-  if (urlLower.includes('notion.so') || urlLower.includes('notion.site')) {
-    console.log(`📝 Notion検出: ${url.substring(0, 50)}...`);
-    return 'notion';
-  }
-  
-  // ✅ 4. .txtファイル検出（画像判定より先に実行）
-  if (urlLower.endsWith('.txt') || 
-      urlLower.includes('.txt?') || 
-      urlLower.includes('.txt#') ||
-      urlLower.match(/\.txt[\/\?#]/)) {
-    console.log(`📝 テキストファイル(.txt)検出: ${url.substring(0, 50)}...`);
-    return 'text_file';
-  }
-  
-  // 5. 画像ファイル検出（拡張子ベース、より厳密に）
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
-  const hasImageExtension = imageExtensions.some(ext => {
-    return urlLower.endsWith(ext) || 
-           urlLower.match(new RegExp(`\\${ext}[\\?#]`));
-  });
-  
-  if (hasImageExtension || urlLower.includes('cdn.discordapp.com')) {
-    console.log(`🖼️ 画像ファイル検出: ${url.substring(0, 50)}...`);
-    return 'image';
-  }
-  
-  // 6. Google Driveファイル（拡張子不明の場合）
-  // ✅ 改善: 既に .txt として判定されていない場合のみここに到達
-  if (urlLower.includes('drive.google.com/file')) {
-    console.log(`📁 Google Driveファイル検出（拡張子不明）: ${url.substring(0, 50)}...`);
-    // 拡張子がわからないので、websiteとして扱ってクローラーに任せる
-    return 'website';
-  }
-  
-  // 7. 一般ウェブサイト
-  if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
-    console.log(`🌐 ウェブサイト検出: ${url.substring(0, 50)}...`);
-    return 'website';
-  }
-  
-  console.log(`❓ 未知のURL形式: ${url}`);
-  return 'unknown';
-}
 
-  // ✅ 新規追加: テキストファイル(.txt)を読み込む
+  // ✅ テキストファイル(.txt)を読み込む
   async loadTextFile(url, fileName) {
     try {
       logger.info(`📝 テキストファイル読み込み開始: ${fileName}`);
@@ -282,7 +296,7 @@ detectUrlType(url) {
         
         return {
           content: text,
-          images: [] // テキストファイルには画像がない
+          images: []
         };
       } else {
         logger.warn(`⚠️ テキストファイルが空: ${fileName}`);
@@ -300,7 +314,7 @@ detectUrlType(url) {
         
         if (error.response.status === 403) {
           logger.error('   ⚠️ アクセス拒否（403）: ファイルが公開されていない可能性があります');
-          logger.error('   💡 対策: ファイルの共有設定を「リンクを知っている全員が閲覧可能」に変更してください');
+          logger.error('   💡 対策: Google Driveの共有設定を「リンクを知っている全員が閲覧可能」に変更してください');
         } else if (error.response.status === 404) {
           logger.error('   ⚠️ ファイルが見つかりません（404）: URLが正しいか確認してください');
         } else if (error.response.status === 429) {
@@ -601,7 +615,7 @@ async function initializeServices() {
   await googleAPIsService.initialize();
 }
 
-// ✅ エクスポートに loadTextFile を追加
+// ✅ エクスポートに loadTextFile と convertGoogleDriveUrl を追加
 module.exports = {
   googleAPIsService,
   initializeServices,
@@ -610,6 +624,7 @@ module.exports = {
   loadUrlListFromSpreadsheet: (spreadsheetId) => googleAPIsService.loadUrlListFromSpreadsheet(spreadsheetId),
   loadGoogleSlides: (url, fileName) => googleAPIsService.loadGoogleSlides(url, fileName),
   loadGoogleDocs: (url, fileName) => googleAPIsService.loadGoogleDocs(url, fileName),
-  loadTextFile: (url, fileName) => googleAPIsService.loadTextFile(url, fileName),  // ✅ 追加
+  loadTextFile: (url, fileName) => googleAPIsService.loadTextFile(url, fileName),
+  convertGoogleDriveUrl: (url) => googleAPIsService.convertGoogleDriveUrl(url),
   detectUrlType: (url) => googleAPIsService.detectUrlType(url)
 };
