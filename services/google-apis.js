@@ -1,7 +1,8 @@
-// services/google-apis.js - Google APIs連携サービス v2.1.0（メタデータ対応）
+// services/google-apis.js - Google APIs連携サービス v2.2.0（.txt対応版）
 
 const { GoogleAuth } = require('google-auth-library');
 const { google } = require('googleapis');
+const axios = require('axios');  // ✅ 追加: .txtファイル読み込み用
 const logger = require('../utils/logger');
 const env = require('../config/environment');
 
@@ -95,14 +96,14 @@ class GoogleAPIsService {
     }
   }
 
-  // 🆕 修正版: URL一覧をスプレッドシートから読み込み（A-G列すべて取得）
+  // URL一覧をスプレッドシートから読み込み（A-G列すべて取得）
   async loadUrlListFromSpreadsheet(spreadsheetId) {
     try {
       await this.ensureInitialized();
       
       console.log(`📋 URL一覧読み込み開始: ${spreadsheetId}`);
       
-      // 🆕 A-G列すべてを取得
+      // A-G列すべてを取得
       const range = 'A:G';
       const values = await this.readSpreadsheet(spreadsheetId, range);
       
@@ -128,11 +129,11 @@ class GoogleAPIsService {
         const urlInfo = {
           fileName: row[0] || `Document_${i}`,
           url: row[1] || '',
-          classification: row[2] || '',      // 🆕 C列: レッスン/ミッション
-          type: row[3] || '',                 // 🆕 D列: 種類
-          category: row[4] || '',             // 🆕 E列: カテゴリ
-          goodBadExample: row[5] || '',       // 🆕 F列: 良い例/悪い例
-          remarks: row[6] || '',              // 🆕 G列: 備考
+          classification: row[2] || '',      // C列: レッスン/ミッション
+          type: row[3] || '',                 // D列: 種類
+          category: row[4] || '',             // E列: カテゴリ
+          goodBadExample: row[5] || '',       // F列: 良い例/悪い例
+          remarks: row[6] || '',              // G列: 備考
           rowIndex: i + 1
         };
 
@@ -140,7 +141,7 @@ class GoogleAPIsService {
         if (urlInfo.url && urlInfo.url.trim() && urlInfo.url.startsWith('http')) {
           urlList.push(urlInfo);
           
-          // 🆕 メタデータログ
+          // メタデータログ
           console.log(`  ✅ [${i + 1}行目] ${urlInfo.fileName}`);
           if (urlInfo.classification || urlInfo.goodBadExample) {
             console.log(`     📋 分類: ${urlInfo.classification || 'なし'}, カテゴリ: ${urlInfo.category || 'なし'}, 良/悪: ${urlInfo.goodBadExample || 'なし'}`);
@@ -152,7 +153,7 @@ class GoogleAPIsService {
 
       console.log(`✅ URL一覧読み込み完了: ${urlList.length}件`);
       
-      // 🆕 メタデータ集計
+      // メタデータ集計
       const stats = {
         classification: {},
         goodBadExample: {},
@@ -184,7 +185,7 @@ class GoogleAPIsService {
     }
   }
 
-  // URLタイプの自動検出（強化版）
+  // ✅ 修正: URLタイプの自動検出（.txt対応）
   detectUrlType(url) {
     if (!url || typeof url !== 'string') {
       console.log(`❓ URL形式不明: ${url}`);
@@ -211,6 +212,12 @@ class GoogleAPIsService {
       return 'notion';
     }
     
+    // ✅ .txtファイル検出を追加
+    if (urlLower.endsWith('.txt') || urlLower.includes('.txt?')) {
+      console.log(`📝 テキストファイル(.txt)検出: ${url.substring(0, 50)}...`);
+      return 'text_file';
+    }
+    
     // 画像ファイル検出
     if (urlLower.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i) || 
         urlLower.includes('cdn.discordapp.com') ||
@@ -227,6 +234,69 @@ class GoogleAPIsService {
     
     console.log(`❓ 未知のURL形式: ${url}`);
     return 'unknown';
+  }
+
+  // ✅ 新規追加: テキストファイル(.txt)を読み込む
+  async loadTextFile(url, fileName) {
+    try {
+      logger.info(`📝 テキストファイル読み込み開始: ${fileName}`);
+      logger.info(`📍 URL: ${url}`);
+      
+      const response = await axios.get(url, {
+        responseType: 'text',
+        timeout: 30000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; KnowledgeBaseBot/1.0)',
+          'Accept': 'text/plain, text/html, */*'
+        },
+        maxContentLength: 10 * 1024 * 1024, // 最大10MB
+        validateStatus: function (status) {
+          return status >= 200 && status < 300;
+        }
+      });
+      
+      if (response.status === 200 && response.data) {
+        const text = response.data;
+        const charCount = text.length;
+        const lineCount = text.split('\n').length;
+        
+        logger.success(`✅ テキストファイル読み込み成功: ${fileName}`);
+        logger.info(`📊 統計: ${charCount}文字, ${lineCount}行`);
+        
+        return {
+          content: text,
+          images: [] // テキストファイルには画像がない
+        };
+      } else {
+        logger.warn(`⚠️ テキストファイルが空: ${fileName}`);
+        return {
+          content: `${fileName}: ファイルが空です`,
+          images: []
+        };
+      }
+    } catch (error) {
+      logger.error(`❌ テキストファイル読み込みエラー: ${fileName}`, error.message);
+      
+      // エラーの詳細をログ出力
+      if (error.response) {
+        logger.error(`   HTTPステータス: ${error.response.status}`);
+        
+        if (error.response.status === 403) {
+          logger.error('   ⚠️ アクセス拒否（403）: ファイルが公開されていない可能性があります');
+          logger.error('   💡 対策: ファイルの共有設定を「リンクを知っている全員が閲覧可能」に変更してください');
+        } else if (error.response.status === 404) {
+          logger.error('   ⚠️ ファイルが見つかりません（404）: URLが正しいか確認してください');
+        } else if (error.response.status === 429) {
+          logger.error('   ⚠️ レート制限（429）: アクセスが多すぎます。しばらく待ってから再試行してください');
+        }
+      } else if (error.code === 'ECONNABORTED') {
+        logger.error('   ⚠️ タイムアウト: ファイルのダウンロードに時間がかかりすぎています');
+      } else if (error.code === 'ENOTFOUND') {
+        logger.error('   ⚠️ DNS解決エラー: ドメイン名が見つかりません');
+      }
+      
+      throw new Error(`テキストファイル読み込み失敗: ${error.message}`);
+    }
   }
 
   // Google Slides読み込み
@@ -514,6 +584,7 @@ async function initializeServices() {
   await googleAPIsService.initialize();
 }
 
+// ✅ エクスポートに loadTextFile を追加
 module.exports = {
   googleAPIsService,
   initializeServices,
@@ -522,5 +593,6 @@ module.exports = {
   loadUrlListFromSpreadsheet: (spreadsheetId) => googleAPIsService.loadUrlListFromSpreadsheet(spreadsheetId),
   loadGoogleSlides: (url, fileName) => googleAPIsService.loadGoogleSlides(url, fileName),
   loadGoogleDocs: (url, fileName) => googleAPIsService.loadGoogleDocs(url, fileName),
+  loadTextFile: (url, fileName) => googleAPIsService.loadTextFile(url, fileName),  // ✅ 追加
   detectUrlType: (url) => googleAPIsService.detectUrlType(url)
 };
