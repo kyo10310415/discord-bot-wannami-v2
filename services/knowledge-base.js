@@ -1,6 +1,6 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.3.0（.txt対応版）
+// services/knowledge-base.js - 知識ベース構築サービス v2.4.0（Google Drive .txt対応版）
 
-const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile } = require('./google-apis');
+const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
 const { loadNotionContent, loadWebsiteContent, loadImageUrlInfo } = require('../utils/content-loaders');
 const logger = require('../utils/logger');
@@ -350,13 +350,33 @@ class KnowledgeBaseService {
     return content.substring(0, maxLength) + (content.length > maxLength ? '...' : '');
   }
 
+  // ✅ 修正版: Google Drive .txt対応
   async loadContentFromUrl(urlInfo) {
     const { url, fileName, category, type } = urlInfo;
     
-    const detectedType = detectUrlType(url);
+    let detectedType = detectUrlType(url);
     
     console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
     console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
+    
+    // ✅ スプレッドシートのD列（type）が "テキスト" の場合、Google Driveをテキストファイルとして扱う
+    if (detectedType === 'google_drive_file') {
+      const typeLower = (type || '').toLowerCase();
+      
+      if (typeLower.includes('テキスト') || typeLower.includes('text') || typeLower.includes('txt')) {
+        console.log(`📝 Google Driveファイルをテキストとして処理: ${fileName}`);
+        detectedType = 'text_file';
+        
+        // Google Drive URLをダウンロードURLに変換
+        const downloadUrl = convertGoogleDriveUrl(url);
+        urlInfo.url = downloadUrl;  // URLを変換後のものに置き換え
+        
+        console.log(`✅ ダウンロードURL変換完了`);
+      } else {
+        console.log(`⚠️ Google Driveファイルですが、種類が不明です`);
+        console.log(`💡 ヒント: スプレッドシートのD列に "テキスト" を指定してください`);
+      }
+    }
     
     try {
       switch (detectedType) {
@@ -373,15 +393,24 @@ class KnowledgeBaseService {
           const notionContent = await loadNotionContent(url, fileName);
           return { content: notionContent, images: this.extractImagesFromNotionContent(notionContent, fileName) };
           
-        // ✅ .txtファイル対応を追加
+        // ✅ .txtファイル対応
         case 'text_file':
           console.log(`📝 テキストファイル読み込み: ${fileName}`);
-          return await loadTextFile(url, fileName);
+          return await loadTextFile(urlInfo.url, fileName);  // ✅ 変換後のURLを使用
           
         case 'image':
           console.log(`🖼️ 画像読み込み: ${fileName}`);
           const imageContent = await loadImageUrlInfo(url, fileName);
           return { content: imageContent, images: this.extractDirectImageInfo(url, fileName) };
+          
+        // ✅ Google Driveファイル（種類不明）を追加
+        case 'google_drive_file':
+          console.log(`📁 Google Driveファイル読み込み（種類不明）: ${fileName}`);
+          console.log(`⚠️ スプレッドシートのD列に "テキスト" などの種類を指定してください`);
+          return { 
+            content: `${fileName}: Google Driveファイルですが、種類が不明です。スプレッドシートのD列（種類）に "テキスト" を指定してください。`,
+            images: [] 
+          };
           
         case 'website':
           console.log(`🌐 ウェブサイト読み込み: ${fileName}`);
