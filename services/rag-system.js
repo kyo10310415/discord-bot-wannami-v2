@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.14.0 (Phase 15a: プロンプト強化 + Few-shot Examples)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.15.0 (Phase 15b: コンテンツ全文使用 + コンテキスト最大化)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -179,9 +179,10 @@ class RAGSystem {
   }
 
   /**
-   * ✨ Phase 13: コンテキスト構築を改善
-   * オプションB: 検索1位のレッスンを3回繰り返す
-   * オプションC: システムプロンプトで1位を明示
+   * ✨✨ Phase 15b: コンテンツ全文使用 + コンテキスト最大化 ✨✨
+   * - コンテンツを切り捨てない（全文を使用）
+   * - 検索1位を10回繰り返す（Phase 13の3回から増加）
+   * - 2位以降を完全に排除（1位のみを使用）
    */
   _buildPrioritizedContext(knowledgeResults) {
     if (knowledgeResults.length === 0) {
@@ -191,10 +192,11 @@ class RAGSystem {
     const topResult = knowledgeResults[0];
     let context = '';
 
-    // 🎯 検索1位のレッスンを3回繰り返す（重要度を強調）
-    logger.info(`🎯 Phase 13: 検索1位「${topResult.source}」を3回繰り返してコンテキストに追加`);
+    // 🚀 Phase 15b: 検索1位のコンテンツ全文を10回繰り返す
+    logger.info(`🚀 Phase 15b: 検索1位「${topResult.source}」の全文を10回繰り返してコンテキストに追加`);
+    logger.info(`📊 コンテンツ文字数: ${topResult.content?.length || 0}文字`);
     
-    for (let i = 1; i <= 3; i++) {
+    for (let i = 1; i <= 10; i++) {
       context += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
       context += `🥇 【最重要資料（${i}回目）: ${topResult.title || topResult.source}】\n`;
       context += `🎯 検索スコア: ${(topResult.score * 100).toFixed(0)}% （第1位）\n`;
@@ -206,31 +208,16 @@ class RAGSystem {
       }
       context += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
       
-      const content = topResult.answer || topResult.content.substring(0, 3000);
+      // ✨ Phase 15b: コンテンツ全文を使用（切り捨てなし）
+      const content = topResult.answer || topResult.content;
       context += `${content}\n\n`;
     }
 
-    // その他の資料（2位以降）は1回だけ追加
-    if (knowledgeResults.length > 1) {
-      logger.info(`📚 その他の資料（2位〜${knowledgeResults.length}位）を1回ずつ追加`);
-      
-      knowledgeResults.slice(1, 7).forEach((result, index) => {
-        const actualRank = index + 2;
-        context += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-        context += `【参考資料${actualRank}: ${result.title || result.source}】\n`;
-        context += `関連度: ${(result.score * 100).toFixed(0)}% （第${actualRank}位）\n`;
-        if (result.metadata && result.metadata.category) {
-          context += `カテゴリ: ${result.metadata.category}\n`;
-        }
-        if (result.metadata && result.metadata.remarks) {
-          context += `備考: ${result.metadata.remarks}\n`;
-        }
-        context += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
-        
-        const content = result.answer || result.content.substring(0, 2000);
-        context += `${content}\n\n`;
-      });
-    }
+    // ✨ Phase 15b: 2位以降は完全に排除（1位のみを使用）
+    logger.info(`✨ Phase 15b: 2位以降の資料は排除（1位のみを使用）`);
+
+    const totalChars = context.length;
+    logger.info(`📊 Phase 15b: 構築したコンテキストの総文字数: ${totalChars.toLocaleString()}文字`);
 
     return { context, topResult };
   }
@@ -629,10 +616,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✅ v2.14.0: Phase 15a プロンプト強化 + Few-shot Examples
+  // ✅ v2.15.0: Phase 15b コンテンツ全文使用 + コンテキスト最大化
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('🔒 知識ベース強制限定モード: 応答生成開始（v2.14.0 Phase 15a: プロンプト強化 + Few-shot Examples）');
+      logger.ai('🔒 知識ベース強制限定モード: 応答生成開始（v2.15.0 Phase 15b: コンテンツ全文使用 + コンテキスト最大化）');
       
       const imageUrls = context.imageUrls || [];
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
@@ -694,7 +681,7 @@ ${userQuery}
         logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件`);
       }
 
-      // ✨ Phase 13: コンテキスト構築を改善（検索1位を3回繰り返す）
+      // ✨ Phase 15b: コンテキスト構築（全文 × 10回繰り返し、2位以降排除）
       const { context: knowledgeContext, topResult } = this._buildPrioritizedContext(knowledgeResults);
 
       let imageContext = '';
@@ -703,11 +690,11 @@ ${userQuery}
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // ✨✨ Phase 15a: プロンプト強化 + Few-shot Examples ✨✨
+      // ✨✨ Phase 15a+15b: プロンプト強化 + Few-shot Examples + コンテンツ全文使用 ✨✨
       const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の講師です。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚨 【絶対厳守ルール - Phase 15a 最終強化版】
+🚨 【絶対厳守ルール - Phase 15b 最終強化版】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 【最重要指示】
@@ -779,39 +766,41 @@ ${userQuery}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-例2: デビュー配信に関する質問
+例2: レッスン4に関する質問
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-質問: デビュー配信ではどんな企画がおすすめですか？
+質問: 初ポストをする際の3分のズレはどういった理由がありますか？
 
-検索結果: 「デビュー配信の目的は、新規お客様を集めることと配信に慣れることです。おすすめは、全肯定配信、シチュエーションボイス、睡眠導入などです。」
+検索結果: 「初ポストの投稿時間は、22時03分です！なぜ、22時03分なのかにも、ちゃんと理由があります！それは、Xが活発に使用される時間が、22時〜25時だからです！ただし、気になるのは、3分のズレですね！笑 これは、予約投稿をする人が22:00、23:00など、ぴったりの時間に投稿を予約する場合が多いので、せっかくの初ポストがタイムラインの波に飲まれないように、あえて3分のズレを作っているんです！他の投稿が、ある程度、投稿されきったタイミングで投稿するということです！」
 
-✅ 良い回答（検索結果の具体例を使用）:
-デビュー配信のおすすめ企画をご紹介します！✨
+✅ 良い回答（検索結果の具体的な内容を使用）:
+初ポストの3分のズレには、しっかりとした理由があります！✨
 
-デビュー配信の目的は2つです：
-1. **新規お客様を集める** 📢
-2. **配信に慣れる** 🎤
+**初ポストの投稿時間: 22時03分** 🕒
 
-おすすめの企画は以下の通りです：
+この3分のズレの理由は：
 
-💖 **全肯定配信**
-   - 視聴者を全力で褒める配信
-   
-🎭 **シチュエーションボイス**
-   - 特定のシチュエーションでの演技配信
-   
-😴 **睡眠導入**
-   - リスナーを癒す配信
+📌 **タイムラインの波に飲まれないため**
 
-これらは新規視聴者にもわかりやすく、配信者も比較的やりやすい企画です！
+多くの人が予約投稿を使う際、22:00、23:00など、**ぴったりの時間**に投稿を予約する傾向があります。
 
-📚 出典: [レッスン13]
+そのため、ちょうど22:00になると、多くの投稿が一斉にタイムラインに流れてきます。
+
+**あえて3分ズラすことで：**
+- 他の投稿が、ある程度投稿されきったタイミングで投稿できる
+- せっかくの初ポストが埋もれずに済む
+- より多くの人の目に留まりやすくなる
+
+つまり、戦略的な時間調整なんです！💡
+
+ちなみに、Xが活発に使用される時間帯は**22時〜25時**です。
+
+📚 出典: [レッスン4]
 
 ❌ 悪い回答（一般知識を使用している）:
-「自己紹介や雑談、ゲーム実況などが一般的です。視聴者とのコミュニケーションを大切にしましょう。」
+「投稿時間をずらすのは、タイムラインの混雑を避けるためです。ピークタイムを少しずらすことで、投稿の視認性が向上します。」
 
-（❌ 理由: 検索結果の具体的な企画名（全肯定配信、シチュエーションボイス、睡眠導入）を使わず、一般的な回答をしている）
+（❌ 理由: 検索結果の具体的な説明（「予約投稿をする人が22:00、23:00など、ぴったりの時間に投稿を予約する場合が多い」「他の投稿が、ある程度、投稿されきったタイミング」）を使わず、一般的な回答をしている）
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🥇 【検索第1位の最重要資料】
@@ -822,8 +811,11 @@ ${userQuery}
 ${topResult.metadata && topResult.metadata.category ? `📂 カテゴリ: ${topResult.metadata.category}\n` : ''}${topResult.metadata && topResult.metadata.remarks ? `🏷️ 備考: ${topResult.metadata.remarks}\n` : ''}
 ⚠️ **この資料の具体的な内容を必ず使用してください！**
 
+🚀 **Phase 15b: この資料の全文を10回繰り返してコンテキストに含めています**
+📊 **コンテキスト総文字数: ${knowledgeContext.length.toLocaleString()}文字**
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 【提供された資料（合計${knowledgeResults.length}件）】
+📚 【提供された資料（1位のみ）】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${knowledgeContext}
 ${imageContext}
@@ -835,15 +827,15 @@ ${imageContext}
 ${originalQuery}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 【回答手順 - Phase 15a 最終版】
+📝 【回答手順 - Phase 15b 最終版】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ステップ1: 🥇 **最重要資料「${topResult.source}」を熟読する**
+ステップ1: 🥇 **最重要資料「${topResult.source}」の全文を熟読する**
 ステップ2: **資料に書かれている具体的な用語・固有名詞を特定する**
-          （例: 3H、HERO、HUB、HELP、外向き、内向き、ザイオンス効果など）
-ステップ3: **資料の具体例を特定する**
-          （例: 全肯定配信、シチュエーションボイス、睡眠導入など）
-ステップ4: **特定した用語・固有名詞・具体例を必ず使って回答を作成する**
+          （例: 3H、HERO、HUB、HELP、外向き、内向き、3分のズレなど）
+ステップ3: **資料の具体例や具体的な説明を特定する**
+          （例: 全肯定配信、シチュエーションボイス、睡眠導入、予約投稿をする人が22:00など）
+ステップ4: **特定した用語・固有名詞・具体例・具体的な説明を必ず使って回答を作成する**
 ステップ5: **一般的な表現（「ターゲットの明確化」など）は使わない**
 ステップ6: 絵文字を使って親しみやすく説明する
 ステップ7: 最後に必ず「📚 出典: [${topResult.source}]」を書く
@@ -855,13 +847,13 @@ ${originalQuery}
 回答を作成したら、送信前に以下を確認してください：
 
 □ 資料に書かれている**具体的な用語**を使っているか？
-  （例: 3H、HERO、HUB、HELP、外向き、内向き）
+  （例: 3H、HERO、HUB、HELP、外向き、内向き、3分のズレ）
 
-□ 資料に書かれている**具体例**を使っているか？
-  （例: 全肯定配信、シチュエーションボイス、睡眠導入）
+□ 資料に書かれている**具体例や具体的な説明**を使っているか？
+  （例: 全肯定配信、予約投稿をする人が22:00、23:00など、ぴったりの時間）
 
 □ 一般的な表現を使っていないか？
-  （❌「ターゲットの明確化」「視聴者のニーズ」「マーケティング」）
+  （❌「ターゲットの明確化」「視聴者のニーズ」「タイムラインの混雑を避ける」）
 
 □ 「一般的には」「通常は」などの一般論を使っていないか？
 
@@ -871,8 +863,10 @@ ${originalQuery}
 🎯 【今すぐ回答してください】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🥇 **最重要資料「${topResult.source}」の具体的な内容（用語・固有名詞・具体例）を必ず使って**、
+🥇 **最重要資料「${topResult.source}」の具体的な内容（用語・固有名詞・具体例・具体的な説明）を必ず使って**、
 上記のFew-shot Examplesの「良い回答」のように回答してください。
+
+**Phase 15b: この資料の全文が10回繰り返されているので、後半の情報も確実に参照できます。**
 
 必ず「📚 出典: [${topResult.source}]」を最後に書いてください。`;
 
@@ -884,7 +878,7 @@ ${originalQuery}
         : [];
 
       logger.info(`🖼️ OpenAI APIに渡す画像メッセージ: ${imageMessages.length}件`);
-      logger.info('🤖 AI応答生成中（v2.14.0 Phase 15a: プロンプト強化 + Few-shot Examples）...');
+      logger.info('🤖 AI応答生成中（v2.15.0 Phase 15b: コンテンツ全文使用 + コンテキスト最大化）...');
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
@@ -898,16 +892,25 @@ ${originalQuery}
 
       // ✨ Phase 15a: レッスン13の具体的な用語が含まれているかチェック
       const lesson13Keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き', 'ザイオンス効果', '茹でガエル'];
-      const foundKeywords = lesson13Keywords.filter(kw => aiResponse.includes(kw));
-      if (topResult.source === 'レッスン13' && foundKeywords.length > 0) {
-        logger.info(`✅ Phase 15a: レッスン13の具体的な用語を検出 (${foundKeywords.length}個): ${foundKeywords.join(', ')}`);
+      const foundKeywords13 = lesson13Keywords.filter(kw => aiResponse.includes(kw));
+      if (topResult.source === 'レッスン13' && foundKeywords13.length > 0) {
+        logger.info(`✅ Phase 15b: レッスン13の具体的な用語を検出 (${foundKeywords13.length}個): ${foundKeywords13.join(', ')}`);
       } else if (topResult.source === 'レッスン13') {
-        logger.info(`⚠️ Phase 15a: レッスン13が1位だが、具体的な用語が検出されませんでした`);
+        logger.info(`⚠️ Phase 15b: レッスン13が1位だが、具体的な用語が検出されませんでした`);
       }
 
-      logger.info('✅ 知識ベース強制限定モード: 応答生成完了（v2.14.0 Phase 15a）');
+      // ✨ Phase 15b: レッスン4の具体的な用語が含まれているかチェック
+      const lesson4Keywords = ['3分のズレ', '22時03分', '予約投稿', 'タイムラインの波'];
+      const foundKeywords4 = lesson4Keywords.filter(kw => aiResponse.includes(kw));
+      if (topResult.source === 'レッスン4' && foundKeywords4.length > 0) {
+        logger.info(`✅ Phase 15b: レッスン4の具体的な用語を検出 (${foundKeywords4.length}個): ${foundKeywords4.join(', ')}`);
+      } else if (topResult.source === 'レッスン4') {
+        logger.info(`⚠️ Phase 15b: レッスン4が1位だが、具体的な用語が検出されませんでした`);
+      }
+
+      logger.info('✅ 知識ベース強制限定モード: 応答生成完了（v2.15.0 Phase 15b）');
       
-      const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照、1位: ${topResult.source}）*`;
+      const footer = `\n\n---\n📚 *知識ベースからの回答（1位の資料を全文×10回参照: ${topResult.source}）*`;
       
       return aiResponse + footer;
 
@@ -927,7 +930,7 @@ ${originalQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.14.0'  // Phase 15a: プロンプト強化 + Few-shot Examples
+      version: '2.15.0'  // Phase 15b: コンテンツ全文使用 + コンテキスト最大化
     };
   }
 }
