@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.10.0 (G列最優先+複数単語対応版)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.10.1 (デバッグ版)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -68,18 +68,14 @@ class RAGSystem {
     return true;
   }
 
-  // ✅ 修正: 長いクエリから重要キーワードだけを抽出（複数単語対応）
   _extractKeyKeywords(query) {
     const queryLower = query.toLowerCase();
     
-    // 重要なトピックキーワードの優先リスト（複数単語を優先）
     const topicKeywords = [
-      // ✅ 複数単語の組み合わせ（優先度高）
       'テスト配信', '初配信', '配信準備', '配信手順', '配信機材',
       'チャンネル作成', '配信設定', '配信企画', '配信ルール',
       'VTuber名', 'チャンネル名', 'ハンドルネーム', 'キャラ設定',
       '良い例', '悪い例', 'NG例', 'OK例',
-      // 単一単語
       'VTuber', 'vtuber', '名前', 'ブランド', '配信', 'YouTube', 'X', 
       'デザイン', 'サムネイル', 'ミッション', '課題', 'レッスン', 
       '3H', 'HERO', 'HUB', 'HELP', 'マーケティング', '企画', 
@@ -93,7 +89,6 @@ class RAGSystem {
       '禁止', '推奨', 'テスト', '手順', '注意点', '機材', '準備'
     ];
     
-    // クエリから重要キーワードだけを抽出
     const foundKeywords = [];
     topicKeywords.forEach(keyword => {
       if (queryLower.includes(keyword.toLowerCase())) {
@@ -101,7 +96,6 @@ class RAGSystem {
       }
     });
     
-    // 重要キーワードが見つかった場合は最適化版を返す
     if (foundKeywords.length > 0) {
       logger.info(`🔍 クエリ最適化: ${foundKeywords.length}個の重要キーワードを抽出`);
       logger.info(`   元のクエリ: "${query.substring(0, 100)}${query.length > 100 ? '...' : ''}"`);
@@ -109,7 +103,6 @@ class RAGSystem {
       return foundKeywords.join(' ');
     }
     
-    // 見つからない場合は元のクエリをそのまま返す
     logger.info('🔍 重要キーワードが見つからなかったため、元のクエリを使用');
     return query;
   }
@@ -141,9 +134,7 @@ class RAGSystem {
     }
   }
 
-  // ✅ 追加: AI応答が知識ベース外の情報を含むかチェック
   _checkIfResponseUsesKnowledgeBase(response, knowledgeResults) {
-    // 知識ベースの資料名がAI応答に含まれているかチェック
     const sourceNames = knowledgeResults.map(r => r.source || r.title);
     const hasSourceReference = sourceNames.some(name => 
       response.includes(name) || 
@@ -153,7 +144,6 @@ class RAGSystem {
       response.includes('資料')
     );
 
-    // 一般知識を示すフレーズをチェック
     const generalKnowledgePhrases = [
       '一般的に',
       '通常は',
@@ -296,7 +286,6 @@ ${visionContext}
     }
   }
 
-  // ミッション提出専用応答生成（変更なし）
   async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
       logger.ai('📝 ===== ミッション提出専用処理開始 =====');
@@ -539,9 +528,17 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✅ v2.10.0: クエリ最適化機能を追加（知識ベース強制限定モード）
+  // 🔍 デバッグ版: 知識ベース強制限定モード
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
+      // 🔍 デバッグ: テスト配信クエリかチェック
+      const isTestStreamQuery = userQuery.includes('テスト配信');
+      
+      if (isTestStreamQuery) {
+        console.log('\n🎯 ===== テスト配信クエリ検出 =====');
+        console.log('📝 ユーザークエリ:', userQuery);
+      }
+      
       logger.ai('🔒 知識ベース強制限定モード: 応答生成開始');
       
       const imageUrls = context.imageUrls || [];
@@ -550,7 +547,6 @@ ${userQuery}
         logger.info('🖼️ 画像URL詳細:', imageUrls);
       }
 
-      // ✅ クエリ最適化を適用
       const originalQuery = userQuery;
       const optimizedQuery = this._extractKeyKeywords(userQuery);
       
@@ -565,6 +561,24 @@ ${userQuery}
       });
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
+
+      // 🔍 デバッグ: レッスン14が検索結果に含まれているかチェック
+      const lesson14Result = knowledgeResults.find(doc => doc.source && doc.source.includes('レッスン14'));
+      
+      if (isTestStreamQuery && lesson14Result) {
+        console.log('\n✅ ===== レッスン14が検索結果に含まれています =====');
+        console.log('📊 スコア:', lesson14Result.score.toFixed(3));
+        console.log('📏 コンテンツ文字数:', lesson14Result.content.length);
+        console.log('📝 コンテンツの最初の1000文字:\n', lesson14Result.content.substring(0, 1000));
+        console.log('===== レッスン14確認完了 =====\n');
+      } else if (isTestStreamQuery && !lesson14Result) {
+        console.log('\n❌ レッスン14が検索結果に含まれていません！');
+        console.log('📊 検索結果トップ5:');
+        knowledgeResults.slice(0, 5).forEach((r, i) => {
+          console.log(`  [${i + 1}] ${r.source} - スコア: ${r.score.toFixed(3)}`);
+        });
+        console.log('\n');
+      }
 
       if (knowledgeResults.length > 0) {
         logger.info('\n📊 ===== 検索結果詳細（上位5件） =====');
@@ -605,7 +619,7 @@ ${userQuery}
         logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件`);
       }
 
-      // 知識ベースの内容を大量に含める
+      // 知識ベースの内容を構築
       let knowledgeContext = '';
       knowledgeResults.forEach((result, index) => {
         knowledgeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
@@ -616,6 +630,17 @@ ${userQuery}
         const content = result.answer || result.content.substring(0, 1500);
         knowledgeContext += `${content}\n\n`;
       });
+
+      // 🔍 デバッグ: AIに渡されるコンテキストをログ出力
+      if (isTestStreamQuery && lesson14Result) {
+        console.log('\n📤 ===== AIに渡されるコンテキスト（レッスン14部分） =====');
+        const lesson14ContextPart = knowledgeContext.split('━━━━━━').find(part => part.includes('レッスン14'));
+        if (lesson14ContextPart) {
+          console.log('文字数:', lesson14ContextPart.length);
+          console.log('内容（最初の1500文字）:\n', lesson14ContextPart.substring(0, 1500));
+        }
+        console.log('===== コンテキスト確認完了 =====\n');
+      }
 
       let imageContext = '';
       if (imageUrls.length > 0) {
@@ -647,6 +672,15 @@ ${originalQuery}
 
 資料を必ず使って回答してください。`;
 
+      // 🔍 デバッグ: システムプロンプト全体をログ出力
+      if (isTestStreamQuery) {
+        console.log('\n📤 ===== AIに渡されるシステムプロンプト =====');
+        console.log('プロンプト文字数:', systemPrompt.length);
+        console.log('プロンプト内容（最初の2000文字）:\n', systemPrompt.substring(0, 2000));
+        console.log('プロンプト内容（最後の1000文字）:\n', systemPrompt.substring(systemPrompt.length - 1000));
+        console.log('===== システムプロンプト確認完了 =====\n');
+      }
+
       const imageMessages = imageUrls && imageUrls.length > 0
         ? imageUrls.map(imgUrl => ({
             url: typeof imgUrl === 'string' ? imgUrl : imgUrl.url,
@@ -664,7 +698,13 @@ ${originalQuery}
         { ...context, temperature: 0 } 
       );
 
-      // AI応答のチェック
+      // 🔍 デバッグ: AI応答をログ出力
+      if (isTestStreamQuery) {
+        console.log('\n🤖 ===== AIの応答内容 =====');
+        console.log(aiResponse);
+        console.log('===== AI応答確認完了 =====\n');
+      }
+
       const check = this._checkIfResponseUsesKnowledgeBase(aiResponse, knowledgeResults);
       logger.info(`🔍 AI応答チェック: 知識ベース使用=${check.usesKnowledgeBase}, 一般知識使用=${check.usesGeneralKnowledge}`);
 
@@ -690,7 +730,7 @@ ${originalQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.10.0'  // ✅ バージョン更新（G列最優先+複数単語対応版）
+      version: '2.10.1'  // デバッグ版
     };
   }
 }
