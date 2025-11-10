@@ -184,57 +184,74 @@ class GoogleAPIsService {
       throw error;
     }
   }
+  
+// services/google-apis.js の detectUrlType() メソッドを以下に置き換え
 
-  // ✅ 修正: URLタイプの自動検出（.txt対応）
-  detectUrlType(url) {
-    if (!url || typeof url !== 'string') {
-      console.log(`❓ URL形式不明: ${url}`);
-      return 'unknown';
-    }
-    
-    const urlLower = url.toLowerCase().trim();
-    
-    // Google Slides検出（より正確なパターン）
-    if (urlLower.includes('docs.google.com/presentation') || urlLower.includes('/presentation/d/')) {
-      console.log(`📊 Google Slides検出: ${url.substring(0, 50)}...`);
-      return 'google_slides';
-    }
-    
-    // Google Docs検出（より正確なパターン）
-    if (urlLower.includes('docs.google.com/document') || urlLower.includes('/document/d/')) {
-      console.log(`📄 Google Docs検出: ${url.substring(0, 50)}...`);
-      return 'google_docs';
-    }
-    
-    // Notion検出
-    if (urlLower.includes('notion.so') || urlLower.includes('notion.site')) {
-      console.log(`📝 Notion検出: ${url.substring(0, 50)}...`);
-      return 'notion';
-    }
-    
-    // ✅ .txtファイル検出を追加
-    if (urlLower.endsWith('.txt') || urlLower.includes('.txt?')) {
-      console.log(`📝 テキストファイル(.txt)検出: ${url.substring(0, 50)}...`);
-      return 'text_file';
-    }
-    
-    // 画像ファイル検出
-    if (urlLower.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)(\?.*)?$/i) || 
-        urlLower.includes('cdn.discordapp.com') ||
-        urlLower.includes('drive.google.com/file')) {
-      console.log(`🖼️ 画像ファイル検出: ${url.substring(0, 50)}...`);
-      return 'image';
-    }
-    
-    // 一般ウェブサイト
-    if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
-      console.log(`🌐 ウェブサイト検出: ${url.substring(0, 50)}...`);
-      return 'website';
-    }
-    
-    console.log(`❓ 未知のURL形式: ${url}`);
+// ✅ 修正版: URLタイプの自動検出（判定順序を最適化）
+detectUrlType(url) {
+  if (!url || typeof url !== 'string') {
+    console.log(`❓ URL形式不明: ${url}`);
     return 'unknown';
   }
+  
+  const urlLower = url.toLowerCase().trim();
+  
+  // 1. Google Slides検出（より正確なパターン）
+  if (urlLower.includes('docs.google.com/presentation') || urlLower.includes('/presentation/d/')) {
+    console.log(`📊 Google Slides検出: ${url.substring(0, 50)}...`);
+    return 'google_slides';
+  }
+  
+  // 2. Google Docs検出（より正確なパターン）
+  if (urlLower.includes('docs.google.com/document') || urlLower.includes('/document/d/')) {
+    console.log(`📄 Google Docs検出: ${url.substring(0, 50)}...`);
+    return 'google_docs';
+  }
+  
+  // 3. Notion検出
+  if (urlLower.includes('notion.so') || urlLower.includes('notion.site')) {
+    console.log(`📝 Notion検出: ${url.substring(0, 50)}...`);
+    return 'notion';
+  }
+  
+  // ✅ 4. .txtファイル検出（画像判定より先に実行）
+  if (urlLower.endsWith('.txt') || 
+      urlLower.includes('.txt?') || 
+      urlLower.includes('.txt#') ||
+      urlLower.match(/\.txt[\/\?#]/)) {
+    console.log(`📝 テキストファイル(.txt)検出: ${url.substring(0, 50)}...`);
+    return 'text_file';
+  }
+  
+  // 5. 画像ファイル検出（拡張子ベース、より厳密に）
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+  const hasImageExtension = imageExtensions.some(ext => {
+    return urlLower.endsWith(ext) || 
+           urlLower.match(new RegExp(`\\${ext}[\\?#]`));
+  });
+  
+  if (hasImageExtension || urlLower.includes('cdn.discordapp.com')) {
+    console.log(`🖼️ 画像ファイル検出: ${url.substring(0, 50)}...`);
+    return 'image';
+  }
+  
+  // 6. Google Driveファイル（拡張子不明の場合）
+  // ✅ 改善: 既に .txt として判定されていない場合のみここに到達
+  if (urlLower.includes('drive.google.com/file')) {
+    console.log(`📁 Google Driveファイル検出（拡張子不明）: ${url.substring(0, 50)}...`);
+    // 拡張子がわからないので、websiteとして扱ってクローラーに任せる
+    return 'website';
+  }
+  
+  // 7. 一般ウェブサイト
+  if (urlLower.startsWith('http://') || urlLower.startsWith('https://')) {
+    console.log(`🌐 ウェブサイト検出: ${url.substring(0, 50)}...`);
+    return 'website';
+  }
+  
+  console.log(`❓ 未知のURL形式: ${url}`);
+  return 'unknown';
+}
 
   // ✅ 新規追加: テキストファイル(.txt)を読み込む
   async loadTextFile(url, fileName) {
