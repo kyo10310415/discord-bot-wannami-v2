@@ -24,8 +24,8 @@ class KnowledgeBaseService {
         logger.info('✅ 知識ベースサービス初期化完了');
         logger.info(`📊 初期化後の文書数: ${this.documents.length}`);
         
-        // 🔍 Phase 14: レッスン13の詳細デバッグ
-        const lesson13 = this.documents.find(doc => doc.source && doc.source.includes('レッスン13'));
+        // 🔍 Phase 14: レッスン13の詳細デバッグ（完全一致）
+        const lesson13 = this.documents.find(doc => doc.source && doc.source === 'レッスン13');
         if (lesson13) {
           console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
           console.log('🔍 Phase 14: レッスン13の詳細デバッグ');
@@ -100,8 +100,8 @@ class KnowledgeBaseService {
       let totalImages = 0;
 
       for (const urlInfo of urlList) {
-        // 🔍 Phase 14: レッスン13の処理を詳細にログ出力
-        const isLesson13 = urlInfo.fileName && urlInfo.fileName.includes('レッスン13');
+        // 🔍 Phase 14: レッスン13の処理を詳細にログ出力（完全一致）
+        const isLesson13 = urlInfo.fileName && urlInfo.fileName === 'レッスン13';
         
         if (isLesson13) {
           console.log('\n🎯 ===== Phase 14: レッスン13の処理開始 =====');
@@ -325,8 +325,8 @@ class KnowledgeBaseService {
         let score = 0;
         let matchDetails = [];
 
-        // Phase 14: レッスン13のスコア計算を詳細表示
-        const isLesson13 = doc.source && doc.source.includes('レッスン13');
+        // Phase 14: レッスン13のスコア計算を詳細表示（完全一致）
+        const isLesson13 = doc.source && doc.source === 'レッスン13';
 
         // ✨ Phase 12: G列完全一致の事前チェック（N-gram分解の影響を受けない）
         const remarksMatch = this._checkExactRemarksMatch(doc.remarks, query);
