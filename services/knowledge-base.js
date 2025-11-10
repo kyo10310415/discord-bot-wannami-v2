@@ -1,4 +1,4 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.6.0（G列完全一致強化版）
+// services/knowledge-base.js - 知識ベース構築サービス v2.6.1（レッスン13デバッグ版）
 
 const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
@@ -24,18 +24,48 @@ class KnowledgeBaseService {
         logger.info('✅ 知識ベースサービス初期化完了');
         logger.info(`📊 初期化後の文書数: ${this.documents.length}`);
         
-        // 🔍 デバッグ: レッスン14が知識ベースに存在するか確認
-        const lesson14 = this.documents.find(doc => doc.source && doc.source.includes('レッスン14'));
-        if (lesson14) {
-          console.log('\n✅ ===== レッスン14が知識ベースに存在 =====');
-          console.log('📄 ファイル名:', lesson14.source);
-          console.log('📏 コンテンツ文字数:', lesson14.content.length);
-          console.log('🏷️ 備考:', lesson14.remarks);
-          console.log('📂 カテゴリ:', lesson14.category);
-          console.log('📝 コンテンツの最初の500文字:\n', lesson14.content.substring(0, 500));
-          console.log('===== レッスン14確認完了 =====\n');
+        // 🔍 Phase 14: レッスン13の詳細デバッグ
+        const lesson13 = this.documents.find(doc => doc.source && doc.source.includes('レッスン13'));
+        if (lesson13) {
+          console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('🔍 Phase 14: レッスン13の詳細デバッグ');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('📄 ファイル名:', lesson13.source);
+          console.log('📏 コンテンツ文字数:', lesson13.content.length);
+          console.log('🏷️ 備考:', lesson13.remarks);
+          console.log('📂 カテゴリ:', lesson13.category);
+          console.log('📋 分類:', lesson13.classification);
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          
+          // キーワード検索
+          const keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き', 'デビュー配信', '高頻度', '長尺'];
+          console.log('🔑 重要キーワードの存在確認:');
+          keywords.forEach(keyword => {
+            const exists = lesson13.content.includes(keyword);
+            console.log(`  ${exists ? '✅' : '❌'} "${keyword}": ${exists ? '存在する' : '存在しない'}`);
+          });
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          
+          // コンテンツのサンプル表示
+          console.log('📝 コンテンツの最初の500文字:');
+          console.log(lesson13.content.substring(0, 500));
+          console.log('...');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('📝 コンテンツの中間部分（3000-3500文字目）:');
+          if (lesson13.content.length > 3500) {
+            console.log(lesson13.content.substring(3000, 3500));
+          } else {
+            console.log('（コンテンツが短いため表示できません）');
+          }
+          console.log('...');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('📝 コンテンツの最後の500文字:');
+          console.log(lesson13.content.substring(lesson13.content.length - 500));
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+          console.log('✅ Phase 14: レッスン13デバッグ完了');
+          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
         } else {
-          console.log('\n❌ レッスン14が知識ベースに見つかりません！');
+          console.log('\n❌ Phase 14: レッスン13が知識ベースに見つかりません！');
         }
         
         return result;
@@ -70,11 +100,11 @@ class KnowledgeBaseService {
       let totalImages = 0;
 
       for (const urlInfo of urlList) {
-        // 🔍 デバッグ: レッスン14の処理を詳細にログ出力
-        const isLesson14 = urlInfo.fileName && urlInfo.fileName.includes('レッスン14');
+        // 🔍 Phase 14: レッスン13の処理を詳細にログ出力
+        const isLesson13 = urlInfo.fileName && urlInfo.fileName.includes('レッスン13');
         
-        if (isLesson14) {
-          console.log('\n🎯 ===== レッスン14の処理開始 =====');
+        if (isLesson13) {
+          console.log('\n🎯 ===== Phase 14: レッスン13の処理開始 =====');
           console.log('📄 ファイル名:', urlInfo.fileName);
           console.log('🔗 URL:', urlInfo.url);
           console.log('📂 分類:', urlInfo.classification);
@@ -110,14 +140,24 @@ class KnowledgeBaseService {
             
             documents.push(doc);
 
-            // 🔍 デバッグ: レッスン14の読み込み完了ログ
-            if (isLesson14) {
-              console.log('✅ レッスン14の読み込み完了');
+            // 🔍 Phase 14: レッスン13の読み込み完了ログ
+            if (isLesson13) {
+              console.log('✅ レッスン13の読み込み完了');
               console.log('📏 コンテンツ文字数:', result.content.length);
-              console.log('📝 コンテンツの最初の500文字:\n', result.content.substring(0, 500));
+              
+              // キーワードチェック
+              const keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き'];
+              console.log('🔑 重要キーワードの確認:');
+              keywords.forEach(keyword => {
+                const count = (result.content.match(new RegExp(keyword, 'g')) || []).length;
+                console.log(`  - "${keyword}": ${count}回出現`);
+              });
+              
+              console.log('📝 コンテンツの最初の800文字:\n', result.content.substring(0, 800));
+              console.log('...');
               console.log('📝 コンテンツの最後の500文字:\n', result.content.substring(result.content.length - 500));
-              console.log('✅ レッスン14を知識ベースに追加しました');
-              console.log('===== レッスン14の処理完了 =====\n');
+              console.log('✅ レッスン13を知識ベースに追加しました');
+              console.log('===== Phase 14: レッスン13の処理完了 =====\n');
             }
 
             if (result.images && result.images.length > 0) {
@@ -127,6 +167,14 @@ class KnowledgeBaseService {
           }
         } catch (error) {
           console.error(`❌ ${urlInfo.fileName} 読み込み失敗:`, error.message);
+          
+          // Phase 14: レッスン13の読み込み失敗を詳細にログ
+          if (isLesson13) {
+            console.log('❌ ===== Phase 14: レッスン13の読み込みに失敗 =====');
+            console.log('エラー詳細:', error);
+            console.log('===== エラー情報終了 =====\n');
+          }
+          
           documents.push({
             source: urlInfo.fileName,
             url: urlInfo.url,
@@ -196,10 +244,6 @@ class KnowledgeBaseService {
   /**
    * ✨ Phase 12: G列完全一致判定を強化
    * N-gram分解の前に、G列キーワードと検索クエリを直接比較
-   * 
-   * @param {string} remarks - G列（備考）の内容
-   * @param {string} query - 検索クエリ
-   * @returns {Object} { matched: boolean, matchedKeywords: string[] }
    */
   _checkExactRemarksMatch(remarks, query) {
     if (!remarks || !query) {
@@ -211,7 +255,6 @@ class KnowledgeBaseService {
     const matchedKeywords = [];
 
     // G列に複数のキーワードがカンマ区切りで含まれている可能性を考慮
-    // 例: "初配信の企画、誰に向けての配信か、3H、HERO、HUB、HELP"
     const remarksKeywords = remarks.split(/[,、]/).map(k => k.trim()).filter(k => k.length > 0);
 
     for (const keyword of remarksKeywords) {
@@ -238,13 +281,6 @@ class KnowledgeBaseService {
         includeMetadata = true,
         filters = {}
       } = options;
-
-      // 🔍 デバッグ: テスト配信クエリの場合
-      const isTestStreamQuery = query.includes('テスト配信');
-      if (isTestStreamQuery) {
-        console.log('\n🔍 ===== 検索デバッグ開始（テスト配信） =====');
-        console.log('🔑 検索クエリ:', query);
-      }
 
       logger.info(`🔍 知識ベース検索: "${query}"`);
       logger.info(`📊 検索オプション: maxResults=${maxResults}, minScore=${minScore}, includeMetadata=${includeMetadata}`);
@@ -289,26 +325,24 @@ class KnowledgeBaseService {
         let score = 0;
         let matchDetails = [];
 
-        // 🔍 デバッグ: レッスン14のスコア計算を詳細表示
-        const isLesson14 = doc.source && doc.source.includes('レッスン14');
+        // Phase 14: レッスン13のスコア計算を詳細表示
+        const isLesson13 = doc.source && doc.source.includes('レッスン13');
 
         // ✨ Phase 12: G列完全一致の事前チェック（N-gram分解の影響を受けない）
-        // この判定をスコア計算の最初に実行することで、N-gramトークン化の前に完全一致を検出
         const remarksMatch = this._checkExactRemarksMatch(doc.remarks, query);
         if (remarksMatch.matched) {
-          // 完全一致したキーワードごとに+5.0のボーナス
           const exactMatchBonus = remarksMatch.matchedKeywords.length * 5.0;
           score += exactMatchBonus;
           matchDetails.push(`🎯G列完全一致(${remarksMatch.matchedKeywords.join(', ')})+${exactMatchBonus.toFixed(1)}`);
           
           logger.info(`  🎯 ${doc.source}: G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
           
-          if (isLesson14 && isTestStreamQuery) {
-            console.log(`  📌 レッスン14: G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
+          if (isLesson13) {
+            console.log(`  📌 Phase 14: レッスン13 G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
           }
         }
 
-        // トークンマッチング（既存のロジック）
+        // トークンマッチング
         queryTokens.forEach(token => {
           const matches = (contentLower.match(new RegExp(token, 'gi')) || []).length;
           if (matches > 0) {
@@ -316,8 +350,8 @@ class KnowledgeBaseService {
             score += tokenScore;
             matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(2)})`);
             
-            if (isLesson14 && isTestStreamQuery) {
-              console.log(`  📌 レッスン14: トークン「${token}」${matches}回 +${tokenScore.toFixed(2)}`);
+            if (isLesson13) {
+              console.log(`  📌 Phase 14: レッスン13 トークン「${token}」${matches}回 +${tokenScore.toFixed(2)}`);
             }
           }
         });
@@ -327,8 +361,8 @@ class KnowledgeBaseService {
           score += 0.5;
           matchDetails.push('完全一致+0.5');
           
-          if (isLesson14 && isTestStreamQuery) {
-            console.log(`  📌 レッスン14: 完全一致 +0.5`);
+          if (isLesson13) {
+            console.log(`  📌 Phase 14: レッスン13 完全一致 +0.5`);
           }
         }
 
@@ -339,8 +373,8 @@ class KnowledgeBaseService {
             score += 0.3;
             matchDetails.push('カテゴリ一致+0.3');
             
-            if (isLesson14 && isTestStreamQuery) {
-              console.log(`  📌 レッスン14: カテゴリ一致 +0.3`);
+            if (isLesson13) {
+              console.log(`  📌 Phase 14: レッスン13 カテゴリ一致 +0.3`);
             }
           }
         }
@@ -352,8 +386,8 @@ class KnowledgeBaseService {
             score += 0.4;
             matchDetails.push('分類一致+0.4');
             
-            if (isLesson14 && isTestStreamQuery) {
-              console.log(`  📌 レッスン14: 分類一致 +0.4`);
+            if (isLesson13) {
+              console.log(`  📌 Phase 14: レッスン13 分類一致 +0.4`);
             }
           }
         }
@@ -365,13 +399,13 @@ class KnowledgeBaseService {
             score += 0.2;
             matchDetails.push(`ファイル名一致("${token}")+0.2`);
             
-            if (isLesson14 && isTestStreamQuery) {
-              console.log(`  📌 レッスン14: ファイル名一致「${token}」 +0.2`);
+            if (isLesson13) {
+              console.log(`  📌 Phase 14: レッスン13 ファイル名一致「${token}」 +0.2`);
             }
           }
         });
 
-        // ✅ 備考欄（G列）のキーワードマッチングを最優先（既存のロジック）
+        // ✅ 備考欄（G列）のキーワードマッチングを最優先
         if (doc.remarks) {
           const remarksLower = doc.remarks.toLowerCase();
           
@@ -380,8 +414,8 @@ class KnowledgeBaseService {
             score += 3.0;
             matchDetails.push('備考完全一致+3.0');
             
-            if (isLesson14 && isTestStreamQuery) {
-              console.log(`  📌 レッスン14: 備考完全一致 +3.0`);
+            if (isLesson13) {
+              console.log(`  📌 Phase 14: レッスン13 備考完全一致 +3.0`);
             }
           }
           
@@ -391,15 +425,15 @@ class KnowledgeBaseService {
               score += 1.0;
               matchDetails.push(`備考一致("${token}")+1.0`);
               
-              if (isLesson14 && isTestStreamQuery) {
-                console.log(`  📌 レッスン14: 備考一致「${token}」 +1.0`);
+              if (isLesson13) {
+                console.log(`  📌 Phase 14: レッスン13 備考一致「${token}」 +1.0`);
               }
             }
           });
         }
 
-        if (isLesson14 && isTestStreamQuery) {
-          console.log(`  🎯 レッスン14の合計スコア: ${score.toFixed(3)}`);
+        if (isLesson13) {
+          console.log(`  🎯 Phase 14: レッスン13の合計スコア: ${score.toFixed(3)}`);
         }
 
         return {
@@ -433,22 +467,6 @@ class KnowledgeBaseService {
         logger.info(`    マッチ詳細: ${details}`);
       });
       logger.info('==========================================\n');
-
-      // テスト配信クエリの場合、検索結果詳細を表示
-      if (isTestStreamQuery) {
-        console.log('\n📊 検索結果トップ5:');
-        scoredDocuments.slice(0, 5).forEach((doc, index) => {
-          console.log(`  [${index + 1}] ${doc.source} - スコア: ${doc.score.toFixed(3)}`);
-          if (doc.source.includes('レッスン14')) {
-            console.log(`    🎯 レッスン14の詳細:`);
-            console.log(`      - 備考: ${doc.remarks}`);
-            console.log(`      - カテゴリ: ${doc.category}`);
-            console.log(`      - コンテンツ文字数: ${doc.content.length}`);
-            console.log(`      - コンテンツの最初の300文字:\n${doc.content.substring(0, 300)}`);
-          }
-        });
-        console.log('===== 検索デバッグ終了 =====\n');
-      }
 
       // minScoreでフィルタリング
       const results = scoredDocuments
@@ -506,10 +524,10 @@ class KnowledgeBaseService {
     
     let detectedType = detectUrlType(url);
     
-    const isLesson14 = fileName && fileName.includes('レッスン14');
+    const isLesson13 = fileName && fileName.includes('レッソン13');
     
-    if (isLesson14) {
-      console.log(`🔍 レッスン14のコンテンツ読み込み開始`);
+    if (isLesson13) {
+      console.log(`🔍 Phase 14: レッスン13のコンテンツ読み込み開始`);
       console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
     } else {
       console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
@@ -521,8 +539,8 @@ class KnowledgeBaseService {
       const typeLower = (type || '').toLowerCase();
       
       if (typeLower.includes('テキスト') || typeLower.includes('text') || typeLower.includes('txt')) {
-        if (isLesson14) {
-          console.log(`📝 レッスン14をテキストとして処理`);
+        if (isLesson13) {
+          console.log(`📝 Phase 14: レッスン13をテキストとして処理`);
         } else {
           console.log(`📝 Google Driveファイルをテキストとして処理: ${fileName}`);
         }
@@ -532,8 +550,9 @@ class KnowledgeBaseService {
         const downloadUrl = convertGoogleDriveUrl(url);
         urlInfo.url = downloadUrl;
         
-        if (isLesson14) {
-          console.log(`✅ レッスン14のダウンロードURL変換完了`);
+        if (isLesson13) {
+          console.log(`✅ Phase 14: レッスン13のダウンロードURL変換完了`);
+          console.log(`🔗 変換後URL: ${downloadUrl}`);
         } else {
           console.log(`✅ ダウンロードURL変換完了`);
         }
@@ -559,16 +578,17 @@ class KnowledgeBaseService {
           return { content: notionContent, images: this.extractImagesFromNotionContent(notionContent, fileName) };
           
         case 'text_file':
-          if (isLesson14) {
-            console.log(`📝 レッスン14のテキストファイル読み込み開始`);
+          if (isLesson13) {
+            console.log(`📝 Phase 14: レッスン13のテキストファイル読み込み開始`);
           } else {
             console.log(`📝 テキストファイル読み込み: ${fileName}`);
           }
           const textResult = await loadTextFile(urlInfo.url, fileName);
           
-          if (isLesson14) {
-            console.log(`✅ レッスン14のテキスト読み込み完了`);
+          if (isLesson13) {
+            console.log(`✅ Phase 14: レッスン13のテキスト読み込み完了`);
             console.log(`📏 文字数: ${textResult.content.length}`);
+            console.log(`📝 内容の最初の500文字:\n${textResult.content.substring(0, 500)}`);
           }
           
           return textResult;
