@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.15.0 (Phase 15b: コンテンツ全文使用 + コンテキスト最大化)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.16.0 (Phase 16: トップ2戦略)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -179,26 +179,32 @@ class RAGSystem {
   }
 
   /**
-   * ✨✨ Phase 15b: コンテンツ全文使用 + コンテキスト最大化 ✨✨
-   * - コンテンツを切り捨てない（全文を使用）
-   * - 検索1位を10回繰り返す（Phase 13の3回から増加）
-   * - 2位以降を完全に排除（1位のみを使用）
+   * ✨✨ Phase 16: トップ2戦略 ✨✨
+   * - 1位を5回繰り返す（優先度を確保）
+   * - 2位を3回繰り返す（補足情報を確保）
+   * - 3位以降を排除（ノイズを削減）
+   * - コンテンツは全文を使用（Phase 15bの利点を維持）
    */
   _buildPrioritizedContext(knowledgeResults) {
     if (knowledgeResults.length === 0) {
-      return { context: '', topResult: null };
+      return { context: '', topResult: null, secondResult: null };
     }
 
     const topResult = knowledgeResults[0];
+    const secondResult = knowledgeResults.length >= 2 ? knowledgeResults[1] : null;
     let context = '';
 
-    // 🚀 Phase 15b: 検索1位のコンテンツ全文を10回繰り返す
-    logger.info(`🚀 Phase 15b: 検索1位「${topResult.source}」の全文を10回繰り返してコンテキストに追加`);
-    logger.info(`📊 コンテンツ文字数: ${topResult.content?.length || 0}文字`);
+    // 🚀 Phase 16: トップ2戦略を適用
+    logger.info(`🚀 Phase 16: トップ2戦略を適用（1位5回 + 2位3回）`);
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 1位の資料を5回繰り返す
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    logger.info(`📄 Phase 16: 1位「${topResult.source}」の全文を使用（文字数: ${topResult.content?.length || 0}文字）`);
     
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 5; i++) {
       context += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-      context += `🥇 【最重要資料（${i}回目）: ${topResult.title || topResult.source}】\n`;
+      context += `🥇 【最重要資料（1位）・${i}回目: ${topResult.title || topResult.source}】\n`;
       context += `🎯 検索スコア: ${(topResult.score * 100).toFixed(0)}% （第1位）\n`;
       if (topResult.metadata && topResult.metadata.category) {
         context += `📂 カテゴリ: ${topResult.metadata.category}\n`;
@@ -208,18 +214,48 @@ class RAGSystem {
       }
       context += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
       
-      // ✨ Phase 15b: コンテンツ全文を使用（切り捨てなし）
-      const content = topResult.answer || topResult.content;
-      context += `${content}\n\n`;
+      // ✨ Phase 16: コンテンツ全文を使用（Phase 15bの利点を維持）
+      const topContent = topResult.answer || topResult.content;
+      context += `${topContent}\n\n`;
+      
+      logger.info(`✅ Phase 16: 1位の資料を${i}回目に追加（スコア: ${topResult.score.toFixed(3)}）`);
     }
 
-    // ✨ Phase 15b: 2位以降は完全に排除（1位のみを使用）
-    logger.info(`✨ Phase 15b: 2位以降の資料は排除（1位のみを使用）`);
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 2位の資料を3回繰り返す（存在する場合）
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    if (secondResult) {
+      logger.info(`📄 Phase 16: 2位「${secondResult.source}」の全文を使用（文字数: ${secondResult.content?.length || 0}文字）`);
+      
+      for (let i = 1; i <= 3; i++) {
+        context += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        context += `🥈 【重要資料（2位）・${i}回目: ${secondResult.title || secondResult.source}】\n`;
+        context += `🎯 検索スコア: ${(secondResult.score * 100).toFixed(0)}% （第2位）\n`;
+        if (secondResult.metadata && secondResult.metadata.category) {
+          context += `📂 カテゴリ: ${secondResult.metadata.category}\n`;
+        }
+        if (secondResult.metadata && secondResult.metadata.remarks) {
+          context += `🏷️ 備考: ${secondResult.metadata.remarks}\n`;
+        }
+        context += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        
+        // ✨ Phase 16: コンテンツ全文を使用
+        const secondContent = secondResult.answer || secondResult.content;
+        context += `${secondContent}\n\n`;
+        
+        logger.info(`✅ Phase 16: 2位の資料を${i}回目に追加（スコア: ${secondResult.score.toFixed(3)}）`);
+      }
+    } else {
+      logger.info('ℹ️ Phase 16: 2位の資料が存在しないため、1位のみを使用');
+    }
+
+    // ✨ Phase 16: 3位以降は排除
+    logger.info(`✨ Phase 16: 3位以降の資料は排除（1位+2位のみを使用）`);
 
     const totalChars = context.length;
-    logger.info(`📊 Phase 15b: 構築したコンテキストの総文字数: ${totalChars.toLocaleString()}文字`);
+    logger.info(`📊 Phase 16: 構築したコンテキストの総文字数: ${totalChars.toLocaleString()}文字`);
 
-    return { context, topResult };
+    return { context, topResult, secondResult };
   }
 
   _checkIfResponseUsesKnowledgeBase(response, knowledgeResults) {
@@ -616,10 +652,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✅ v2.15.0: Phase 15b コンテンツ全文使用 + コンテキスト最大化
+  // ✅ v2.16.0: Phase 16 トップ2戦略（1位5回 + 2位3回）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('🔒 知識ベース強制限定モード: 応答生成開始（v2.15.0 Phase 15b: コンテンツ全文使用 + コンテキスト最大化）');
+      logger.ai('🔒 知識ベース強制限定モード: 応答生成開始（v2.16.0 Phase 16: トップ2戦略）');
       
       const imageUrls = context.imageUrls || [];
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
@@ -681,8 +717,40 @@ ${userQuery}
         logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件`);
       }
 
-      // ✨ Phase 15b: コンテキスト構築（全文 × 10回繰り返し、2位以降排除）
-      const { context: knowledgeContext, topResult } = this._buildPrioritizedContext(knowledgeResults);
+      // ✨ Phase 16: トップ2戦略でコンテキスト構築
+      const { context: knowledgeContext, topResult, secondResult } = this._buildPrioritizedContext(knowledgeResults);
+
+      // ✨ Phase 16: レッスン13専用のキーワードチェック（Phase 15aから継続）
+      const lesson13Keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き', 'デビュー配信', '高頻度', '長尺'];
+      const lesson13Match = lesson13Keywords.filter(keyword => knowledgeContext.includes(keyword));
+      
+      if (lesson13Match.length >= 3) {
+        logger.info(`✅ Phase 15a: レッスン13の重要キーワードがコンテキストに含まれています: ${lesson13Match.join(', ')}`);
+      }
+
+      // ✨ Phase 16: レッスン4専用のキーワードチェック（Phase 15bから継続）
+      const lesson4Keywords = ['3分のズレ', '22時03分', '予約投稿', 'タイムラインの波'];
+      const lesson4Match = lesson4Keywords.filter(keyword => knowledgeContext.includes(keyword));
+      
+      if (lesson4Match.length >= 2) {
+        logger.info(`✅ Phase 15b: レッスン4の重要キーワードがコンテキストに含まれています: ${lesson4Match.join(', ')}`);
+      }
+
+      // ✨ Phase 16: レッスン8専用のキーワードチェック（個性、感動）
+      const lesson8Keywords = ['個性', '感動', '企画の型', '共感'];
+      const lesson8Match = lesson8Keywords.filter(keyword => knowledgeContext.includes(keyword));
+      
+      if (lesson8Match.length >= 2) {
+        logger.info(`✅ Phase 16: レッスン8の重要キーワードがコンテキストに含まれています: ${lesson8Match.join(', ')}`);
+      }
+
+      // ✨ Phase 16: レッスン15専用のキーワードチェック（予約投稿の手順）
+      const lesson15Keywords = ['予約投稿', 'やり方', '手順', '設定'];
+      const lesson15Match = lesson15Keywords.filter(keyword => knowledgeContext.includes(keyword));
+      
+      if (lesson15Match.length >= 2) {
+        logger.info(`✅ Phase 16: レッスン15の重要キーワードがコンテキストに含まれています: ${lesson15Match.join(', ')}`);
+      }
 
       let imageContext = '';
       if (imageUrls.length > 0) {
@@ -690,15 +758,15 @@ ${userQuery}
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // ✨✨ Phase 15a+15b: プロンプト強化 + Few-shot Examples + コンテンツ全文使用 ✨✨
+      // ✨✨ Phase 16: Phase 15a+15bのプロンプト強化を完全維持 + トップ2戦略 ✨✨
       const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の講師です。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚨 【絶対厳守ルール - Phase 15b 最終強化版】
+🚨 【絶対厳守ルール - Phase 16 トップ2戦略版】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 【最重要指示】
-以下の「検索結果」に記載された情報**のみ**を使用して回答してください。
+以下の「検索結果（1位と2位）」に記載された情報**のみ**を使用して回答してください。
 
 ❌ 禁止事項（絶対に守ること）:
 1. 一般知識や学習データの使用を**完全に禁止**
@@ -712,6 +780,7 @@ ${userQuery}
 2. 検索結果に書かれている**固有名詞・用語を使用**（例: 3H、HERO、HUB、HELP、外向き、内向き）
 3. 検索結果の**具体例をそのまま引用**
 4. 検索結果にない情報が必要な場合は「検索結果には記載されていません」と明記
+5. **1位と2位の両方の情報を統合して回答する**（Phase 16の重要ポイント）
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📚 【Few-shot Examples - 正しい応答の学習】
@@ -803,19 +872,55 @@ ${userQuery}
 （❌ 理由: 検索結果の具体的な説明（「予約投稿をする人が22:00、23:00など、ぴったりの時間に投稿を予約する場合が多い」「他の投稿が、ある程度、投稿されきったタイミング」）を使わず、一般的な回答をしている）
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🥇 【検索第1位の最重要資料】
+
+例3: レッスン6+8に関する質問（Phase 16: トップ2戦略の例）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-📌 資料名: ${topResult.source}
-🎯 検索スコア: ${(topResult.score * 100).toFixed(0)}% （全${knowledgeResults.length}件中の第1位）
-${topResult.metadata && topResult.metadata.category ? `📂 カテゴリ: ${topResult.metadata.category}\n` : ''}${topResult.metadata && topResult.metadata.remarks ? `🏷️ 備考: ${topResult.metadata.remarks}\n` : ''}
-⚠️ **この資料の具体的な内容を必ず使用してください！**
+質問: Xの企画をする時に個性を使って感動させるためにはどのような考え方をすれば良いですか？
 
-🚀 **Phase 15b: この資料の全文を10回繰り返してコンテキストに含めています**
+検索結果（1位）: レッスン6「Xの企画には型があります。企画の基本的な型を理解することで、効果的なコンテンツを作ることができます。」
+検索結果（2位）: レッスン8「Xの企画で個性を使って感動させるには、自分の強みを活かした企画の型を見つけることが重要です。個性とは、自分らしさを保ちながら視聴者の心を動かすことです。感動を生む要素には、ストーリー性、驚き、共感があります。」
+
+✅ 良い回答（1位と2位の情報を統合）:
+Xの企画で個性を使って感動させるには、以下の考え方が重要です！✨
+
+1. **企画の型を理解する**（レッスン6）
+   - Xの企画には基本的な型がある
+   - 型を理解することで効果的なコンテンツが作れる
+
+2. **個性を活かした型を見つける**（レッスン8）
+   - 自分の強みを活かした企画の型を見つける
+   - 個性とは、自分らしさを保ちながら視聴者の心を動かすこと
+
+3. **感動を生む3つの要素**（レッスン8）
+   - **ストーリー性**: 視聴者が共感できる物語
+   - **驚き**: 予想を超える展開
+   - **共感**: 視聴者の感情に寄り添う
+
+企画の型を理解した上で、自分の個性を活かすことで、感動的なコンテンツを作ることができます！💡
+
+📚 出典: [レッスン6, レッスン8]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🥇🥈 【検索上位2件の最重要資料】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🥇 **1位の資料**: ${topResult.source}
+   🎯 検索スコア: ${(topResult.score * 100).toFixed(0)}% （第1位）
+   📊 繰り返し回数: 5回
+${topResult.metadata && topResult.metadata.category ? `   📂 カテゴリ: ${topResult.metadata.category}\n` : ''}${topResult.metadata && topResult.metadata.remarks ? `   🏷️ 備考: ${topResult.metadata.remarks}\n` : ''}
+${secondResult ? `
+🥈 **2位の資料**: ${secondResult.source}
+   🎯 検索スコア: ${(secondResult.score * 100).toFixed(0)}% （第2位）
+   📊 繰り返し回数: 3回
+${secondResult.metadata && secondResult.metadata.category ? `   📂 カテゴリ: ${secondResult.metadata.category}\n` : ''}${secondResult.metadata && secondResult.metadata.remarks ? `   🏷️ 備考: ${secondResult.metadata.remarks}\n` : ''}` : ''}
+⚠️ **Phase 16: 1位と2位の両方の具体的な内容を統合して使用してください！**
+
+🚀 **Phase 16: トップ2戦略（1位5回 + 2位3回）**
 📊 **コンテキスト総文字数: ${knowledgeContext.length.toLocaleString()}文字**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 【提供された資料（1位のみ）】
+📚 【提供された資料（1位+2位）】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${knowledgeContext}
 ${imageContext}
@@ -827,18 +932,18 @@ ${imageContext}
 ${originalQuery}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📝 【回答手順 - Phase 15b 最終版】
+📝 【回答手順 - Phase 16 トップ2戦略版】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ステップ1: 🥇 **最重要資料「${topResult.source}」の全文を熟読する**
-ステップ2: **資料に書かれている具体的な用語・固有名詞を特定する**
-          （例: 3H、HERO、HUB、HELP、外向き、内向き、3分のズレなど）
-ステップ3: **資料の具体例や具体的な説明を特定する**
-          （例: 全肯定配信、シチュエーションボイス、睡眠導入、予約投稿をする人が22:00など）
-ステップ4: **特定した用語・固有名詞・具体例・具体的な説明を必ず使って回答を作成する**
-ステップ5: **一般的な表現（「ターゲットの明確化」など）は使わない**
-ステップ6: 絵文字を使って親しみやすく説明する
-ステップ7: 最後に必ず「📚 出典: [${topResult.source}]」を書く
+ステップ1: 🥇 **1位「${topResult.source}」の全文を熟読する**
+ステップ2: 🥈 **2位「${secondResult ? secondResult.source : 'なし'}」の全文を熟読する**${secondResult ? '' : '（2位なし）'}
+ステップ3: **1位と2位の両方から具体的な用語・固有名詞を特定する**
+          （例: 3H、HERO、個性、感動、企画の型など）
+ステップ4: **1位と2位の具体例や具体的な説明を特定する**
+ステップ5: **特定した用語・具体例を使って、1位と2位の情報を統合した回答を作成する**
+ステップ6: **一般的な表現（「ターゲットの明確化」など）は使わない**
+ステップ7: 絵文字を使って親しみやすく説明する
+ステップ8: 最後に必ず「📚 出典: [${topResult.source}${secondResult ? `, ${secondResult.source}` : ''}]」を書く
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔍 【自己チェック項目 - 回答前に必ず確認】
@@ -846,29 +951,23 @@ ${originalQuery}
 
 回答を作成したら、送信前に以下を確認してください：
 
-□ 資料に書かれている**具体的な用語**を使っているか？
-  （例: 3H、HERO、HUB、HELP、外向き、内向き、3分のズレ）
-
-□ 資料に書かれている**具体例や具体的な説明**を使っているか？
-  （例: 全肯定配信、予約投稿をする人が22:00、23:00など、ぴったりの時間）
-
+□ 1位の資料に書かれている**具体的な用語**を使っているか？
+□ 2位の資料に書かれている**具体的な用語**を使っているか？${secondResult ? '' : '（2位なし）'}
+□ 1位と2位の**具体例や具体的な説明**を統合しているか？
 □ 一般的な表現を使っていないか？
-  （❌「ターゲットの明確化」「視聴者のニーズ」「タイムラインの混雑を避ける」）
-
 □ 「一般的には」「通常は」などの一般論を使っていないか？
-
 □ 資料にない情報を追加していないか？
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎯 【今すぐ回答してください】
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-🥇 **最重要資料「${topResult.source}」の具体的な内容（用語・固有名詞・具体例・具体的な説明）を必ず使って**、
+🥇🥈 **1位「${topResult.source}」と2位「${secondResult ? secondResult.source : 'なし'}」の具体的な内容を統合して**、
 上記のFew-shot Examplesの「良い回答」のように回答してください。
 
-**Phase 15b: この資料の全文が10回繰り返されているので、後半の情報も確実に参照できます。**
+**Phase 16: 1位を5回、2位を3回繰り返しているので、両方の情報を確実に参照できます。**
 
-必ず「📚 出典: [${topResult.source}]」を最後に書いてください。`;
+必ず「📚 出典: [${topResult.source}${secondResult ? `, ${secondResult.source}` : ''}]」を最後に書いてください。`;
 
       const imageMessages = imageUrls && imageUrls.length > 0
         ? imageUrls.map(imgUrl => ({
@@ -878,7 +977,7 @@ ${originalQuery}
         : [];
 
       logger.info(`🖼️ OpenAI APIに渡す画像メッセージ: ${imageMessages.length}件`);
-      logger.info('🤖 AI応答生成中（v2.15.0 Phase 15b: コンテンツ全文使用 + コンテキスト最大化）...');
+      logger.info('🤖 AI応答生成中（v2.16.0 Phase 16: トップ2戦略）...');
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
@@ -890,27 +989,30 @@ ${originalQuery}
       const check = this._checkIfResponseUsesKnowledgeBase(aiResponse, knowledgeResults);
       logger.info(`🔍 AI応答チェック: 知識ベース使用=${check.usesKnowledgeBase}, 一般知識使用=${check.usesGeneralKnowledge}`);
 
-      // ✨ Phase 15a: レッスン13の具体的な用語が含まれているかチェック
+      // ✨ Phase 15a/16: レッスン13の具体的な用語が含まれているかチェック
       const lesson13Keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き', 'ザイオンス効果', '茹でガエル'];
       const foundKeywords13 = lesson13Keywords.filter(kw => aiResponse.includes(kw));
-      if (topResult.source === 'レッスン13' && foundKeywords13.length > 0) {
-        logger.info(`✅ Phase 15b: レッスン13の具体的な用語を検出 (${foundKeywords13.length}個): ${foundKeywords13.join(', ')}`);
-      } else if (topResult.source === 'レッスン13') {
-        logger.info(`⚠️ Phase 15b: レッスン13が1位だが、具体的な用語が検出されませんでした`);
+      if (topResult.source.includes('レッスン13') && foundKeywords13.length > 0) {
+        logger.info(`✅ Phase 15a: レッスン13の具体的な用語を検出 (${foundKeywords13.length}個): ${foundKeywords13.join(', ')}`);
+      } else if (topResult.source.includes('レッスン13')) {
+        logger.info(`⚠️ Phase 15a: レッスン13が1位だが、具体的な用語が検出されませんでした`);
       }
 
-      // ✨ Phase 15b: レッスン4の具体的な用語が含まれているかチェック
+      // ✨ Phase 15b/16: レッスン4の具体的な用語が含まれているかチェック
       const lesson4Keywords = ['3分のズレ', '22時03分', '予約投稿', 'タイムラインの波'];
       const foundKeywords4 = lesson4Keywords.filter(kw => aiResponse.includes(kw));
-      if (topResult.source === 'レッスン4' && foundKeywords4.length > 0) {
+      if (topResult.source.includes('レッスン4') && foundKeywords4.length > 0) {
         logger.info(`✅ Phase 15b: レッスン4の具体的な用語を検出 (${foundKeywords4.length}個): ${foundKeywords4.join(', ')}`);
-      } else if (topResult.source === 'レッスン4') {
+      } else if (topResult.source.includes('レッスン4')) {
         logger.info(`⚠️ Phase 15b: レッスン4が1位だが、具体的な用語が検出されませんでした`);
       }
 
-      logger.info('✅ 知識ベース強制限定モード: 応答生成完了（v2.15.0 Phase 15b）');
+      logger.info('✅ 知識ベース強制限定モード: 応答生成完了（v2.16.0 Phase 16）');
       
-      const footer = `\n\n---\n📚 *知識ベースからの回答（1位の資料を全文×10回参照: ${topResult.source}）*`;
+      const sources = secondResult 
+        ? `${topResult.source}, ${secondResult.source}`
+        : topResult.source;
+      const footer = `\n\n---\n📚 *知識ベースからの回答（Phase 16トップ2戦略: ${sources}）*`;
       
       return aiResponse + footer;
 
@@ -930,7 +1032,7 @@ ${originalQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.15.0'  // Phase 15b: コンテンツ全文使用 + コンテキスト最大化
+      version: '2.16.0'  // Phase 16: トップ2戦略（1位5回 + 2位3回）
     };
   }
 }
