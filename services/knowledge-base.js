@@ -1,4 +1,4 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.5.1（デバッグ版）
+// services/knowledge-base.js - 知識ベース構築サービス v2.6.0（G列完全一致強化版）
 
 const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
@@ -193,6 +193,42 @@ class KnowledgeBaseService {
     return uniqueTokens;
   }
 
+  /**
+   * ✨ Phase 12: G列完全一致判定を強化
+   * N-gram分解の前に、G列キーワードと検索クエリを直接比較
+   * 
+   * @param {string} remarks - G列（備考）の内容
+   * @param {string} query - 検索クエリ
+   * @returns {Object} { matched: boolean, matchedKeywords: string[] }
+   */
+  _checkExactRemarksMatch(remarks, query) {
+    if (!remarks || !query) {
+      return { matched: false, matchedKeywords: [] };
+    }
+
+    const remarksLower = remarks.toLowerCase();
+    const queryLower = query.toLowerCase();
+    const matchedKeywords = [];
+
+    // G列に複数のキーワードがカンマ区切りで含まれている可能性を考慮
+    // 例: "初配信の企画、誰に向けての配信か、3H、HERO、HUB、HELP"
+    const remarksKeywords = remarks.split(/[,、]/).map(k => k.trim()).filter(k => k.length > 0);
+
+    for (const keyword of remarksKeywords) {
+      const keywordLower = keyword.toLowerCase();
+      
+      // 完全一致チェック（検索クエリにG列のキーワードが含まれているか）
+      if (queryLower.includes(keywordLower)) {
+        matchedKeywords.push(keyword);
+      }
+    }
+
+    return {
+      matched: matchedKeywords.length > 0,
+      matchedKeywords: matchedKeywords
+    };
+  }
+
   searchKnowledge(query, options = {}) {
     try {
       const {
@@ -256,7 +292,23 @@ class KnowledgeBaseService {
         // 🔍 デバッグ: レッスン14のスコア計算を詳細表示
         const isLesson14 = doc.source && doc.source.includes('レッスン14');
 
-        // トークンマッチング
+        // ✨ Phase 12: G列完全一致の事前チェック（N-gram分解の影響を受けない）
+        // この判定をスコア計算の最初に実行することで、N-gramトークン化の前に完全一致を検出
+        const remarksMatch = this._checkExactRemarksMatch(doc.remarks, query);
+        if (remarksMatch.matched) {
+          // 完全一致したキーワードごとに+5.0のボーナス
+          const exactMatchBonus = remarksMatch.matchedKeywords.length * 5.0;
+          score += exactMatchBonus;
+          matchDetails.push(`🎯G列完全一致(${remarksMatch.matchedKeywords.join(', ')})+${exactMatchBonus.toFixed(1)}`);
+          
+          logger.info(`  🎯 ${doc.source}: G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
+          
+          if (isLesson14 && isTestStreamQuery) {
+            console.log(`  📌 レッスン14: G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
+          }
+        }
+
+        // トークンマッチング（既存のロジック）
         queryTokens.forEach(token => {
           const matches = (contentLower.match(new RegExp(token, 'gi')) || []).length;
           if (matches > 0) {
@@ -319,7 +371,7 @@ class KnowledgeBaseService {
           }
         });
 
-        // ✅ 備考欄（G列）のキーワードマッチングを最優先
+        // ✅ 備考欄（G列）のキーワードマッチングを最優先（既存のロジック）
         if (doc.remarks) {
           const remarksLower = doc.remarks.toLowerCase();
           
