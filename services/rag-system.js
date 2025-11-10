@@ -990,8 +990,8 @@ ${originalQuery}
       logger.info(`🔍 AI応答チェック: 知識ベース使用=${check.usesKnowledgeBase}, 一般知識使用=${check.usesGeneralKnowledge}`);
 
       // ✨ Phase 15a/16: レッスン13の具体的な用語が含まれているかチェック
-      const lesson13Keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き', 'ザイオンス効果', '茹でガエル'];
-      const foundKeywords13 = lesson13Keywords.filter(kw => aiResponse.includes(kw));
+      const lesson13KeywordsCheck = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き', 'ザイオンス効果', '茹でガエル'];
+      const foundKeywords13 = lesson13KeywordsCheck.filter(kw => aiResponse.includes(kw));
       if (topResult.source.includes('レッスン13') && foundKeywords13.length > 0) {
         logger.info(`✅ Phase 15a: レッスン13の具体的な用語を検出 (${foundKeywords13.length}個): ${foundKeywords13.join(', ')}`);
       } else if (topResult.source.includes('レッスン13')) {
@@ -999,8 +999,8 @@ ${originalQuery}
       }
 
       // ✨ Phase 15b/16: レッスン4の具体的な用語が含まれているかチェック
-      const lesson4Keywords = ['3分のズレ', '22時03分', '予約投稿', 'タイムラインの波'];
-      const foundKeywords4 = lesson4Keywords.filter(kw => aiResponse.includes(kw));
+      const lesson4KeywordsCheck = ['3分のズレ', '22時03分', '予約投稿', 'タイムラインの波'];
+      const foundKeywords4 = lesson4KeywordsCheck.filter(kw => aiResponse.includes(kw));
       if (topResult.source.includes('レッスン4') && foundKeywords4.length > 0) {
         logger.info(`✅ Phase 15b: レッスン4の具体的な用語を検出 (${foundKeywords4.length}個): ${foundKeywords4.join(', ')}`);
       } else if (topResult.source.includes('レッスン4')) {
