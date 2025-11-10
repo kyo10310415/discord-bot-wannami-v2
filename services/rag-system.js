@@ -1,4 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.10.1 (デバッグ版)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.11.0 (プロンプト強化版)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -528,18 +528,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // 🔍 デバッグ版: 知識ベース強制限定モード
+  // ✅ v2.11.0: システムプロンプト強化版（知識ベース強制使用）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      // 🔍 デバッグ: テスト配信クエリかチェック
-      const isTestStreamQuery = userQuery.includes('テスト配信');
-      
-      if (isTestStreamQuery) {
-        console.log('\n🎯 ===== テスト配信クエリ検出 =====');
-        console.log('📝 ユーザークエリ:', userQuery);
-      }
-      
-      logger.ai('🔒 知識ベース強制限定モード: 応答生成開始');
+      logger.ai('🔒 知識ベース強制限定モード: 応答生成開始（プロンプト強化版）');
       
       const imageUrls = context.imageUrls || [];
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
@@ -561,24 +553,6 @@ ${userQuery}
       });
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
-
-      // 🔍 デバッグ: レッスン14が検索結果に含まれているかチェック
-      const lesson14Result = knowledgeResults.find(doc => doc.source && doc.source.includes('レッスン14'));
-      
-      if (isTestStreamQuery && lesson14Result) {
-        console.log('\n✅ ===== レッスン14が検索結果に含まれています =====');
-        console.log('📊 スコア:', lesson14Result.score.toFixed(3));
-        console.log('📏 コンテンツ文字数:', lesson14Result.content.length);
-        console.log('📝 コンテンツの最初の1000文字:\n', lesson14Result.content.substring(0, 1000));
-        console.log('===== レッスン14確認完了 =====\n');
-      } else if (isTestStreamQuery && !lesson14Result) {
-        console.log('\n❌ レッスン14が検索結果に含まれていません！');
-        console.log('📊 検索結果トップ5:');
-        knowledgeResults.slice(0, 5).forEach((r, i) => {
-          console.log(`  [${i + 1}] ${r.source} - スコア: ${r.score.toFixed(3)}`);
-        });
-        console.log('\n');
-      }
 
       if (knowledgeResults.length > 0) {
         logger.info('\n📊 ===== 検索結果詳細（上位5件） =====');
@@ -619,28 +593,24 @@ ${userQuery}
         logger.warn(`⚠️ 検索結果が少ない: ${knowledgeResults.length}件`);
       }
 
-      // 知識ベースの内容を構築
+      // ✅ 強化版: 知識ベースの内容を構築（より詳細に）
       let knowledgeContext = '';
       knowledgeResults.forEach((result, index) => {
-        knowledgeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
-        knowledgeContext += `【資料${index + 1}】${result.title || result.source}\n`;
+        knowledgeContext += `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        knowledgeContext += `【資料${index + 1}: ${result.title || result.source}】\n`;
         knowledgeContext += `関連度: ${(result.score * 100).toFixed(0)}%\n`;
+        if (result.metadata && result.metadata.category) {
+          knowledgeContext += `カテゴリ: ${result.metadata.category}\n`;
+        }
+        if (result.metadata && result.metadata.remarks) {
+          knowledgeContext += `備考: ${result.metadata.remarks}\n`;
+        }
         knowledgeContext += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
         
-        const content = result.answer || result.content.substring(0, 1500);
+        // ✅ より多くの内容を含める（1500文字 → 3000文字）
+        const content = result.answer || result.content.substring(0, 3000);
         knowledgeContext += `${content}\n\n`;
       });
-
-      // 🔍 デバッグ: AIに渡されるコンテキストをログ出力
-      if (isTestStreamQuery && lesson14Result) {
-        console.log('\n📤 ===== AIに渡されるコンテキスト（レッスン14部分） =====');
-        const lesson14ContextPart = knowledgeContext.split('━━━━━━').find(part => part.includes('レッスン14'));
-        if (lesson14ContextPart) {
-          console.log('文字数:', lesson14ContextPart.length);
-          console.log('内容（最初の1500文字）:\n', lesson14ContextPart.substring(0, 1500));
-        }
-        console.log('===== コンテキスト確認完了 =====\n');
-      }
 
       let imageContext = '';
       if (imageUrls.length > 0) {
@@ -648,38 +618,86 @@ ${userQuery}
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
+      // ✅ 強化版システムプロンプト
       const systemPrompt = `あなたはVTuber育成スクール「わなみさん」の講師です。
 
-【絶対厳守】
-以下の資料の内容だけを使って回答してください。資料にない情報は一切使わないでください。
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 【絶対厳守ルール】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-【資料】
+1. **以下の資料の内容だけを使って回答すること**
+2. **資料にない情報は絶対に使わないこと**
+3. **一般知識や常識を使わないこと**
+4. **資料を読んでから回答すること**
+
+もしも資料にない情報が必要な場合は:
+「申し訳ございません。その情報は資料に記載されておりません」
+と正直に答えてください。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📚 【提供された資料】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${knowledgeContext}
 ${imageContext}
 
-【質問】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❓ 【ユーザーの質問】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 ${originalQuery}
 
-【回答方法】
-1. 上記の資料内容を読む
-2. 資料の内容を自分の言葉で要約する
-3. 絵文字を使って分かりやすく説明する
-4. 最後に「📚 出典: [資料名]」を必ず書く
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 【回答手順】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-【指示】
-上記の資料1〜10の内容だけを使って、回答してください。
-必ず「📚 出典: [資料名]」を最後に書いてください。
+ステップ1: 上記の資料1〜${knowledgeResults.length}を**すべて読む**
+ステップ2: 質問に関連する部分を資料から**抜き出す**
+ステップ3: 抜き出した内容を**自分の言葉でわかりやすく要約する**
+ステップ4: 絵文字を使って**親しみやすく説明する**
+ステップ5: 最後に必ず「📚 出典: [資料名]」を書く
 
-資料を必ず使って回答してください。`;
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ 【良い回答の例】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      // 🔍 デバッグ: システムプロンプト全体をログ出力
-      if (isTestStreamQuery) {
-        console.log('\n📤 ===== AIに渡されるシステムプロンプト =====');
-        console.log('プロンプト文字数:', systemPrompt.length);
-        console.log('プロンプト内容（最初の2000文字）:\n', systemPrompt.substring(0, 2000));
-        console.log('プロンプト内容（最後の1000文字）:\n', systemPrompt.substring(systemPrompt.length - 1000));
-        console.log('===== システムプロンプト確認完了 =====\n');
-      }
+質問: 「テスト配信の手順を教えて」
+
+良い回答:
+YouTubeのテスト配信を行う際の手順は以下の通りです✨
+
+1. **OBSで枠を立てる** 📹
+   プライバシー設定を必ず「限定公開」にしてください。
+
+2. **YouTube Studioで確認** 🎬
+   枠が正しく作成されているか確認します。
+
+3. **配信開始** 🚀
+   OBSで「配信開始」ボタンを押します。
+
+4. **確認項目** ✅
+   - 画面の構成が正しいか
+   - 音が出ているか
+   - コメント表示が正常か
+
+📚 出典: [レッスン14]
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ 【悪い回答の例】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+悪い回答:
+YouTubeチャンネルを開設して、機材を準備して、配信を開始します。
+
+（理由: 資料にない一般的な情報を使っている）
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎯 【今すぐ回答してください】
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+上記の資料1〜${knowledgeResults.length}の内容だけを使って、
+ユーザーの質問に回答してください。
+
+必ず「📚 出典: [資料名]」を最後に書いてください。`;
 
       const imageMessages = imageUrls && imageUrls.length > 0
         ? imageUrls.map(imgUrl => ({
@@ -689,7 +707,7 @@ ${originalQuery}
         : [];
 
       logger.info(`🖼️ OpenAI APIに渡す画像メッセージ: ${imageMessages.length}件`);
-      logger.info('🤖 AI応答生成中（知識ベース強制限定モード）...');
+      logger.info('🤖 AI応答生成中（強化版プロンプト使用）...');
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
@@ -698,17 +716,10 @@ ${originalQuery}
         { ...context, temperature: 0 } 
       );
 
-      // 🔍 デバッグ: AI応答をログ出力
-      if (isTestStreamQuery) {
-        console.log('\n🤖 ===== AIの応答内容 =====');
-        console.log(aiResponse);
-        console.log('===== AI応答確認完了 =====\n');
-      }
-
       const check = this._checkIfResponseUsesKnowledgeBase(aiResponse, knowledgeResults);
       logger.info(`🔍 AI応答チェック: 知識ベース使用=${check.usesKnowledgeBase}, 一般知識使用=${check.usesGeneralKnowledge}`);
 
-      logger.info('✅ 知識ベース強制限定モード: 応答生成完了');
+      logger.info('✅ 知識ベース強制限定モード: 応答生成完了（強化版）');
       
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
@@ -730,7 +741,7 @@ ${originalQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.10.1'  // デバッグ版
+      version: '2.11.0'  // プロンプト強化版
     };
   }
 }
