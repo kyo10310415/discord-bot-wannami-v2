@@ -1,6 +1,6 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.2.0（スコア上限撤廃版）
+// services/knowledge-base.js - 知識ベース構築サービス v2.3.0（.txt対応版）
 
-const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs } = require('./google-apis');
+const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
 const { loadNotionContent, loadWebsiteContent, loadImageUrlInfo } = require('../utils/content-loaders');
 const logger = require('../utils/logger');
@@ -256,14 +256,22 @@ class KnowledgeBaseService {
           }
         });
 
-        // ✅ 修正: スコアの正規化を削除（上限なし）
-        // const normalizedScore = Math.min(score, 1.0);  // ❌ 削除
+        // 備考欄（G列）のキーワードマッチングボーナス
+        if (doc.remarks) {
+          const remarksLower = doc.remarks.toLowerCase();
+          queryTokens.forEach(token => {
+            if (remarksLower.includes(token)) {
+              score += 0.15;
+              matchDetails.push(`備考一致("${token}")+0.15`);
+            }
+          });
+        }
 
         return {
           ...doc,
-          score: score,  // ✅ 修正: 生のスコアをそのまま使用（上限なし）
-          rawScore: score,  // デバッグ用
-          similarity: score,  // ✅ 修正
+          score: score,
+          rawScore: score,
+          similarity: score,
           title: doc.source,
           answer: this._extractRelevantContent(doc.content, queryTokens),
           matchDetails: matchDetails,
@@ -282,7 +290,6 @@ class KnowledgeBaseService {
       // スコアでソート（降順）
       scoredDocuments.sort((a, b) => b.score - a.score);
 
-      // ✅ 追加: スコア分布の詳細ログ
       logger.info('\n📊 ===== スコア計算詳細（上位10件） =====');
       scoredDocuments.slice(0, 10).forEach((doc, i) => {
         const details = doc.matchDetails.length > 0 ? doc.matchDetails.join(', ') : 'マッチなし';
@@ -299,7 +306,6 @@ class KnowledgeBaseService {
 
       logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(3) || 0})`);
 
-      // 🔍 デバッグ: 検索結果のメタデータサンプルを出力
       if (results.length > 0) {
         logger.info('🔍 検索結果のメタデータサンプル（最初の3件）:');
         results.slice(0, 3).forEach((result, idx) => {
@@ -366,6 +372,11 @@ class KnowledgeBaseService {
           console.log(`📝 Notion読み込み: ${fileName}`);
           const notionContent = await loadNotionContent(url, fileName);
           return { content: notionContent, images: this.extractImagesFromNotionContent(notionContent, fileName) };
+          
+        // ✅ .txtファイル対応を追加
+        case 'text_file':
+          console.log(`📝 テキストファイル読み込み: ${fileName}`);
+          return await loadTextFile(url, fileName);
           
         case 'image':
           console.log(`🖼️ 画像読み込み: ${fileName}`);
