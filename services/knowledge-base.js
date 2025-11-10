@@ -1,4 +1,4 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.4.0（Google Drive .txt対応版）
+// services/knowledge-base.js - 知識ベース構築サービス v2.5.0（G列最優先版）
 
 const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
@@ -256,13 +256,21 @@ class KnowledgeBaseService {
           }
         });
 
-        // 備考欄（G列）のキーワードマッチングボーナス
+        // ✅ 修正: 備考欄（G列）のキーワードマッチングを最優先（超強力）
         if (doc.remarks) {
           const remarksLower = doc.remarks.toLowerCase();
+          
+          // ✅ クエリ全体が備考に含まれる場合、超強力なボーナス
+          if (remarksLower.includes(queryLower)) {
+            score += 3.0;
+            matchDetails.push('備考完全一致+3.0');
+          }
+          
+          // ✅ 個別トークンマッチング（強化版）
           queryTokens.forEach(token => {
             if (remarksLower.includes(token)) {
-              score += 0.15;
-              matchDetails.push(`備考一致("${token}")+0.15`);
+              score += 1.0;  // ✅ 0.15 → 1.0 に大幅増加！
+              matchDetails.push(`備考一致("${token}")+1.0`);
             }
           });
         }
@@ -350,7 +358,6 @@ class KnowledgeBaseService {
     return content.substring(0, maxLength) + (content.length > maxLength ? '...' : '');
   }
 
-  // ✅ 修正版: Google Drive .txt対応
   async loadContentFromUrl(urlInfo) {
     const { url, fileName, category, type } = urlInfo;
     
@@ -359,7 +366,7 @@ class KnowledgeBaseService {
     console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
     console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
     
-    // ✅ スプレッドシートのD列（type）が "テキスト" の場合、Google Driveをテキストファイルとして扱う
+    // スプレッドシートのD列（type）が "テキスト" の場合、Google Driveをテキストファイルとして扱う
     if (detectedType === 'google_drive_file') {
       const typeLower = (type || '').toLowerCase();
       
@@ -393,17 +400,15 @@ class KnowledgeBaseService {
           const notionContent = await loadNotionContent(url, fileName);
           return { content: notionContent, images: this.extractImagesFromNotionContent(notionContent, fileName) };
           
-        // ✅ .txtファイル対応
         case 'text_file':
           console.log(`📝 テキストファイル読み込み: ${fileName}`);
-          return await loadTextFile(urlInfo.url, fileName);  // ✅ 変換後のURLを使用
+          return await loadTextFile(urlInfo.url, fileName);
           
         case 'image':
           console.log(`🖼️ 画像読み込み: ${fileName}`);
           const imageContent = await loadImageUrlInfo(url, fileName);
           return { content: imageContent, images: this.extractDirectImageInfo(url, fileName) };
           
-        // ✅ Google Driveファイル（種類不明）を追加
         case 'google_drive_file':
           console.log(`📁 Google Driveファイル読み込み（種類不明）: ${fileName}`);
           console.log(`⚠️ スプレッドシートのD列に "テキスト" などの種類を指定してください`);
