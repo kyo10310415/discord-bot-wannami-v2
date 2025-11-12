@@ -257,7 +257,7 @@ class KnowledgeBaseService {
           if (matches > 0) {
             const tokenScore = Math.min(matches * 0.05, 0.3);
             score += tokenScore;
-            matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(02)})`);
+            matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(2)})`);
           }
         });
 
