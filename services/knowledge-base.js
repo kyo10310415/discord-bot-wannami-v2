@@ -1,4 +1,4 @@
-// services/knowledge-base.js - 知識ベース構築サービス v2.6.1（レッスン13デバッグ版）
+// services/knowledge-base.js - 知識ベース構築サービス v2.7.0（クリーン版）
 
 const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
 const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
@@ -23,50 +23,6 @@ class KnowledgeBaseService {
         this.isInitialized = true;
         logger.info('✅ 知識ベースサービス初期化完了');
         logger.info(`📊 初期化後の文書数: ${this.documents.length}`);
-        
-        // 🔍 Phase 14: レッスン13の詳細デバッグ（完全一致）
-        const lesson13 = this.documents.find(doc => doc.source && doc.source === 'レッスン13');
-        if (lesson13) {
-          console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('🔍 Phase 14: レッスン13の詳細デバッグ');
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('📄 ファイル名:', lesson13.source);
-          console.log('📏 コンテンツ文字数:', lesson13.content.length);
-          console.log('🏷️ 備考:', lesson13.remarks);
-          console.log('📂 カテゴリ:', lesson13.category);
-          console.log('📋 分類:', lesson13.classification);
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          
-          // キーワード検索
-          const keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き', 'デビュー配信', '高頻度', '長尺'];
-          console.log('🔑 重要キーワードの存在確認:');
-          keywords.forEach(keyword => {
-            const exists = lesson13.content.includes(keyword);
-            console.log(`  ${exists ? '✅' : '❌'} "${keyword}": ${exists ? '存在する' : '存在しない'}`);
-          });
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          
-          // コンテンツのサンプル表示
-          console.log('📝 コンテンツの最初の500文字:');
-          console.log(lesson13.content.substring(0, 500));
-          console.log('...');
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('📝 コンテンツの中間部分（3000-3500文字目）:');
-          if (lesson13.content.length > 3500) {
-            console.log(lesson13.content.substring(3000, 3500));
-          } else {
-            console.log('（コンテンツが短いため表示できません）');
-          }
-          console.log('...');
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('📝 コンテンツの最後の500文字:');
-          console.log(lesson13.content.substring(lesson13.content.length - 500));
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-          console.log('✅ Phase 14: レッスン13デバッグ完了');
-          console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-        } else {
-          console.log('\n❌ Phase 14: レッスン13が知識ベースに見つかりません！');
-        }
         
         return result;
       } else {
@@ -100,20 +56,7 @@ class KnowledgeBaseService {
       let totalImages = 0;
 
       for (const urlInfo of urlList) {
-        // 🔍 Phase 14: レッスン13の処理を詳細にログ出力（完全一致）
-        const isLesson13 = urlInfo.fileName && urlInfo.fileName === 'レッスン13';
-        
-        if (isLesson13) {
-          console.log('\n🎯 ===== Phase 14: レッスン13の処理開始 =====');
-          console.log('📄 ファイル名:', urlInfo.fileName);
-          console.log('🔗 URL:', urlInfo.url);
-          console.log('📂 分類:', urlInfo.classification);
-          console.log('📋 種類:', urlInfo.type);
-          console.log('🏷️ カテゴリ:', urlInfo.category);
-          console.log('🏷️ 備考:', urlInfo.remarks);
-        } else {
-          console.log(`📖 読み込み中: ${urlInfo.fileName}`);
-        }
+        console.log(`📖 読み込み中: ${urlInfo.fileName}`);
         
         try {
           const result = await this.loadContentFromUrl(urlInfo);
@@ -140,26 +83,6 @@ class KnowledgeBaseService {
             
             documents.push(doc);
 
-            // 🔍 Phase 14: レッスン13の読み込み完了ログ
-            if (isLesson13) {
-              console.log('✅ レッスン13の読み込み完了');
-              console.log('📏 コンテンツ文字数:', result.content.length);
-              
-              // キーワードチェック
-              const keywords = ['3H', 'HERO', 'HUB', 'HELP', '外向き', '内向き'];
-              console.log('🔑 重要キーワードの確認:');
-              keywords.forEach(keyword => {
-                const count = (result.content.match(new RegExp(keyword, 'g')) || []).length;
-                console.log(`  - "${keyword}": ${count}回出現`);
-              });
-              
-              console.log('📝 コンテンツの最初の800文字:\n', result.content.substring(0, 800));
-              console.log('...');
-              console.log('📝 コンテンツの最後の500文字:\n', result.content.substring(result.content.length - 500));
-              console.log('✅ レッスン13を知識ベースに追加しました');
-              console.log('===== Phase 14: レッスン13の処理完了 =====\n');
-            }
-
             if (result.images && result.images.length > 0) {
               this.documentImages.push(...result.images);
               totalImages += result.images.length;
@@ -167,13 +90,6 @@ class KnowledgeBaseService {
           }
         } catch (error) {
           console.error(`❌ ${urlInfo.fileName} 読み込み失敗:`, error.message);
-          
-          // Phase 14: レッスン13の読み込み失敗を詳細にログ
-          if (isLesson13) {
-            console.log('❌ ===== Phase 14: レッスン13の読み込みに失敗 =====');
-            console.log('エラー詳細:', error);
-            console.log('===== エラー情報終了 =====\n');
-          }
           
           documents.push({
             source: urlInfo.fileName,
@@ -325,9 +241,6 @@ class KnowledgeBaseService {
         let score = 0;
         let matchDetails = [];
 
-        // Phase 14: レッスン13のスコア計算を詳細表示（完全一致）
-        const isLesson13 = doc.source && doc.source === 'レッスン13';
-
         // ✨ Phase 12: G列完全一致の事前チェック（N-gram分解の影響を受けない）
         const remarksMatch = this._checkExactRemarksMatch(doc.remarks, query);
         if (remarksMatch.matched) {
@@ -336,10 +249,6 @@ class KnowledgeBaseService {
           matchDetails.push(`🎯G列完全一致(${remarksMatch.matchedKeywords.join(', ')})+${exactMatchBonus.toFixed(1)}`);
           
           logger.info(`  🎯 ${doc.source}: G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
-          
-          if (isLesson13) {
-            console.log(`  📌 Phase 14: レッスン13 G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
-          }
         }
 
         // トークンマッチング
@@ -348,11 +257,7 @@ class KnowledgeBaseService {
           if (matches > 0) {
             const tokenScore = Math.min(matches * 0.05, 0.3);
             score += tokenScore;
-            matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(2)})`);
-            
-            if (isLesson13) {
-              console.log(`  📌 Phase 14: レッスン13 トークン「${token}」${matches}回 +${tokenScore.toFixed(2)}`);
-            }
+            matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(02)})`);
           }
         });
 
@@ -360,10 +265,6 @@ class KnowledgeBaseService {
         if (contentLower.includes(queryLower)) {
           score += 0.5;
           matchDetails.push('完全一致+0.5');
-          
-          if (isLesson13) {
-            console.log(`  📌 Phase 14: レッスン13 完全一致 +0.5`);
-          }
         }
 
         // カテゴリ一致ボーナス
@@ -372,10 +273,6 @@ class KnowledgeBaseService {
           if (queryLower.includes(categoryLower) || categoryLower.includes(queryLower)) {
             score += 0.3;
             matchDetails.push('カテゴリ一致+0.3');
-            
-            if (isLesson13) {
-              console.log(`  📌 Phase 14: レッスン13 カテゴリ一致 +0.3`);
-            }
           }
         }
 
@@ -385,10 +282,6 @@ class KnowledgeBaseService {
           if (queryLower.includes(classificationLower) || classificationLower.includes(queryLower)) {
             score += 0.4;
             matchDetails.push('分類一致+0.4');
-            
-            if (isLesson13) {
-              console.log(`  📌 Phase 14: レッスン13 分類一致 +0.4`);
-            }
           }
         }
 
@@ -398,10 +291,6 @@ class KnowledgeBaseService {
           if (sourceLower.includes(token)) {
             score += 0.2;
             matchDetails.push(`ファイル名一致("${token}")+0.2`);
-            
-            if (isLesson13) {
-              console.log(`  📌 Phase 14: レッスン13 ファイル名一致「${token}」 +0.2`);
-            }
           }
         });
 
@@ -413,10 +302,6 @@ class KnowledgeBaseService {
           if (remarksLower.includes(queryLower)) {
             score += 3.0;
             matchDetails.push('備考完全一致+3.0');
-            
-            if (isLesson13) {
-              console.log(`  📌 Phase 14: レッスン13 備考完全一致 +3.0`);
-            }
           }
           
           // 個別トークンマッチング
@@ -424,16 +309,8 @@ class KnowledgeBaseService {
             if (remarksLower.includes(token)) {
               score += 1.0;
               matchDetails.push(`備考一致("${token}")+1.0`);
-              
-              if (isLesson13) {
-                console.log(`  📌 Phase 14: レッスン13 備考一致「${token}」 +1.0`);
-              }
             }
           });
-        }
-
-        if (isLesson13) {
-          console.log(`  🎯 Phase 14: レッスン13の合計スコア: ${score.toFixed(3)}`);
         }
 
         return {
@@ -524,38 +401,22 @@ class KnowledgeBaseService {
     
     let detectedType = detectUrlType(url);
     
-    const isLesson13 = fileName && fileName.includes('レッソン13');
-    
-    if (isLesson13) {
-      console.log(`🔍 Phase 14: レッスン13のコンテンツ読み込み開始`);
-      console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
-    } else {
-      console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
-      console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
-    }
+    console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
+    console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
     
     // スプレッドシートのD列（type）が "テキスト" の場合、Google Driveをテキストファイルとして扱う
     if (detectedType === 'google_drive_file') {
       const typeLower = (type || '').toLowerCase();
       
       if (typeLower.includes('テキスト') || typeLower.includes('text') || typeLower.includes('txt')) {
-        if (isLesson13) {
-          console.log(`📝 Phase 14: レッスン13をテキストとして処理`);
-        } else {
-          console.log(`📝 Google Driveファイルをテキストとして処理: ${fileName}`);
-        }
+        console.log(`📝 Google Driveファイルをテキストとして処理: ${fileName}`);
         detectedType = 'text_file';
         
         // Google Drive URLをダウンロードURLに変換
         const downloadUrl = convertGoogleDriveUrl(url);
         urlInfo.url = downloadUrl;
         
-        if (isLesson13) {
-          console.log(`✅ Phase 14: レッスン13のダウンロードURL変換完了`);
-          console.log(`🔗 変換後URL: ${downloadUrl}`);
-        } else {
-          console.log(`✅ ダウンロードURL変換完了`);
-        }
+        console.log(`✅ ダウンロードURL変換完了`);
       } else {
         console.log(`⚠️ Google Driveファイルですが、種類が不明です`);
         console.log(`💡 ヒント: スプレッドシートのD列に "テキスト" を指定してください`);
@@ -575,22 +436,26 @@ class KnowledgeBaseService {
         case 'notion':
           console.log(`📝 Notion読み込み: ${fileName}`);
           const notionContent = await loadNotionContent(url, fileName);
+          
+          // 🔍 Notionコンテンツの詳細ログ（Q&Aなど重要なページ）
+          if (fileName && (fileName.includes('Q&A') || fileName.includes('Q＆A'))) {
+            console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log(`🔍 Notionページ詳細: ${fileName}`);
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            console.log('📏 コンテンツ文字数:', notionContent.length);
+            console.log('📝 コンテンツの最初の1000文字:\n', notionContent.substring(0, 1000));
+            console.log('...');
+            if (notionContent.length > 1000) {
+              console.log('📝 コンテンツの最後の500文字:\n', notionContent.substring(notionContent.length - 500));
+            }
+            console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+          }
+          
           return { content: notionContent, images: this.extractImagesFromNotionContent(notionContent, fileName) };
           
         case 'text_file':
-          if (isLesson13) {
-            console.log(`📝 Phase 14: レッスン13のテキストファイル読み込み開始`);
-          } else {
-            console.log(`📝 テキストファイル読み込み: ${fileName}`);
-          }
+          console.log(`📝 テキストファイル読み込み: ${fileName}`);
           const textResult = await loadTextFile(urlInfo.url, fileName);
-          
-          if (isLesson13) {
-            console.log(`✅ Phase 14: レッスン13のテキスト読み込み完了`);
-            console.log(`📏 文字数: ${textResult.content.length}`);
-            console.log(`📝 内容の最初の500文字:\n${textResult.content.substring(0, 500)}`);
-          }
-          
           return textResult;
           
         case 'image':
