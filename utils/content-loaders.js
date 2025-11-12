@@ -1,22 +1,124 @@
-// utils/content-loaders.js - コンテンツ読み込みユーティリティ
+// utils/content-loaders.js - コンテンツ読み込みユーティリティ v2.8.0（再帰的Notionクロール対応）
 
 const axios = require('axios');
 
-// Notion画像対応版
-async function loadNotionContent(url, fileName) {
+/**
+ * NotionページからリンクURLを抽出
+ */
+function extractNotionLinks(html) {
+  const links = [];
+  const urlPattern = /https:\/\/[^\s<>"']+notion\.so\/[^\s<>"']+/g;
+  const matches = html.matchAll(urlPattern);
+  
+  for (const match of matches) {
+    let url = match[0];
+    
+    // HTMLエンティティをデコード
+    url = url.replace(/&amp;/g, '&');
+    
+    // クエリパラメータとフラグメントを除去
+    url = url.split('?')[0].split('#')[0];
+    
+    // 末尾の特殊文字を除去
+    url = url.replace(/[,;.)]+$/, '');
+    
+    if (!links.includes(url)) {
+      links.push(url);
+    }
+  }
+  
+  return links;
+}
+
+/**
+ * HTMLからテキストコンテンツを抽出
+ */
+function extractTextFromHtml(html, fileName) {
+  // 画像URLを抽出してプレースホルダーに変換
+  const imgMatches = html.match(/<img[^>]+src=['"]([^'"]+)['"][^>]*>/gi);
+  let imageIndex = 0;
+  let processedHtml = html;
+  
+  if (imgMatches) {
+    imgMatches.forEach((imgTag) => {
+      const srcMatch = imgTag.match(/src=['"]([^'"]+)['"]/);
+      if (srcMatch) {
+        let imageUrl = srcMatch[1];
+        
+        // Notionの画像URLを処理
+        if (imageUrl.includes('notion') || imageUrl.includes('amazonaws.com')) {
+          imageIndex++;
+          const placeholder = `\n[🖼️ 画像: ${fileName} - Notion画像${imageIndex}]\n`;
+          processedHtml = processedHtml.replace(imgTag, placeholder);
+        }
+      }
+    });
+  }
+  
+  // テキストコンテンツを抽出
+  let textContent = processedHtml
+    // スクリプトとスタイルを除去
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
+    // Notionの特殊なクラスを持つ要素を重視
+    .replace(/<div[^>]*class="[^"]*notion-page-content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1')
+    .replace(/<div[^>]*class="[^"]*notion-text[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1\n')
+    .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n## $1\n')
+    .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n')
+    .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '• $1\n')
+    .replace(/<br[^>]*>/gi, '\n')
+    // HTMLタグを除去
+    .replace(/<[^>]*>/g, ' ')
+    // HTMLエンティティをデコード
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    // 余分な空白を整理
+    .replace(/\s+/g, ' ')
+    .replace(/\n\s+/g, '\n')
+    .trim();
+  
+  return { textContent, imageCount: imageIndex };
+}
+
+/**
+ * Notionコンテンツを再帰的に取得（リンク先も含む）
+ */
+async function loadNotionContentRecursive(url, fileName, depth = 0, maxDepth = 2, visitedUrls = new Set()) {
   try {
-    console.log(`📝 Notion読み込み開始: ${fileName}`);
+    // 最大深度チェック
+    if (depth > maxDepth) {
+      console.log(`${'  '.repeat(depth)}⚠️ 最大深度 ${maxDepth} に達しました: ${url}`);
+      return null;
+    }
+    
+    // 訪問済みURLチェック（循環参照防止）
+    const cleanUrl = url.split('?')[0].split('#')[0];
+    if (visitedUrls.has(cleanUrl)) {
+      console.log(`${'  '.repeat(depth)}⚠️ すでに訪問済み: ${url}`);
+      return null;
+    }
+    visitedUrls.add(cleanUrl);
+    
+    console.log(`${'  '.repeat(depth)}━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`${'  '.repeat(depth)}🔍 Notionページ読み込み (深度${depth}): ${fileName}`);
+    console.log(`${'  '.repeat(depth)}📍 URL: ${url.substring(0, 60)}...`);
+    console.log(`${'  '.repeat(depth)}━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     
     // NotionのページIDを抽出
     const pageIdMatch = url.match(/([a-f0-9]{32}|[a-f0-9-]{36})/);
     if (!pageIdMatch) {
-      throw new Error('Invalid Notion URL format - Page ID not found');
+      console.error(`${'  '.repeat(depth)}❌ Invalid Notion URL format - Page ID not found`);
+      return null;
     }
     
     const pageId = pageIdMatch[0].replace(/-/g, '');
-    console.log(`🔍 Notion Page ID: ${pageId}`);
+    console.log(`${'  '.repeat(depth)}🔑 Notion Page ID: ${pageId}`);
     
-    // Notion APIを使わずに公開ページをスクレイピング
+    // Notion公開ページをスクレイピング
     const response = await axios.get(url, {
       timeout: 15000,
       headers: {
@@ -30,75 +132,107 @@ async function loadNotionContent(url, fileName) {
     
     const html = response.data;
     
-    // 画像URLを抽出してプレースホルダーに変換
-    const imgMatches = html.match(/<img[^>]+src=['"]([^'"]+)['"][^>]*>/gi);
-    let imageIndex = 0;
-    let processedHtml = html;
-    
-    if (imgMatches) {
-      imgMatches.forEach((imgTag) => {
-        const srcMatch = imgTag.match(/src=['"]([^'"]+)['"]/);
-        if (srcMatch) {
-          let imageUrl = srcMatch[1];
-          
-          // 相対URLを絶対URLに変換
-          if (imageUrl.startsWith('/')) {
-            imageUrl = new URL(imageUrl, url).href;
-          }
-          
-          // Notionの画像URLを処理
-          if (imageUrl.includes('notion') || imageUrl.includes('amazonaws.com')) {
-            imageIndex++;
-            const placeholder = `\n[🖼️ 画像: ${fileName} - Notion画像${imageIndex}]\n`;
-            processedHtml = processedHtml.replace(imgTag, placeholder);
-          }
-        }
-      });
-    }
-    
-    // Notionページのタイトルを抽出
+    // タイトルを抽出
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
     const title = titleMatch ? titleMatch[1].replace(' | Notion', '').trim() : fileName;
     
-    // Notionの特殊なHTML構造からテキストを抽出
-    let textContent = processedHtml
-      // スクリプトとスタイルを除去
-      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-      .replace(/<noscript[^>]*>[\s\S]*?<\/noscript>/gi, '')
-      // Notionの特殊なクラスを持つ要素を重視
-      .replace(/<div[^>]*class="[^"]*notion-page-content[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1')
-      .replace(/<div[^>]*class="[^"]*notion-text[^"]*"[^>]*>([\s\S]*?)<\/div>/gi, '$1\n')
-      .replace(/<h[1-6][^>]*>([\s\S]*?)<\/h[1-6]>/gi, '\n## $1\n')
-      .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '$1\n')
-      .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '• $1\n')
-      .replace(/<br[^>]*>/gi, '\n')
-      // HTMLタグを除去
-      .replace(/<[^>]*>/g, ' ')
-      // HTMLエンティティをデコード
-      .replace(/&quot;/g, '"')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&nbsp;/g, ' ')
-      // 余分な空白を整理
-      .replace(/\s+/g, ' ')
-      .trim();
+    // テキストコンテンツを抽出
+    const { textContent, imageCount } = extractTextFromHtml(html, fileName);
     
-    // 長すぎる場合は制限
-    if (textContent.length > 8000) {
-      textContent = textContent.substring(0, 8000) + '\n\n... (長いコンテンツのため一部省略)';
+    console.log(`${'  '.repeat(depth)}📏 コンテンツ文字数: ${textContent.length.toLocaleString()}`);
+    console.log(`${'  '.repeat(depth)}🖼️ 画像数: ${imageCount}`);
+    console.log(`${'  '.repeat(depth)}📝 コンテンツの最初の200文字:`);
+    console.log(`${'  '.repeat(depth)}${textContent.substring(0, 200).replace(/\n/g, `\n${'  '.repeat(depth)}`)}`);
+    
+    // 現在のページのコンテンツをフォーマット
+    let fullContent = '';
+    
+    if (depth === 0) {
+      // 親ページ
+      fullContent += `${fileName}\n${'='.repeat(50)}\n`;
+      fullContent += `タイトル: ${title}\n`;
+      fullContent += `Notion URL: ${url}\n`;
+      fullContent += `種類: Notionページ\n\n`;
+      fullContent += textContent;
+    } else {
+      // 子ページ（区切り線で区別）
+      fullContent += `\n\n${'─'.repeat(50)}\n`;
+      fullContent += `【リンク先ページ ${depth}階層目】\n`;
+      fullContent += `タイトル: ${title}\n\n`;
+      fullContent += textContent;
     }
     
-    let content = `${fileName}\n${'='.repeat(50)}\n`;
-    content += `タイトル: ${title}\n`;
-    content += `Notion URL: ${url}\n`;
-    content += `種類: Notionページ\n\n`;
-    content += textContent;
+    // リンク先のNotionページを抽出
+    const notionLinks = extractNotionLinks(html);
     
-    console.log(`✅ Notion読み込み成功: ${fileName} (${content.length}文字, ${imageIndex}枚の画像)`);
-    return content;
+    if (notionLinks.length > 0 && depth < maxDepth) {
+      console.log(`${'  '.repeat(depth)}🔗 Notionリンク検出: ${notionLinks.length}件`);
+      
+      // 各リンク先を再帰的にクロール
+      for (let i = 0; i < notionLinks.length; i++) {
+        const linkUrl = notionLinks[i];
+        console.log(`${'  '.repeat(depth)}📎 リンク ${i + 1}/${notionLinks.length}: ${linkUrl.substring(0, 50)}...`);
+        
+        // リンク先のタイトルを推測
+        const linkTitle = `リンク先_${i + 1}`;
+        
+        const childContent = await loadNotionContentRecursive(
+          linkUrl,
+          linkTitle,
+          depth + 1,
+          maxDepth,
+          visitedUrls
+        );
+        
+        if (childContent) {
+          fullContent += childContent;
+          console.log(`${'  '.repeat(depth)}✅ リンク先追加完了 (${i + 1}/${notionLinks.length})`);
+        }
+        
+        // API制限を考慮して待機
+        if (i < notionLinks.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+    } else if (notionLinks.length === 0) {
+      console.log(`${'  '.repeat(depth)}📭 Notionリンクなし（リーフページ）`);
+    }
+    
+    console.log(`${'  '.repeat(depth)}━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+    
+    return fullContent;
+    
+  } catch (error) {
+    console.error(`${'  '.repeat(depth)}❌ Notion読み込みエラー: ${fileName}`, error.message);
+    return null;
+  }
+}
 
+/**
+ * Notion画像対応版（エントリーポイント、再帰的クロール対応）
+ */
+async function loadNotionContent(url, fileName) {
+  try {
+    console.log(`\n🚀 Notion再帰クロール開始: ${fileName}`);
+    console.log(`📍 親URL: ${url}`);
+    console.log(`⚙️ 設定: 最大深度2階層（親 + 子ページ）\n`);
+    
+    const content = await loadNotionContentRecursive(url, fileName, 0, 2);
+    
+    if (content) {
+      console.log(`\n✨ Notion再帰クロール完了: ${fileName}`);
+      console.log(`📊 最終コンテンツ文字数: ${content.length.toLocaleString()}`);
+      console.log(`📝 最終コンテンツの最初の500文字:\n${content.substring(0, 500)}`);
+      if (content.length > 500) {
+        console.log(`📝 最終コンテンツの最後の300文字:\n${content.substring(content.length - 300)}`);
+      }
+      console.log(`✅ Notion読み込み成功\n`);
+      
+      return content;
+    } else {
+      throw new Error('再帰クロールが失敗しました');
+    }
+    
   } catch (error) {
     console.error(`❌ Notion読み込み失敗 ${fileName}:`, error.message);
     
