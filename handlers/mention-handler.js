@@ -1,7 +1,7 @@
 // handlers/mention-handler.js - メンション処理ハンドラー（Q&A記録機能統合版）
-// Version: 15.5.0
+// Version: 15.5.2
 // 更新日: 2025-11-13
-// 変更内容: Q&A記録機能を追加（handleMessageWithQALogging関数）
+// 変更内容: 回答ステータスを明示的に渡すように改善
 
 const logger = require('../utils/logger');
 const { isBotMentioned, extractContentFromMention } = require('../utils/verification');
@@ -14,7 +14,7 @@ const BOT_USER_ID = process.env.BOT_USER_ID || '1420328163497607199';
 logger.info(`🆔 設定されたBOT_USER_ID: ${BOT_USER_ID}`);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ✨ 新機能: Q&A記録機能統合版のメンション処理
+// ✨ Q&A記録機能統合版のメンション処理
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
@@ -143,14 +143,15 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           await sendLongMessage(message.channel, buttonResponse);
           logger.success(`ボタン質問応答送信完了: ${message.author.username}`);
           
-          // ✅ Q&A記録（ボタン質問）
+          // ✅ Q&A記録（ボタン質問 - 成功）
           await logQAInteraction(
             qaLoggerService,
             message,
             questionContent,
             responseContent,
             startTime,
-            'ボタン質問'
+            'ボタン質問',
+            '成功' // ✨ ステータスを明示
           );
           
           return;
@@ -192,14 +193,15 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       
       logger.success(`知識ベース限定応答送信完了: ${message.author.username}`);
       
-      // ✅ Q&A記録（通常の知識ベース質問）
+      // ✅ Q&A記録（通常の知識ベース質問 - 成功）
       await logQAInteraction(
         qaLoggerService,
         message,
         questionContent,
         responseContent,
         startTime,
-        '知識ベース質問'
+        '知識ベース質問',
+        '成功' // ✨ ステータスを明示
       );
       
     } catch (knowledgeError) {
@@ -218,7 +220,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         questionContent,
         responseContent,
         startTime,
-        'エラー応答'
+        'エラー応答',
+        'エラー応答' // ✨ ステータスを明示
       );
     }
     
@@ -236,7 +239,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         questionContent || message.content,
         errorResponse,
         startTime,
-        'システムエラー'
+        'システムエラー',
+        'システムエラー' // ✨ ステータスを明示
       );
       
     } catch (replyError) {
@@ -246,15 +250,16 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 }
 
 /**
- * Q&A記録ヘルパー関数
+ * Q&A記録ヘルパー関数（改善版）
  * @param {Object} qaLoggerService - Q&A記録サービス
  * @param {Message} message - Discordメッセージ
  * @param {string} question - 質問内容
  * @param {string} response - 回答内容
  * @param {number} startTime - 開始時刻（ミリ秒）
- * @param {string} type - 質問タイプ（'通常質問', 'ボタン質問', 'エラー応答'など）
+ * @param {string} type - 質問タイプ
+ * @param {string} status - 回答ステータス（'成功', 'エラー応答', 'システムエラー'）
  */
-async function logQAInteraction(qaLoggerService, message, question, response, startTime, type = '通常質問') {
+async function logQAInteraction(qaLoggerService, message, question, response, startTime, type = '通常質問', status = '成功') {
   try {
     if (!qaLoggerService) {
       logger.warn('⚠️ Q&A記録サービスが利用できません（初期化されていない可能性）');
@@ -273,11 +278,12 @@ async function logQAInteraction(qaLoggerService, message, question, response, st
       response: response,
       responseLength: response.length,
       processingTime: processingTime,
-      questionType: type
+      questionType: type,
+      status: status // ✨ ステータスを追加
     };
     
     await qaLoggerService.logQA(qaData);
-    logger.success(`📊 Q&A記録成功: ${type} (${processingTime}ms)`);
+    logger.success(`📊 Q&A記録成功: ${type} [${status}] (${processingTime}ms)`);
     
   } catch (logError) {
     // Q&A記録失敗はユーザー体験に影響しないため、エラーログのみ出力
@@ -594,7 +600,7 @@ async function handleRoleMention(message, client) {
 
 module.exports = {
   handleMessage, // 既存関数（後方互換性のため保持）
-  handleMessageWithQALogging, // ✨ 新機能: Q&A記録付き処理
+  handleMessageWithQALogging, // ✨ Q&A記録付き処理
   handleRoleMention,
   sendLongMessage
 };
