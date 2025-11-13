@@ -1,11 +1,13 @@
-// services/qa-logger.js - Q&A記録サービス（エラー修正版）
-// Version: 15.5.1
+// services/qa-logger.js - Q&A記録サービス（改善版）
+// Version: 15.5.2
 // 更新日: 2025-11-13
-// 修正内容: JSON.parse()エラーの修正、環境変数読み込み改善
+// 変更内容: 
+//   - 回答ステータス列を追加
+//   - 行の高さ固定、テキスト折り返し無効化
 
 const { google } = require('googleapis');
 const logger = require('../utils/logger');
-const env = require('../config/environment'); // ✅ environment.jsから環境変数取得
+const env = require('../config/environment');
 
 class QALoggerService {
   constructor() {
@@ -40,14 +42,13 @@ class QALoggerService {
    */
   async getAuthClient() {
     try {
-      // ✅ 修正: environment.jsから認証情報を取得
       const credentials = env.GOOGLE_SHEETS_CREDENTIALS;
       
       if (!credentials) {
         throw new Error('GOOGLE_SHEETS_CREDENTIALS環境変数が設定されていません');
       }
 
-      // ✅ 修正: 既にオブジェクトの場合はそのまま使用、文字列の場合はパース
+      // 既にオブジェクトの場合はそのまま使用、文字列の場合はパース
       let parsedCredentials;
       if (typeof credentials === 'string') {
         try {
@@ -88,7 +89,6 @@ class QALoggerService {
         spreadsheetId: this.spreadsheetId,
       });
 
-      // ✅ 修正: response.dataではなくspreadsheet.dataを直接使用
       if (!spreadsheet.data || !spreadsheet.data.sheets) {
         throw new Error('スプレッドシート情報の取得に失敗しました');
       }
@@ -98,11 +98,13 @@ class QALoggerService {
         sheet => sheet.properties.title === this.sheetName
       );
 
+      let sheetId = null;
+
       if (!sheetExists) {
         logger.info(`📝 シート "${this.sheetName}" が存在しないため作成します`);
         
         // シートを作成
-        await sheets.spreadsheets.batchUpdate({
+        const createResponse = await sheets.spreadsheets.batchUpdate({
           spreadsheetId: this.spreadsheetId,
           resource: {
             requests: [
@@ -117,12 +119,27 @@ class QALoggerService {
           },
         });
 
-        logger.success(`✅ シート "${this.sheetName}" を作成しました`);
+        // 作成されたシートのIDを取得
+        sheetId = createResponse.data.replies[0].addSheet.properties.sheetId;
+        logger.success(`✅ シート "${this.sheetName}" を作成しました (ID: ${sheetId})`);
 
         // ヘッダー行を追加
         await this.addHeaderRow(sheets);
+
+        // ✅ 書式設定を適用（行の高さ固定、テキスト折り返し無効化）
+        await this.applyFormatting(sheets, sheetId);
+        
       } else {
         logger.info(`✅ シート "${this.sheetName}" は既に存在します`);
+        
+        // 既存シートのIDを取得
+        const sheet = spreadsheet.data.sheets.find(
+          sheet => sheet.properties.title === this.sheetName
+        );
+        sheetId = sheet.properties.sheetId;
+        
+        // ✅ 既存シートにも書式設定を適用
+        await this.applyFormatting(sheets, sheetId);
       }
     } catch (error) {
       logger.error('シート確認・作成エラー:', error.message);
@@ -136,6 +153,7 @@ class QALoggerService {
    */
   async addHeaderRow(sheets) {
     try {
+      // ✅ 回答ステータス列を追加
       const headers = [
         'タイムスタンプ',
         'ユーザー名',
@@ -147,12 +165,13 @@ class QALoggerService {
         '回答内容',
         '回答文字数',
         '処理時間(ms)',
-        '質問タイプ'
+        '質問タイプ',
+        '回答ステータス' // ✨ 新しい列
       ];
 
       await sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A1:K1`,
+        range: `${this.sheetName}!A1:L1`, // K1 → L1に変更
         valueInputOption: 'RAW',
         resource: {
           values: [headers],
@@ -163,6 +182,100 @@ class QALoggerService {
     } catch (error) {
       logger.error('ヘッダー行追加エラー:', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * ✨ 新機能: 書式設定を適用
+   * @param {Object} sheets - Google Sheets APIクライアント
+   * @param {number} sheetId - シートID
+   */
+  async applyFormatting(sheets, sheetId) {
+    try {
+      logger.info('📐 書式設定を適用中...');
+
+      const requests = [
+        // 1. すべての行の高さを21pxに固定
+        {
+          updateDimensionProperties: {
+            range: {
+              sheetId: sheetId,
+              dimension: 'ROWS',
+              startIndex: 0,
+              endIndex: 10000 // 最大10,000行まで対応
+            },
+            properties: {
+              pixelSize: 21 // 行の高さを21pxに固定
+            },
+            fields: 'pixelSize'
+          }
+        },
+        // 2. すべてのセルのテキスト折り返しを無効化（切り詰め）
+        {
+          repeatCell: {
+            range: {
+              sheetId: sheetId,
+              startRowIndex: 0,
+              endRowIndex: 10000,
+              startColumnIndex: 0,
+              endColumnIndex: 12 // A列～L列（12列）
+            },
+            cell: {
+              userEnteredFormat: {
+                wrapStrategy: 'CLIP' // テキストを切り詰め
+              }
+            },
+            fields: 'userEnteredFormat.wrapStrategy'
+          }
+        },
+        // 3. ヘッダー行を太字にして背景色を設定
+        {
+          repeatCell: {
+            range: {
+              sheetId: sheetId,
+              startRowIndex: 0,
+              endRowIndex: 1,
+              startColumnIndex: 0,
+              endColumnIndex: 12
+            },
+            cell: {
+              userEnteredFormat: {
+                textFormat: {
+                  bold: true
+                },
+                backgroundColor: {
+                  red: 0.85,
+                  green: 0.85,
+                  blue: 0.85
+                }
+              }
+            },
+            fields: 'userEnteredFormat(textFormat,backgroundColor)'
+          }
+        },
+        // 4. ヘッダー行を固定（スクロール時も表示）
+        {
+          updateSheetProperties: {
+            properties: {
+              sheetId: sheetId,
+              gridProperties: {
+                frozenRowCount: 1
+              }
+            },
+            fields: 'gridProperties.frozenRowCount'
+          }
+        }
+      ];
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: this.spreadsheetId,
+        resource: { requests }
+      });
+
+      logger.success('✅ 書式設定を適用しました（行の高さ固定、テキスト折り返し無効化）');
+    } catch (error) {
+      logger.warn('⚠️ 書式設定適用エラー（記録機能には影響なし）:', error.message);
+      // 書式設定失敗は致命的ではないので、エラーを投げずに続行
     }
   }
 
@@ -191,6 +304,16 @@ class QALoggerService {
         second: '2-digit',
       });
 
+      // ✅ 回答ステータスを判定
+      let responseStatus = '成功';
+      if (qaData.status) {
+        responseStatus = qaData.status; // 明示的に渡された場合
+      } else if (qaData.questionType === 'システムエラー') {
+        responseStatus = 'システムエラー';
+      } else if (qaData.questionType === 'エラー応答') {
+        responseStatus = 'エラー応答';
+      }
+
       const row = [
         timestamp,
         qaData.username || '',
@@ -202,19 +325,20 @@ class QALoggerService {
         qaData.response || '',
         qaData.responseLength || 0,
         qaData.processingTime || 0,
-        qaData.questionType || '通常質問'
+        qaData.questionType || '通常質問',
+        responseStatus // ✨ 新しい列
       ];
 
       await sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A:K`,
+        range: `${this.sheetName}!A:L`, // A:K → A:Lに変更
         valueInputOption: 'RAW',
         resource: {
           values: [row],
         },
       });
 
-      logger.debug(`📊 Q&A記録追加: ${qaData.username} - ${qaData.question?.substring(0, 50)}...`);
+      logger.debug(`📊 Q&A記録追加: ${qaData.username} - ${qaData.question?.substring(0, 50)}... [${responseStatus}]`);
     } catch (error) {
       logger.error('Q&A記録追加エラー:', error.message);
       logger.errorDetail('Q&A記録詳細エラー:', error);
@@ -239,14 +363,31 @@ class QALoggerService {
 
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `${this.sheetName}!A:K`,
+        range: `${this.sheetName}!A:L`, // A:K → A:Lに変更
       });
 
       const rows = response.data.values || [];
       const dataRows = rows.slice(1); // ヘッダー行を除く
 
+      // ✅ ステータス別の集計
+      const statusCount = {
+        success: 0,
+        error: 0,
+        systemError: 0
+      };
+
+      dataRows.forEach(row => {
+        const status = row[11]; // L列（回答ステータス）
+        if (status === '成功') statusCount.success++;
+        else if (status === 'エラー応答') statusCount.error++;
+        else if (status === 'システムエラー') statusCount.systemError++;
+      });
+
       return {
         totalRecords: dataRows.length,
+        successCount: statusCount.success,
+        errorCount: statusCount.error,
+        systemErrorCount: statusCount.systemError,
         lastUpdated: dataRows.length > 0 ? dataRows[dataRows.length - 1][0] : null,
         spreadsheetId: this.spreadsheetId,
         sheetName: this.sheetName
