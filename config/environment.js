@@ -23,6 +23,15 @@ class Environment {
     return process.env.DISCORD_APPLICATION_ID;
   }
 
+  // Google Sheets設定 - スプレッドシートID
+  get KNOWLEDGE_SPREADSHEET_ID() {
+    return process.env.KNOWLEDGE_SPREADSHEET_ID;
+  }
+
+  get QA_SPREADSHEET_ID() {
+    return process.env.QA_SPREADSHEET_ID;
+  }
+
   // Google APIs設定
   get GOOGLE_CREDENTIALS() {
     // プライベートキーの正規化
@@ -82,6 +91,11 @@ class Environment {
       console.warn(`⚠️ Google APIs関連の環境変数が不足: ${googleMissing.join(', ')}`);
       console.warn('知識ベース機能が制限されます。');
     }
+
+    // Q&A記録スプレッドシートIDの確認（オプション）
+    if (!process.env.QA_SPREADSHEET_ID) {
+      console.warn('⚠️ QA_SPREADSHEET_IDが設定されていません。Q&A記録機能は無効です。');
+    }
   }
 
   // 環境変数の状態確認
@@ -91,6 +105,8 @@ class Environment {
       google_project_id: !!process.env.GOOGLE_PROJECT_ID,
       google_client_email: !!process.env.GOOGLE_CLIENT_EMAIL,
       google_private_key: !!process.env.GOOGLE_PRIVATE_KEY,
+      knowledge_spreadsheet_id: !!process.env.KNOWLEDGE_SPREADSHEET_ID,
+      qa_spreadsheet_id: !!process.env.QA_SPREADSHEET_ID,
       discord_bot_token: !!process.env.DISCORD_BOT_TOKEN,
       discord_public_key: !!process.env.DISCORD_PUBLIC_KEY,
       discord_application_id: !!process.env.DISCORD_APPLICATION_ID,
