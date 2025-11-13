@@ -1,4 +1,7 @@
-// config/environment.js - 環境変数管理
+// config/environment.js - 環境変数管理（Q&A記録対応版）
+// Version: 15.5.1
+// 更新日: 2025-11-13
+// 修正内容: GOOGLE_SHEETS_CREDENTIALS getter追加
 
 class Environment {
   constructor() {
@@ -62,6 +65,12 @@ class Environment {
     };
     
     return credentials;
+  }
+
+  // ✅ 追加: Google Sheets API専用の認証情報getter
+  get GOOGLE_SHEETS_CREDENTIALS() {
+    // GOOGLE_CREDENTIALSと同じオブジェクトを返す
+    return this.GOOGLE_CREDENTIALS;
   }
 
   // 必須環境変数の検証
