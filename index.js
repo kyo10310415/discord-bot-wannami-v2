@@ -1,5 +1,5 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
-// Version: 15.4.0 - Bot User ID確認機能・デバッグログ追加版
+// Version: 15.5.0 - Q&A記録機能追加版
 
 const express = require('express');
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionType } = require('discord.js');
@@ -14,6 +14,7 @@ const buttonHandler = require('./handlers/button-handler');
 const { initializeServices } = require('./services/google-apis');
 const knowledgeBase = require('./services/knowledge-base');
 const { initializeRAG } = require('./services/rag-system');
+const { qaLoggerService } = require('./services/qa-logger'); // ✅ 追加
 
 const app = express();
 
@@ -70,10 +71,10 @@ function verifySignature(req) {
 
 // Discord Bot Events
 client.once('ready', async () => {
-  logger.startup('Discord Bot for わなみさん', '15.4.0', env.PORT);
+  logger.startup('Discord Bot for わなみさん', '15.5.0', env.PORT);
   logger.info(`🔗 サーバー数: ${client.guilds.cache.size}`);
   
-  // ✅ 修正: Bot User IDの確認と検証
+  // Bot User IDの確認と検証
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   logger.info('🆔 Bot User ID 確認');
   logger.info(`  実際のBot User ID: ${client.user.id}`);
@@ -81,7 +82,6 @@ client.once('ready', async () => {
   const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
   logger.info(`  設定されたBOT_USER_ID: ${configuredBotId}`);
   
-  // ✅ 修正: IDの一致確認
   if (client.user.id === configuredBotId) {
     logger.success('  ✅ Bot User IDが正しく設定されています');
   } else {
@@ -89,12 +89,6 @@ client.once('ready', async () => {
     logger.error(`     実際のID: ${client.user.id}`);
     logger.error(`     設定値: ${configuredBotId}`);
     logger.error('     → 環境変数のBOT_USER_IDを修正してください');
-    logger.error('');
-    logger.error('  🔧 修正方法:');
-    logger.error('     1. Render.com Dashboard にアクセス');
-    logger.error('     2. Environment タブを開く');
-    logger.error(`     3. BOT_USER_ID を ${client.user.id} に変更`);
-    logger.error('     4. サービスを再起動');
   }
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
@@ -114,6 +108,19 @@ client.once('ready', async () => {
     await initializeRAG();
     logger.success('✅ RAGシステム初期化完了');
     
+    // ✅ 追加: Q&A記録サービス初期化
+    if (env.QA_SPREADSHEET_ID) {
+      try {
+        await qaLoggerService.initialize(env.QA_SPREADSHEET_ID);
+        logger.success('✅ Q&A記録サービス初期化完了');
+      } catch (error) {
+        logger.error('❌ Q&A記録サービス初期化失敗:', error.message);
+        logger.warn('⚠️ Q&A記録機能は無効です');
+      }
+    } else {
+      logger.warn('⚠️ QA_SPREADSHEET_IDが設定されていません。Q&A記録機能は無効です。');
+    }
+    
     logger.success('🎉 全サービス初期化完了！');
     
   } catch (error) {
@@ -125,10 +132,11 @@ client.once('ready', async () => {
   client.user.setActivity('VTuber育成スクールサポート 🎥✨', { type: 'WATCHING' });
 });
 
-// メンション対応（AI知識ベース統合）
+// メンション対応（AI知識ベース統合 + Q&A記録）
 client.on('messageCreate', async (message) => {
   try {
-    await mentionHandler.handleMessage(message, client);
+    // ✅ 修正: Q&A記録対応版
+    await mentionHandler.handleMessageWithQALogging(message, client, qaLoggerService);
   } catch (error) {
     logger.errorDetail('メッセージ処理エラー:', error);
   }
@@ -231,7 +239,18 @@ app.post('/api/knowledge-base/refresh', async (req, res) => {
   }
 });
 
-// ✅ 追加: Bot User ID 確認エンドポイント
+// ✅ 追加: Q&A記録統計エンドポイント
+app.get('/api/qa-log/stats', async (req, res) => {
+  try {
+    const stats = await qaLoggerService.getStats();
+    res.json(stats || { error: 'Q&A記録サービスが初期化されていません' });
+  } catch (error) {
+    logger.errorDetail('Q&A統計取得エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// Bot User ID 確認エンドポイント
 app.get('/api/bot/user-id', (req, res) => {
   try {
     const actualId = client.user?.id || 'Bot未接続';
@@ -259,7 +278,6 @@ app.get('/', (req, res) => {
   try {
     const status = env.getStatus();
     
-    // ✅ 追加: Bot User IDの状態
     const actualBotId = client.user?.id || 'Not connected';
     const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
     const botIdMatch = actualBotId === configuredBotId;
@@ -275,15 +293,19 @@ app.get('/', (req, res) => {
         google_apis: googleAPIsService.getStatus(),
         openai: openAIService.getStatus(),
         knowledge_base: knowledgeBase.getStatus(),
-        rag_system: ragSystem.getStatus()
+        rag_system: ragSystem.getStatus(),
+        qa_logger: {
+          initialized: qaLoggerService.isInitialized,
+          spreadsheet_id: env.QA_SPREADSHEET_ID ? '設定済み' : '未設定'
+        }
       };
     } catch (serviceError) {
       logger.warn('サービス状態取得エラー:', serviceError.message);
     }
     
     res.json({
-      status: 'Discord Bot for わなみさん - Running (Full Version)',
-      version: '15.4.0',
+      status: 'Discord Bot for わなみさん - Running (Full Version + QA Logger)',
+      version: '15.5.0',
       timestamp: new Date().toISOString(),
       environment: {
         node_env: process.env.NODE_ENV || 'development',
@@ -296,7 +318,6 @@ app.get('/', (req, res) => {
         guilds: client.guilds?.cache.size || 0,
         user: client.user?.tag || 'Not connected',
         latency: client.ws.ping || 0,
-        // ✅ 追加: Bot User ID状態
         bot_user_id: {
           actual: actualBotId,
           configured: configuredBotId,
@@ -323,6 +344,7 @@ app.get('/', (req, res) => {
         '✅ モジュール化アーキテクチャ',
         '✅ Bot User ID検証機能',
         '✅ デバッグログシステム',
+        '✅ Q&A記録機能（Googleスプレッドシート連携）', // ✅ 追加
         '🚀 完全機能版'
       ],
       performance: {
@@ -330,11 +352,11 @@ app.get('/', (req, res) => {
         cpu_usage: process.cpuUsage(),
         node_version: process.version
       },
-      // ✅ 追加: デバッグ情報
       debug: {
         bot_id_check_endpoint: '/api/bot/user-id',
         knowledge_base_status: '/api/knowledge-base/status',
-        knowledge_base_refresh: 'POST /api/knowledge-base/refresh'
+        knowledge_base_refresh: 'POST /api/knowledge-base/refresh',
+        qa_log_stats: '/api/qa-log/stats' // ✅ 追加
       }
     });
   } catch (error) {
@@ -395,6 +417,7 @@ async function startServer() {
       logger.info(`   GET  /api/bot/user-id - Bot User ID確認`);
       logger.info(`   GET  /api/knowledge-base/status - 知識ベース状態`);
       logger.info(`   POST /api/knowledge-base/refresh - 知識ベース更新`);
+      logger.info(`   GET  /api/qa-log/stats - Q&A記録統計`); // ✅ 追加
       logger.info(`   POST /interactions - Discord Interactions`);
       logger.info('');
     });
