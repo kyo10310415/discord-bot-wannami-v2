@@ -1,4 +1,7 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.6.1 (スマート検索最適化版)
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.0 (詳細回答版)
+// Version: 2.7.0
+// 更新日: 2025-11-13
+// 変更内容: 回答の詳細度を大幅に向上
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -95,9 +98,8 @@ class RAGSystem {
     }
   }
 
-  // 🆕 スマート検索クエリ最適化（v2.6.1）
+  // スマート検索クエリ最適化（v2.6.1）
   _optimizeSearchQuery(userQuery) {
-    // ストップワード（除去する語句）のリスト
     const stopWords = [
       'について', '教えて', 'ください', 'どうすれば', 'どうやって',
       'どのように', 'ですか', 'でしょうか', 'なんですか', 'とは',
@@ -109,44 +111,32 @@ class RAGSystem {
     
     let optimizedQuery = userQuery;
     
-    // レッスン番号を検出して除去
     const lessonMatch = userQuery.match(/レッスン(\d+)/);
     let lessonNumber = null;
     
     if (lessonMatch) {
       lessonNumber = lessonMatch[1];
       logger.info(`📚 レッスン番号を検出: ${lessonNumber}`);
-      
-      // レッスン番号とその前後の助詞を除去
       optimizedQuery = optimizedQuery.replace(/レッスン\d+の?/g, '').trim();
     }
     
-    // ストップワードを除去（後ろから順に）
     stopWords.forEach(word => {
-      // 末尾のストップワードを除去（優先度高）
       const endPattern = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'g');
       optimizedQuery = optimizedQuery.replace(endPattern, '').trim();
       
-      // 文中のストップワードも除去（ただし、複合語を壊さないように慎重に）
       if (word.length >= 2) {
         const middlePattern = new RegExp('\\s+' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+', 'g');
         optimizedQuery = optimizedQuery.replace(middlePattern, ' ').trim();
       }
     });
     
-    // 連続するスペースを1つにまとめる
     optimizedQuery = optimizedQuery.replace(/\s+/g, ' ').trim();
-    
-    // 疑問符や句読点を除去
     optimizedQuery = optimizedQuery.replace(/[？?！!。、，,]/g, '').trim();
     
-    // 最適化後のクエリが空または短すぎる場合
     if (!optimizedQuery || optimizedQuery.length < 2) {
-      // レッスンミッションの場合
       if (lessonNumber && userQuery.includes('ミッション')) {
         optimizedQuery = 'ミッション';
       } else {
-        // 元のクエリから重要そうな単語を抽出
         optimizedQuery = this._extractKeywords(userQuery);
       }
     }
@@ -158,15 +148,9 @@ class RAGSystem {
     };
   }
   
-  // キーワード抽出（フォールバック用）
   _extractKeywords(text) {
-    // カタカナ、漢字、ひらがなの連続をキーワードとして抽出
     const keywords = text.match(/[ァ-ヶー]+|[一-龯]+|[ぁ-ん]{2,}/g) || [];
-    
-    // 最も長いキーワードを優先
     keywords.sort((a, b) => b.length - a.length);
-    
-    // 上位3つまでを連結
     return keywords.slice(0, 3).join(' ') || text;
   }
 
@@ -232,7 +216,8 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
         systemPrompt,
         userQuery,
         images,
-        context
+        context,
+        { maxTokens: 3000 } // ✨ max_tokensを明示的に指定
       );
 
       logger.success('RAG応答生成完了');
@@ -280,7 +265,8 @@ ${visionContext}
         systemPrompt,
         userQuery,
         imageUrls.map(url => ({ url })),
-        context
+        context,
+        { maxTokens: 3000 } // ✨ max_tokensを明示的に指定
       );
 
       logger.success('画像解析統合RAG応答生成完了');
@@ -292,7 +278,6 @@ ${visionContext}
     }
   }
 
-  // 🔧 修正: ミッション提出専用応答生成（v2.6.1 - スマート検索最適化版）
   async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
       logger.ai('📝 ===== ミッション提出専用処理開始 =====');
@@ -301,7 +286,6 @@ ${visionContext}
 
       await this.waitForInitialization();
 
-      // 🆕 スマート検索クエリ最適化
       const { optimizedQuery, lessonNumber, originalQuery } = this._optimizeSearchQuery(userQuery);
       
       logger.info(`🔍 検索クエリ最適化:`);
@@ -313,10 +297,9 @@ ${visionContext}
 
       logger.info('🔍 知識ベース検索開始（ミッション資料）...');
       
-      // 🆕 検索パラメータを大幅に緩和
       const knowledgeResults = await this._searchKnowledge(optimizedQuery, {
-        maxResults: 50,    // さらに増やす
-        minScore: 0.005,   // かなり低い閾値
+        maxResults: 50,
+        minScore: 0.005,
         includeMetadata: true
       });
 
@@ -330,7 +313,6 @@ ${visionContext}
         logger.info('==========================================\n');
       }
 
-      // 🆕 ミッション資料のみをフィルタリング（優先順位付き）
       const missionDocs = knowledgeResults.filter(result => {
         const source = result.source || '';
         const metadata = result.metadata || {};
@@ -341,14 +323,12 @@ ${visionContext}
 
       logger.info(`📊 ミッション分類の資料: ${missionDocs.length}件`);
 
-      // 🆕 レッスン番号でさらにフィルタリング（該当する場合）
       let filteredMissionDocs = missionDocs;
       if (lessonNumber) {
         const lessonSpecificDocs = missionDocs.filter(doc => {
           const source = doc.source || '';
           const content = doc.content || '';
           
-          // ファイル名または内容に「レッスンX」が含まれる
           return source.includes(`レッスン${lessonNumber}`) || 
                  content.includes(`レッスン${lessonNumber}`);
         });
@@ -394,7 +374,6 @@ ${visionContext}
 引き続きサポートさせていただきます！✨`;
       }
 
-      // 良い例/悪い例を分離
       const goodExamples = filteredMissionDocs.filter(doc => {
         const metadata = doc.metadata || {};
         const exampleType = metadata.goodBadExample || metadata.exampleType || '';
@@ -409,7 +388,6 @@ ${visionContext}
 
       logger.info(`📊 良い例: ${goodExamples.length}件、悪い例: ${badExamples.length}件`);
 
-      // カテゴリ情報を取得
       let missionCategory = '不明';
       if (filteredMissionDocs.length > 0 && filteredMissionDocs[0].metadata) {
         missionCategory = filteredMissionDocs[0].metadata.category || '不明';
@@ -417,7 +395,6 @@ ${visionContext}
 
       logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
 
-      // ミッション資料を整理
       let missionContext = '【ミッション評価基準】\n\n';
       
       if (goodExamples.length > 0) {
@@ -436,14 +413,12 @@ ${visionContext}
         });
       }
 
-      // 🔧 画像情報をシステムプロンプトに追加
       let imageContext = '';
       if (imageUrls.length > 0) {
         imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。\n画像の内容を確認して、ミッション評価に反映してください。\n`;
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // AIにミッション評価を依頼
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師で、ミッション提出を評価します。
 
 【あなたの役割】
@@ -482,15 +457,15 @@ ${userQuery}
 - 具体的で実践的なアドバイスを提供
 - 添付画像がある場合は、画像の内容も評価に含める`;
 
-      // 🔧 画像URLをOpenAI APIに渡す形式に変換
       const imageMessages = imageUrls.map(url => ({ url }));
       logger.info(`🖼️ OpenAI APIに渡す画像: ${imageMessages.length}件`);
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        imageMessages,  // ← 画像URLを渡す
-        context
+        imageMessages,
+        context,
+        { maxTokens: 3000 } // ✨ max_tokensを明示的に指定
       );
 
       logger.info('✅ ミッション提出応答生成完了');
@@ -525,9 +500,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
+  // ✨ v2.7.0: 詳細回答版の知識ベース限定応答
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始');
+      logger.ai('知識ベース限定応答生成開始（詳細版）');
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
@@ -561,6 +537,7 @@ ${userQuery}
         knowledgeContext += `${content}\n\n`;
       });
 
+      // ✨ v2.7.0: 詳細回答を促すプロンプト強化
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
 【重要なルール】
@@ -569,6 +546,31 @@ ${userQuery}
 3. 内容を理解して、**要約・整理・わかりやすく説明**してください
 4. 具体的なアドバイスと実践的な手順を提供してください
 5. 親しみやすく、でも専門的な口調で回答してください
+
+【✨ 詳細回答の要件（v2.7.0）】
+- **最低文字数**: 800文字以上を目標に詳しく説明してください
+- **段階的な説明**: ステップごとに分けて丁寧に説明
+- **具体例の充実**: 可能な限り具体的な例を複数挙げる
+- **背景・理由の説明**: 「なぜそうするのか」も説明
+- **補足情報**: 関連する情報や注意点も含める
+- **実践的なヒント**: すぐに実践できる具体的なアドバイス
+
+【回答の構成例】
+1. **導入** (50～100文字)
+   - 質問内容の確認と要点の提示
+   
+2. **本文** (500～700文字)
+   - 詳細な説明（手順、方法、具体例）
+   - 各ステップの背景・理由
+   - 実践的な具体例（2～3つ）
+   
+3. **補足情報** (150～200文字)
+   - 関連情報、注意点、よくある質問
+   - より深く学ぶためのヒント
+   
+4. **まとめ** (100文字)
+   - 重要なポイントの再確認
+   - 次のステップの提案
 
 【重要なスクールのルール】
 - **コラボ配信の禁止**
@@ -593,20 +595,25 @@ ${userQuery}
 【回答の形式】
 - 🎯 見出しで要点を明確に
 - 📝 箇条書きや番号付きリストで整理
-- 💡 具体例を交えて説明
+- 💡 具体例を交えて説明（複数の例を提示）
 - ✨ 励ましの言葉も添える。**励ましの言葉というワードは使わない**
 - 📚 出典（レッスン名など）を簡潔に記載
+- ⚠️ 注意点や補足情報も充実させる
 
-**絶対に守ること**: "--- スライド X ---"のような生の内容を出力しないでください。`;
+**絶対に守ること**: 
+- "--- スライド X ---"のような生の内容を出力しないでください
+- 詳細で丁寧な説明を心がけてください（800文字以上）
+- 単に情報を列挙するのではなく、理解しやすいストーリーで説明してください`;
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
         [],
-        context
+        context,
+        { maxTokens: 3000 } // ✨ max_tokensを3000に増加
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了');
+      logger.info('✅ 知識ベース限定応答生成完了（詳細版）');
       
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
@@ -628,7 +635,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.6.1'
+      version: '2.7.0'
     };
   }
 }
@@ -651,5 +658,6 @@ module.exports = {
   ragSystem,
   initializeRAG,
   generateKnowledgeOnlyResponse,
-  generateMissionResponse
+  generateMissionResponse,
+  initializeRAGSystem: initializeRAG // エイリアス追加
 };
