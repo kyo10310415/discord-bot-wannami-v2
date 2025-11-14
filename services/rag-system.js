@@ -1,7 +1,7 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.0 (詳細回答版)
-// Version: 2.7.0
-// 更新日: 2025-11-13
-// 変更内容: 回答の詳細度を大幅に向上
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.1 (出典表示改善版)
+// Version: 2.7.1
+// 更新日: 2025-11-14
+// 変更内容: 出典表示を明確に指示、フォーマット統一
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -98,7 +98,6 @@ class RAGSystem {
     }
   }
 
-  // スマート検索クエリ最適化（v2.6.1）
   _optimizeSearchQuery(userQuery) {
     const stopWords = [
       'について', '教えて', 'ください', 'どうすれば', 'どうやって',
@@ -217,7 +216,7 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
         userQuery,
         images,
         context,
-        { maxTokens: 3000 } // ✨ max_tokensを明示的に指定
+        { maxTokens: 3000 }
       );
 
       logger.success('RAG応答生成完了');
@@ -266,7 +265,7 @@ ${visionContext}
         userQuery,
         imageUrls.map(url => ({ url })),
         context,
-        { maxTokens: 3000 } // ✨ max_tokensを明示的に指定
+        { maxTokens: 3000 }
       );
 
       logger.success('画像解析統合RAG応答生成完了');
@@ -465,7 +464,7 @@ ${userQuery}
         userQuery,
         imageMessages,
         context,
-        { maxTokens: 3000 } // ✨ max_tokensを明示的に指定
+        { maxTokens: 3000 }
       );
 
       logger.info('✅ ミッション提出応答生成完了');
@@ -500,10 +499,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✨ v2.7.0: 詳細回答版の知識ベース限定応答
+  // ✨ v2.7.1: 出典表示を明確に指示した知識ベース限定応答
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（詳細版）');
+      logger.ai('知識ベース限定応答生成開始（詳細版・出典表示改善）');
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
@@ -530,14 +529,22 @@ ${userQuery}
 `;
       }
 
+      // ✨ v2.7.1: 出典リストを明確に作成
       let knowledgeContext = '【参照資料】\n\n';
+      let sourcesList = ''; // 出典リスト用
+      
       knowledgeResults.forEach((result, index) => {
-        knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
+        const sourceTitle = result.title || result.source;
+        
+        knowledgeContext += `## 資料${index + 1}: ${sourceTitle} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
         const content = result.answer || result.content.substring(0, 800);
         knowledgeContext += `${content}\n\n`;
+        
+        // ✨ 出典リストに追加
+        sourcesList += `${index + 1}. ${sourceTitle}\n`;
       });
 
-      // ✨ v2.7.0: 詳細回答を促すプロンプト強化
+      // ✨ v2.7.1: 出典表示を強く指示するプロンプト
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
 【重要なルール】
@@ -554,6 +561,23 @@ ${userQuery}
 - **背景・理由の説明**: 「なぜそうするのか」も説明
 - **補足情報**: 関連する情報や注意点も含める
 - **実践的なヒント**: すぐに実践できる具体的なアドバイス
+
+【✨✨ 出典表示の要件（v2.7.1 - 重要）】
+**必須**: 回答の最後に、参照した資料の出典を以下のフォーマットで明記してください。
+
+**出典フォーマット（必ず使用）**:
+---
+📚 **出典**: [資料名]
+
+例:
+---
+📚 **出典**: Xの企画基本編（感動と個性）
+
+**出典表示のルール**:
+1. 回答の最後に必ず「---」で区切り線を入れる
+2. 📚 絵文字を使って「**出典**: 」と書く
+3. 参照した主な資料名を記載（最大2～3件）
+4. レッスン名やカテゴリ名を含める
 
 【回答の構成例】
 1. **導入** (50～100文字)
@@ -572,6 +596,10 @@ ${userQuery}
    - 重要なポイントの再確認
    - 次のステップの提案
 
+5. **✨✨ 出典表示（必須）** ← これを忘れないこと！
+   ---
+   📚 **出典**: [資料名]
+
 【重要なスクールのルール】
 - **コラボ配信の禁止**
 - **活動者や生徒同士の横のつながり禁止**
@@ -589,6 +617,9 @@ X:
 【参照資料】
 ${knowledgeContext}
 
+【参照可能な資料一覧】
+${sourcesList}
+
 【質問】
 ${userQuery}
 
@@ -597,24 +628,26 @@ ${userQuery}
 - 📝 箇条書きや番号付きリストで整理
 - 💡 具体例を交えて説明（複数の例を提示）
 - ✨ 励ましの言葉も添える。**励ましの言葉というワードは使わない**
-- 📚 出典（レッスン名など）を簡潔に記載
 - ⚠️ 注意点や補足情報も充実させる
+- **📚 最後に必ず出典を「---」の後に明記** ← 絶対に忘れないこと！
 
 **絶対に守ること**: 
 - "--- スライド X ---"のような生の内容を出力しないでください
 - 詳細で丁寧な説明を心がけてください（800文字以上）
-- 単に情報を列挙するのではなく、理解しやすいストーリーで説明してください`;
+- 単に情報を列挙するのではなく、理解しやすいストーリーで説明してください
+- **回答の最後に必ず出典を表示してください**`;
 
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
         [],
         context,
-        { maxTokens: 3000 } // ✨ max_tokensを3000に増加
+        { maxTokens: 3000 }
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了（詳細版）');
+      logger.info('✅ 知識ベース限定応答生成完了（詳細版・出典表示改善）');
       
+      // ✨ v2.7.1: フッターに参照件数を追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
@@ -635,7 +668,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.7.0'
+      version: '2.7.1'
     };
   }
 }
@@ -659,5 +692,5 @@ module.exports = {
   initializeRAG,
   generateKnowledgeOnlyResponse,
   generateMissionResponse,
-  initializeRAGSystem: initializeRAG // エイリアス追加
+  initializeRAGSystem: initializeRAG
 };
