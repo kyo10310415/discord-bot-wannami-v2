@@ -1,12 +1,10 @@
 /**
- * メンション処理ハンドラー v15.5.3（デバッグ強化版）
+ * メンション処理ハンドラー v15.5.4（パス修正版）
  * 
- * 【v15.5.3 変更点】
- * - 265-320行目に詳細なデバッグログを追加
- * - エラーハンドリングを強化（サイレントエラーを防止）
- * - require文の前後にログを挿入
- * - 各条件分岐でログ出力
- * - try-catchブロックを細分化
+ * 【v15.5.4 変更点】
+ * - require パスを修正: './rag-system.js' → '../rag-system.js'
+ * - require パスを修正: './qa-logger.js' → '../qa-logger.js'
+ * - handlers/ サブディレクトリからの相対パスに対応
  * 
  * 【機能】
  * 1. メンション検索: ボット宛のメンションを検出
@@ -80,7 +78,7 @@ function isUserWaitingForQuestion(userId, interactionStates) {
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.3');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.4');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   try {
@@ -155,12 +153,12 @@ async function handleMessage(message, client) {
 
     console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
 
-    // === 6. require文のテスト ===
+    // === 6. require文のテスト（パス修正版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
     let RAGSystem;
     try {
-      console.log('📦 [REQUIRE] ./rag-system.js を読み込み中...');
-      RAGSystem = require('./rag-system.js');
+      console.log('📦 [REQUIRE] ../rag-system.js を読み込み中...');
+      RAGSystem = require('../rag-system.js');
       console.log('✅ [REQUIRE] 読み込み成功');
       console.log(`📦 [REQUIRE] RAGSystemの型: ${typeof RAGSystem}`);
       console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponseの型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
@@ -186,7 +184,7 @@ async function handleMessage(message, client) {
 
     // === 8. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.3デバッグ版）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.4）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -270,7 +268,7 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.3');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.4');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
@@ -289,7 +287,7 @@ async function handleMessage(message, client) {
 // === メンション処理メイン関数（Q&A記録版） ===
 async function handleMessageWithQALogging(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.3（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.4（Q&A記録版）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   try {
@@ -362,16 +360,16 @@ async function handleMessageWithQALogging(message, client) {
 
     console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
 
-    // === 6. require文のテスト ===
+    // === 6. require文のテスト（パス修正版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
     let RAGSystem, QALogger;
     try {
-      console.log('📦 [REQUIRE] ./rag-system.js を読み込み中...');
-      RAGSystem = require('./rag-system.js');
+      console.log('📦 [REQUIRE] ../rag-system.js を読み込み中...');
+      RAGSystem = require('../rag-system.js');
       console.log('✅ [REQUIRE] rag-system.js 読み込み成功');
       
-      console.log('📦 [REQUIRE] ./qa-logger.js を読み込み中...');
-      QALogger = require('./qa-logger.js');
+      console.log('📦 [REQUIRE] ../qa-logger.js を読み込み中...');
+      QALogger = require('../qa-logger.js');
       console.log('✅ [REQUIRE] qa-logger.js 読み込み成功');
       
       console.log(`📦 [REQUIRE] RAGSystem型: ${typeof RAGSystem}`);
@@ -390,7 +388,7 @@ async function handleMessageWithQALogging(message, client) {
 
     // === 7. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.4）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -493,7 +491,7 @@ async function handleMessageWithQALogging(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.3');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.4');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
