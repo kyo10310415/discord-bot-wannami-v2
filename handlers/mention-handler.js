@@ -1,10 +1,10 @@
 /**
- * メンション処理ハンドラー v15.5.4（パス修正版）
+ * メンション処理ハンドラー v15.5.5（services/パス対応版）
  * 
- * 【v15.5.4 変更点】
- * - require パスを修正: './rag-system.js' → '../rag-system.js'
- * - require パスを修正: './qa-logger.js' → '../qa-logger.js'
- * - handlers/ サブディレクトリからの相対パスに対応
+ * 【v15.5.5 変更点】
+ * - require パスを修正: '../rag-system.js' → '../services/rag-system'
+ * - require パスを修正: '../qa-logger.js' → '../services/qa-logger'
+ * - index.js の構造に合わせて services/ ディレクトリ対応
  * 
  * 【機能】
  * 1. メンション検索: ボット宛のメンションを検出
@@ -78,7 +78,7 @@ function isUserWaitingForQuestion(userId, interactionStates) {
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.4');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.5');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   try {
@@ -153,12 +153,12 @@ async function handleMessage(message, client) {
 
     console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
 
-    // === 6. require文のテスト（パス修正版） ===
+    // === 6. require文のテスト（services/パス対応版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
     let RAGSystem;
     try {
-      console.log('📦 [REQUIRE] ../rag-system.js を読み込み中...');
-      RAGSystem = require('../rag-system.js');
+      console.log('📦 [REQUIRE] ../services/rag-system を読み込み中...');
+      RAGSystem = require('../services/rag-system');
       console.log('✅ [REQUIRE] 読み込み成功');
       console.log(`📦 [REQUIRE] RAGSystemの型: ${typeof RAGSystem}`);
       console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponseの型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
@@ -184,7 +184,7 @@ async function handleMessage(message, client) {
 
     // === 8. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.4）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.5）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -268,7 +268,7 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.4');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.5');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
@@ -285,9 +285,9 @@ async function handleMessage(message, client) {
 }
 
 // === メンション処理メイン関数（Q&A記録版） ===
-async function handleMessageWithQALogging(message, client) {
+async function handleMessageWithQALogging(message, client, qaLoggerService) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.4（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.5（Q&A記録版）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   try {
@@ -360,22 +360,16 @@ async function handleMessageWithQALogging(message, client) {
 
     console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
 
-    // === 6. require文のテスト（パス修正版） ===
+    // === 6. require文のテスト（services/パス対応版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
-    let RAGSystem, QALogger;
+    let RAGSystem;
     try {
-      console.log('📦 [REQUIRE] ../rag-system.js を読み込み中...');
-      RAGSystem = require('../rag-system.js');
-      console.log('✅ [REQUIRE] rag-system.js 読み込み成功');
-      
-      console.log('📦 [REQUIRE] ../qa-logger.js を読み込み中...');
-      QALogger = require('../qa-logger.js');
-      console.log('✅ [REQUIRE] qa-logger.js 読み込み成功');
+      console.log('📦 [REQUIRE] ../services/rag-system を読み込み中...');
+      RAGSystem = require('../services/rag-system');
+      console.log('✅ [REQUIRE] rag-system 読み込み成功');
       
       console.log(`📦 [REQUIRE] RAGSystem型: ${typeof RAGSystem}`);
       console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponse型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
-      console.log(`📦 [REQUIRE] QALogger型: ${typeof QALogger}`);
-      console.log(`📦 [REQUIRE] logQA型: ${typeof QALogger?.logQA}`);
       
     } catch (requireError) {
       console.error('❌ [REQUIRE] エラー発生:', requireError);
@@ -388,7 +382,7 @@ async function handleMessageWithQALogging(message, client) {
 
     // === 7. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.4）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.5）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -445,16 +439,20 @@ async function handleMessageWithQALogging(message, client) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     try {
-      await QALogger.logQA({
-        userId: message.author.id,
-        username: message.author.tag,
-        question: questionText,
-        answer: responseText,
-        hasImage: imageUrls.length > 0,
-        channelId: message.channel.id,
-        messageId: message.id
-      });
-      console.log('✅ [QA-LOG] 記録完了');
+      if (qaLoggerService && typeof qaLoggerService.logQA === 'function') {
+        await qaLoggerService.logQA({
+          userId: message.author.id,
+          username: message.author.tag,
+          question: questionText,
+          answer: responseText,
+          hasImage: imageUrls.length > 0,
+          channelId: message.channel.id,
+          messageId: message.id
+        });
+        console.log('✅ [QA-LOG] 記録完了');
+      } else {
+        console.log('⚠️ [QA-LOG] スキップ（qaLoggerService未初期化）');
+      }
     } catch (logError) {
       console.error('⚠️ [QA-LOG] 記録失敗（処理は続行）:', logError);
     }
@@ -491,7 +489,7 @@ async function handleMessageWithQALogging(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.4');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.5');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
