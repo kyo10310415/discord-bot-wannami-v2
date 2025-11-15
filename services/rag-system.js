@@ -1,7 +1,4 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.7.1 (出典表示改善版)
-// Version: 2.7.1
-// 更新日: 2025-11-14
-// 変更内容: 出典表示を明確に指示、フォーマット統一
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.6.2 (知識ベース厳格モード)
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -98,7 +95,9 @@ class RAGSystem {
     }
   }
 
+  // スマート検索クエリ最適化
   _optimizeSearchQuery(userQuery) {
+    // ストップワード（除去する語句）のリスト
     const stopWords = [
       'について', '教えて', 'ください', 'どうすれば', 'どうやって',
       'どのように', 'ですか', 'でしょうか', 'なんですか', 'とは',
@@ -110,32 +109,44 @@ class RAGSystem {
     
     let optimizedQuery = userQuery;
     
+    // レッスン番号を検出して除去
     const lessonMatch = userQuery.match(/レッスン(\d+)/);
     let lessonNumber = null;
     
     if (lessonMatch) {
       lessonNumber = lessonMatch[1];
       logger.info(`📚 レッスン番号を検出: ${lessonNumber}`);
+      
+      // レッスン番号とその前後の助詞を除去
       optimizedQuery = optimizedQuery.replace(/レッスン\d+の?/g, '').trim();
     }
     
+    // ストップワードを除去（後ろから順に）
     stopWords.forEach(word => {
+      // 末尾のストップワードを除去（優先度高）
       const endPattern = new RegExp(word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'g');
       optimizedQuery = optimizedQuery.replace(endPattern, '').trim();
       
+      // 文中のストップワードも除去（ただし、複合語を壊さないように慎重に）
       if (word.length >= 2) {
         const middlePattern = new RegExp('\\s+' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+', 'g');
         optimizedQuery = optimizedQuery.replace(middlePattern, ' ').trim();
       }
     });
     
+    // 連続するスペースを1つにまとめる
     optimizedQuery = optimizedQuery.replace(/\s+/g, ' ').trim();
+    
+    // 疑問符や句読点を除去
     optimizedQuery = optimizedQuery.replace(/[？?！!。、，,]/g, '').trim();
     
+    // 最適化後のクエリが空または短すぎる場合
     if (!optimizedQuery || optimizedQuery.length < 2) {
+      // レッスンミッションの場合
       if (lessonNumber && userQuery.includes('ミッション')) {
         optimizedQuery = 'ミッション';
       } else {
+        // 元のクエリから重要そうな単語を抽出
         optimizedQuery = this._extractKeywords(userQuery);
       }
     }
@@ -147,9 +158,15 @@ class RAGSystem {
     };
   }
   
+  // キーワード抽出（フォールバック用）
   _extractKeywords(text) {
+    // カタカナ、漢字、ひらがなの連続をキーワードとして抽出
     const keywords = text.match(/[ァ-ヶー]+|[一-龯]+|[ぁ-ん]{2,}/g) || [];
+    
+    // 最も長いキーワードを優先
     keywords.sort((a, b) => b.length - a.length);
+    
+    // 上位3つまでを連結
     return keywords.slice(0, 3).join(' ') || text;
   }
 
@@ -215,8 +232,7 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
         systemPrompt,
         userQuery,
         images,
-        context,
-        { maxTokens: 3000 }
+        context
       );
 
       logger.success('RAG応答生成完了');
@@ -264,8 +280,7 @@ ${visionContext}
         systemPrompt,
         userQuery,
         imageUrls.map(url => ({ url })),
-        context,
-        { maxTokens: 3000 }
+        context
       );
 
       logger.success('画像解析統合RAG応答生成完了');
@@ -277,6 +292,7 @@ ${visionContext}
     }
   }
 
+  // ミッション提出専用応答生成
   async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
       logger.ai('📝 ===== ミッション提出専用処理開始 =====');
@@ -285,6 +301,7 @@ ${visionContext}
 
       await this.waitForInitialization();
 
+      // スマート検索クエリ最適化
       const { optimizedQuery, lessonNumber, originalQuery } = this._optimizeSearchQuery(userQuery);
       
       logger.info(`🔍 検索クエリ最適化:`);
@@ -312,6 +329,7 @@ ${visionContext}
         logger.info('==========================================\n');
       }
 
+      // ミッション資料のみをフィルタリング
       const missionDocs = knowledgeResults.filter(result => {
         const source = result.source || '';
         const metadata = result.metadata || {};
@@ -322,6 +340,7 @@ ${visionContext}
 
       logger.info(`📊 ミッション分類の資料: ${missionDocs.length}件`);
 
+      // レッスン番号でさらにフィルタリング
       let filteredMissionDocs = missionDocs;
       if (lessonNumber) {
         const lessonSpecificDocs = missionDocs.filter(doc => {
@@ -343,28 +362,16 @@ ${visionContext}
       if (filteredMissionDocs.length === 0) {
         logger.warn('⚠️ ミッション資料が見つかりませんでした');
         
-        const classificationCounts = knowledgeResults.reduce((acc, r) => {
-          const cls = r.metadata?.classification || '未分類';
-          acc[cls] = (acc[cls] || 0) + 1;
-          return acc;
-        }, {});
-        
-        logger.info('🔍 検索結果の分類別集計:', classificationCounts);
-        
         return `📝 **ミッション提出を受け付けました**
 
 「${userQuery}」
 
-現在、該当するミッションの評価基準が見つかりませんでした。
+現在、該当するミッションの評価基準が知識ベースに見つかりませんでした。
 
 **🔍 検索情報:**
 • 検索結果: ${knowledgeResults.length}件
 • ミッション分類: ${missionDocs.length}件
 • 検索クエリ: "${optimizedQuery}"
-
-**📋 考えられる原因:**
-• スプレッドシートにミッション資料のURLが設定されていない
-• ミッション資料の内容が読み込まれていない
 
 📞 **次のステップ**:
 • \`②プライベート相談\` で個別フィードバックを受ける
@@ -373,6 +380,7 @@ ${visionContext}
 引き続きサポートさせていただきます！✨`;
       }
 
+      // 良い例/悪い例を分離
       const goodExamples = filteredMissionDocs.filter(doc => {
         const metadata = doc.metadata || {};
         const exampleType = metadata.goodBadExample || metadata.exampleType || '';
@@ -387,6 +395,7 @@ ${visionContext}
 
       logger.info(`📊 良い例: ${goodExamples.length}件、悪い例: ${badExamples.length}件`);
 
+      // カテゴリ情報を取得
       let missionCategory = '不明';
       if (filteredMissionDocs.length > 0 && filteredMissionDocs[0].metadata) {
         missionCategory = filteredMissionDocs[0].metadata.category || '不明';
@@ -394,6 +403,7 @@ ${visionContext}
 
       logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
 
+      // ミッション資料を整理
       let missionContext = '【ミッション評価基準】\n\n';
       
       if (goodExamples.length > 0) {
@@ -412,19 +422,21 @@ ${visionContext}
         });
       }
 
+      // 画像情報をシステムプロンプトに追加
       let imageContext = '';
       if (imageUrls.length > 0) {
         imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。\n画像の内容を確認して、ミッション評価に反映してください。\n`;
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
+      // AIにミッション評価を依頼
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師で、ミッション提出を評価します。
 
 【あなたの役割】
 1. 提出されたミッション内容を評価する
 2. 良い例と悪い例を参考に、**合格か不合格かを明確に判定する**
 3. 具体的な改善ポイントを提示する
-4. 励ましの言葉で次のステップを示す。**励ましの言葉というワードは入れない**
+4. 励ましの言葉で次のステップを示す
 
 【ミッションのカテゴリ】
 ${missionCategory}
@@ -456,6 +468,7 @@ ${userQuery}
 - 具体的で実践的なアドバイスを提供
 - 添付画像がある場合は、画像の内容も評価に含める`;
 
+      // 画像URLをOpenAI APIに渡す形式に変換
       const imageMessages = imageUrls.map(url => ({ url }));
       logger.info(`🖼️ OpenAI APIに渡す画像: ${imageMessages.length}件`);
 
@@ -463,8 +476,7 @@ ${userQuery}
         systemPrompt,
         userQuery,
         imageMessages,
-        context,
-        { maxTokens: 3000 }
+        context
       );
 
       logger.info('✅ ミッション提出応答生成完了');
@@ -499,10 +511,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✨ v2.7.1: 出典表示を明確に指示した知識ベース限定応答
+  // 🔒 知識ベース限定応答生成（v2.6.2 - 厳格モード）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（詳細版・出典表示改善）');
+      logger.ai('知識ベース限定応答生成開始');
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
@@ -512,7 +524,9 @@ ${userQuery}
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
 
+      // 🔒 検索結果が0件の場合は即座に「分からない」応答
       if (knowledgeResults.length === 0) {
+        logger.warn('⚠️ 知識ベースに情報が見つかりません - 正直に回答');
         return `🤖 **わなみさんです！**\n\n申し訳ございません。「${userQuery}」に関する情報が知識ベースに見つかりませんでした。
 
 **🔍 他の質問方法を試してみてください：**
@@ -526,79 +540,34 @@ ${userQuery}
 • Live2Dモデルの扱い方
 • SNS運用とマーケティング
 • デザインとブランディング
-`;
+
+お手数ですが、別の質問をお試しいただくか、\`②プライベート相談\`で直接お問い合わせください✨`;
       }
 
-      // ✨ v2.7.1: 出典リストを明確に作成
+      // 🔒 参照資料を明示的に構築
       let knowledgeContext = '【参照資料】\n\n';
-      let sourcesList = ''; // 出典リスト用
-      
       knowledgeResults.forEach((result, index) => {
-        const sourceTitle = result.title || result.source;
-        
-        knowledgeContext += `## 資料${index + 1}: ${sourceTitle} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
+        knowledgeContext += `## 資料${index + 1}: ${result.title || result.source} (関連度: ${(result.score * 100).toFixed(0)}%)\n`;
         const content = result.answer || result.content.substring(0, 800);
         knowledgeContext += `${content}\n\n`;
-        
-        // ✨ 出典リストに追加
-        sourcesList += `${index + 1}. ${sourceTitle}\n`;
       });
 
-      // ✨ v2.7.1: 出典表示を強く指示するプロンプト
+      // 🔒 厳格な知識ベース限定プロンプト
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
 
-【重要なルール】
-1. 以下の参照資料の内容**のみ**を使って回答してください
-2. 参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けないでください
-3. 内容を理解して、**要約・整理・わかりやすく説明**してください
-4. 具体的なアドバイスと実践的な手順を提供してください
-5. 親しみやすく、でも専門的な口調で回答してください
+【🔒 最重要ルール - 絶対に守ること】
+1. **以下の【参照資料】の内容だけを使って回答してください**
+2. **参照資料に書かれていない情報は、絶対に答えないでください**
+3. **あなたの一般知識や学習データは一切使用しないでください**
+4. **推測や想像で答えないでください**
+5. **参照資料に情報がない場合は、正直に「知識ベースに情報がありません」と答えてください**
 
-【✨ 詳細回答の要件（v2.7.0）】
-- **最低文字数**: 800文字以上を目標に詳しく説明してください
-- **段階的な説明**: ステップごとに分けて丁寧に説明
-- **具体例の充実**: 可能な限り具体的な例を複数挙げる
-- **背景・理由の説明**: 「なぜそうするのか」も説明
-- **補足情報**: 関連する情報や注意点も含める
-- **実践的なヒント**: すぐに実践できる具体的なアドバイス
-
-【✨✨ 出典表示の要件（v2.7.1 - 重要）】
-**必須**: 回答の最後に、参照した資料の出典を以下のフォーマットで明記してください。
-
-**出典フォーマット（必ず使用）**:
----
-📚 **出典**: [資料名]
-
-例:
----
-📚 **出典**: Xの企画基本編（感動と個性）
-
-**出典表示のルール**:
-1. 回答の最後に必ず「---」で区切り線を入れる
-2. 📚 絵文字を使って「**出典**: 」と書く
-3. 参照した主な資料名を記載（最大2～3件）
-4. レッスン名やカテゴリ名を含める
-
-【回答の構成例】
-1. **導入** (50～100文字)
-   - 質問内容の確認と要点の提示
-   
-2. **本文** (500～700文字)
-   - 詳細な説明（手順、方法、具体例）
-   - 各ステップの背景・理由
-   - 実践的な具体例（2～3つ）
-   
-3. **補足情報** (150～200文字)
-   - 関連情報、注意点、よくある質問
-   - より深く学ぶためのヒント
-   
-4. **まとめ** (100文字)
-   - 重要なポイントの再確認
-   - 次のステップの提案
-
-5. **✨✨ 出典表示（必須）** ← これを忘れないこと！
-   ---
-   📚 **出典**: [資料名]
+【回答作成のルール】
+1. 参照資料の生の内容（スライド番号、コピーライトなど）をそのまま貼り付けない
+2. 内容を理解して、**要約・整理・わかりやすく説明**する
+3. 具体的なアドバイスと実践的な手順を提供する
+4. 親しみやすく、でも専門的な口調で回答する
+5. 絵文字を適度に使用する
 
 【重要なスクールのルール】
 - **コラボ配信の禁止**
@@ -617,37 +586,37 @@ X:
 【参照資料】
 ${knowledgeContext}
 
-【参照可能な資料一覧】
-${sourcesList}
-
 【質問】
 ${userQuery}
 
 【回答の形式】
 - 🎯 見出しで要点を明確に
 - 📝 箇条書きや番号付きリストで整理
-- 💡 具体例を交えて説明（複数の例を提示）
-- ✨ 励ましの言葉も添える。**励ましの言葉というワードは使わない**
-- ⚠️ 注意点や補足情報も充実させる
-- **📚 最後に必ず出典を「---」の後に明記** ← 絶対に忘れないこと！
+- 💡 具体例を交えて説明
+- ✨ 励ましの言葉も添える
+- 📚 出典（レッスン名など）を簡潔に記載
 
-**絶対に守ること**: 
-- "--- スライド X ---"のような生の内容を出力しないでください
-- 詳細で丁寧な説明を心がけてください（800文字以上）
-- 単に情報を列挙するのではなく、理解しやすいストーリーで説明してください
-- **回答の最後に必ず出典を表示してください**`;
+【禁止事項】
+❌ "--- スライド X ---"のような生の内容を出力しない
+❌ 参照資料にない情報を追加しない
+❌ 一般知識で補足しない
+❌ 推測や想像で答えない
 
+**もう一度確認**: 上記の【参照資料】の内容**だけ**を使って回答してください。参照資料に情報がない場合は、正直に「この情報は知識ベースにありません」と答えてください。`;
+
+      // 🔒 temperature を下げて、より保守的な回答にする
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
         [],
-        context,
-        { maxTokens: 3000 }
+        {
+          ...context,
+          temperature: 0.3  // 🔒 通常0.7 → 0.3に下げる
+        }
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了（詳細版・出典表示改善）');
+      logger.info('✅ 知識ベース限定応答生成完了');
       
-      // ✨ v2.7.1: フッターに参照件数を追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
@@ -668,7 +637,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.7.1'
+      version: '2.6.2'
     };
   }
 }
@@ -691,6 +660,5 @@ module.exports = {
   ragSystem,
   initializeRAG,
   generateKnowledgeOnlyResponse,
-  generateMissionResponse,
-  initializeRAGSystem: initializeRAG
+  generateMissionResponse
 };
