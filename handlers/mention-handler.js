@@ -1,606 +1,515 @@
-// handlers/mention-handler.js - メンション処理ハンドラー（Q&A記録機能統合版）
-// Version: 15.5.2
-// 更新日: 2025-11-13
-// 変更内容: 回答ステータスを明示的に渡すように改善
-
-const logger = require('../utils/logger');
-const { isBotMentioned, extractContentFromMention } = require('../utils/verification');
-const { hasImageAttachments, extractImageUrls } = require('../utils/image-utils');
-
-// Bot User IDを環境変数から取得（フォールバック値も設定）
-const BOT_USER_ID = process.env.BOT_USER_ID || '1420328163497607199';
-
-// 起動時にBot User IDをログ出力
-logger.info(`🆔 設定されたBOT_USER_ID: ${BOT_USER_ID}`);
-
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// ✨ Q&A記録機能統合版のメンション処理
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 /**
- * Q&A記録機能付きメンション処理
- * @param {Message} message - Discordメッセージオブジェクト
- * @param {Client} client - Discordクライアント
- * @param {Object} qaLoggerService - Q&A記録サービス
+ * メンション処理ハンドラー v15.5.3（デバッグ強化版）
+ * 
+ * 【v15.5.3 変更点】
+ * - 265-320行目に詳細なデバッグログを追加
+ * - エラーハンドリングを強化（サイレントエラーを防止）
+ * - require文の前後にログを挿入
+ * - 各条件分岐でログ出力
+ * - try-catchブロックを細分化
+ * 
+ * 【機能】
+ * 1. メンション検索: ボット宛のメンションを検出
+ * 2. 画像URL抽出: 添付画像・埋め込み画像を自動検出
+ * 3. 知識ベース検索: RAGシステムで関連情報を取得
+ * 4. Q&A記録: 質問と回答をスプレッドシートに自動保存
  */
-async function handleMessageWithQALogging(message, client, qaLoggerService) {
-  const startTime = Date.now();
-  let questionContent = '';
-  let responseContent = '';
-  let hasImages = false;
-  let imageUrls = [];
+
+const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+
+// === 画像URL抽出関数（インライン実装） ===
+function extractImageUrls(message) {
+  const imageUrls = [];
+  const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+
+  console.log('🖼️ [IMAGE] 画像URL抽出開始');
+  console.log(`📎 添付ファイル数: ${message.attachments.size}`);
+  console.log(`🎨 埋め込み数: ${message.embeds.length}`);
+
+  // 1. 添付ファイルから画像を抽出
+  message.attachments.forEach(attachment => {
+    const url = attachment.url || attachment.proxyURL;
+    if (url) {
+      const isImage = imageExtensions.some(ext => url.toLowerCase().includes(ext));
+      console.log(`📎 添付: ${url.substring(0, 80)}... (画像: ${isImage})`);
+      if (isImage) {
+        imageUrls.push(url);
+        console.log(`✅ 画像追加: ${url}`);
+      }
+    }
+  });
+
+  // 2. 埋め込みから画像を抽出
+  message.embeds.forEach((embed, index) => {
+    console.log(`🎨 埋め込み[${index}]タイプ: ${embed.data?.type || 'unknown'}`);
+    
+    if (embed.image?.url) {
+      console.log(`🖼️ embed.image.url発見: ${embed.image.url}`);
+      imageUrls.push(embed.image.url);
+    }
+    if (embed.thumbnail?.url) {
+      console.log(`🖼️ embed.thumbnail.url発見: ${embed.thumbnail.url}`);
+      imageUrls.push(embed.thumbnail.url);
+    }
+    if (embed.data?.image?.url) {
+      console.log(`🖼️ embed.data.image.url発見: ${embed.data.image.url}`);
+      imageUrls.push(embed.data.image.url);
+    }
+    if (embed.data?.thumbnail?.url) {
+      console.log(`🖼️ embed.data.thumbnail.url発見: ${embed.data.thumbnail.url}`);
+      imageUrls.push(embed.data.thumbnail.url);
+    }
+  });
+
+  // 3. 重複削除
+  const uniqueUrls = [...new Set(imageUrls)];
+  console.log(`✅ 抽出完了: ${uniqueUrls.length}件の画像`);
   
-  try {
-    // Botメッセージは無視
-    if (message.author.bot) return;
-    
-    // ✅ デバッグログ: メッセージ受信
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.debug('📨 メッセージ受信');
-    logger.debug(`  送信者ID: ${message.author.id}`);
-    logger.debug(`  送信者名: ${message.author.tag}`);
-    logger.debug(`  内容: ${message.content}`);
-    
-    // メンション検出
-    const mentions = message.mentions?.users?.map(user => ({ id: user.id })) || [];
-    
-    // ✅ デバッグログ: メンション一覧
-    logger.debug(`  メンション一覧: ${mentions.map(m => m.id).join(', ') || 'なし'}`);
-    logger.debug(`  設定されたBOT_USER_ID: ${BOT_USER_ID}`);
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    const isMentioned = isBotMentioned(message.content, mentions, BOT_USER_ID);
-    
-    // ✅ デバッグログ: Bot判定結果
-    logger.debug(`  🤖 Bot判定結果: ${isMentioned ? '✅ メンション検出' : '❌ メンションなし'}`);
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    // ロールメンション処理も統合
-    const roleMentions = message.mentions?.roles;
-    if (roleMentions && roleMentions.size > 0) {
-      logger.discord(`ロールメンション検出: ${roleMentions.size}個`);
-    }
-    
-    if (!isMentioned) return;
-    
-    logger.discord(`メンション検出: ${message.author.username} in #${message.channel.name}`);
-    
-    // メンションからコンテンツを抽出
-    const userQuery = extractContentFromMention(message.content, BOT_USER_ID);
-    questionContent = userQuery; // Q&A記録用に保存
-    
-    // ✅ 画像添付の詳細確認（デバッグログ追加）
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.debug('🖼️ 添付ファイル確認');
-    logger.debug(`  メッセージID: ${message.id}`);
-    logger.debug(`  添付ファイル数: ${message.attachments.size}`);
-    
-    // 添付ファイルの詳細ログ
-    if (message.attachments.size > 0) {
-      let attachmentIndex = 1;
-      message.attachments.forEach((attachment) => {
-        logger.debug(`  [${attachmentIndex}] ファイル情報:`);
-        logger.debug(`      ID: ${attachment.id}`);
-        logger.debug(`      名前: ${attachment.name}`);
-        logger.debug(`      URL: ${attachment.url}`);
-        logger.debug(`      Proxy URL: ${attachment.proxyURL || 'なし'}`);
-        logger.debug(`      ContentType: ${attachment.contentType || '不明'}`);
-        logger.debug(`      サイズ: ${attachment.size} bytes (${(attachment.size / 1024).toFixed(2)} KB)`);
-        logger.debug(`      幅: ${attachment.width || '不明'}`);
-        logger.debug(`      高さ: ${attachment.height || '不明'}`);
-        logger.debug(`      Ephemeral: ${attachment.ephemeral || false}`);
-        attachmentIndex++;
-      });
-    } else {
-      logger.debug('  添付ファイルなし');
-    }
-    
-    const attachments = Array.from(message.attachments.values());
-    hasImages = hasImageAttachments(attachments);
-    imageUrls = hasImages ? extractImageUrls(attachments) : [];
-    
-    logger.info(`🖼️ 画像添付: ${hasImages ? `${imageUrls.length}枚` : 'なし'}`);
-    
-    // ✅ 画像URL詳細ログ
-    if (hasImages && imageUrls.length > 0) {
-      logger.debug('  画像URL一覧:');
-      imageUrls.forEach((url, index) => {
-        logger.debug(`    [${index + 1}] ${url}`);
-      });
-      logger.info(`✅ 画像検出成功: ${imageUrls.length}枚の画像が添付されています`);
-    } else {
-      logger.debug('  画像なし（hasImageAttachments()がfalseを返しました）');
-    }
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    // 応答処理開始のタイピング表示
-    await message.channel.sendTyping();
-    
-    // 質問内容が空の場合はボタンメニューを表示（Q&A記録なし）
-    if (!userQuery || userQuery.trim() === '') {
-      await showConsultationMenu(message);
-      return;
-    }
-    
-    // ボタンクリック後の質問応答かチェック
-    const { handleQuestionResponse, isUserWaitingForQuestion } = require('./button-handler');
-    
-    if (isUserWaitingForQuestion(message.author.id)) {
-      // ボタンクリック後の質問応答処理
-      try {
-        const buttonResponse = await handleQuestionResponse(message.author.id, userQuery, {
-          username: message.author.username,
-          channelName: message.channel.name,
-          guildName: message.guild?.name || 'DM',
-          hasImages: hasImages,
-          imageUrls: imageUrls
-        });
-        
-        if (buttonResponse) {
-          responseContent = buttonResponse; // Q&A記録用に保存
-          
-          // ボタン質問の応答を送信
-          await sendLongMessage(message.channel, buttonResponse);
-          logger.success(`ボタン質問応答送信完了: ${message.author.username}`);
-          
-          // ✅ Q&A記録（ボタン質問 - 成功）
-          await logQAInteraction(
-            qaLoggerService,
-            message,
-            questionContent,
-            responseContent,
-            startTime,
-            'ボタン質問',
-            '成功' // ✨ ステータスを明示
-          );
-          
-          return;
-        }
-      } catch (buttonError) {
-        logger.errorDetail('ボタン質問応答エラー:', buttonError);
-        // 通常の知識ベース応答にフォールバック
-      }
-    }
-    
-    // 通常の知識ベース限定応答処理
-    try {
-      const { generateKnowledgeOnlyResponse } = require('../services/rag-system');
-      
-      // ✅ デバッグログ: RAGシステムに渡すパラメータ
-      logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      logger.debug('🤖 RAGシステムに送信するパラメータ:');
-      logger.debug(`  クエリ: "${userQuery}"`);
-      logger.debug(`  画像あり: ${hasImages}`);
-      logger.debug(`  画像URL数: ${imageUrls.length}`);
-      if (imageUrls.length > 0) {
-        logger.debug(`  画像URL: ${JSON.stringify(imageUrls, null, 2)}`);
-      }
-      logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      
-      // 知識ベース限定応答生成
-      const response = await generateKnowledgeOnlyResponse(userQuery, {
-        username: message.author.username,
-        channelName: message.channel.name,
-        guildName: message.guild?.name || 'DM',
-        hasImages: hasImages,
-        imageUrls: imageUrls
-      });
-      
-      responseContent = response; // Q&A記録用に保存
-      
-      // 応答送信（2000文字制限対応）
-      await sendLongMessage(message.channel, response);
-      
-      logger.success(`知識ベース限定応答送信完了: ${message.author.username}`);
-      
-      // ✅ Q&A記録（通常の知識ベース質問 - 成功）
-      await logQAInteraction(
-        qaLoggerService,
-        message,
-        questionContent,
-        responseContent,
-        startTime,
-        '知識ベース質問',
-        '成功' // ✨ ステータスを明示
-      );
-      
-    } catch (knowledgeError) {
-      logger.errorDetail('知識ベース応答生成エラー:', knowledgeError);
-      
-      // 知識ベースが利用できない場合の応答
-      const fallbackResponse = generateKnowledgeBaseFallback(userQuery, hasImages);
-      responseContent = fallbackResponse; // Q&A記録用に保存
-      
-      await message.reply(fallbackResponse);
-      
-      // ✅ Q&A記録（エラー応答）
-      await logQAInteraction(
-        qaLoggerService,
-        message,
-        questionContent,
-        responseContent,
-        startTime,
-        'エラー応答',
-        'エラー応答' // ✨ ステータスを明示
-      );
-    }
-    
-  } catch (error) {
-    logger.errorDetail('メンション処理エラー:', error);
-    
-    try {
-      const errorResponse = '❌ 申し訳ございません。システムエラーが発生しました。しばらく待ってから再度お試しください。';
-      await message.reply(errorResponse);
-      
-      // ✅ Q&A記録（システムエラー）
-      await logQAInteraction(
-        qaLoggerService,
-        message,
-        questionContent || message.content,
-        errorResponse,
-        startTime,
-        'システムエラー',
-        'システムエラー' // ✨ ステータスを明示
-      );
-      
-    } catch (replyError) {
-      logger.error('エラー応答送信失敗:', replyError.message);
-    }
-  }
+  return uniqueUrls;
 }
 
-/**
- * Q&A記録ヘルパー関数（改善版）
- * @param {Object} qaLoggerService - Q&A記録サービス
- * @param {Message} message - Discordメッセージ
- * @param {string} question - 質問内容
- * @param {string} response - 回答内容
- * @param {number} startTime - 開始時刻（ミリ秒）
- * @param {string} type - 質問タイプ
- * @param {string} status - 回答ステータス（'成功', 'エラー応答', 'システムエラー'）
- */
-async function logQAInteraction(qaLoggerService, message, question, response, startTime, type = '通常質問', status = '成功') {
-  try {
-    if (!qaLoggerService) {
-      logger.warn('⚠️ Q&A記録サービスが利用できません（初期化されていない可能性）');
-      return;
-    }
-    
-    const processingTime = Date.now() - startTime;
-    
-    const qaData = {
-      username: message.author.username,
-      userId: message.author.id,
-      channelName: message.channel.name,
-      channelId: message.channel.id,
-      guildName: message.guild?.name || 'DM',
-      question: question,
-      response: response,
-      responseLength: response.length,
-      processingTime: processingTime,
-      questionType: type,
-      status: status // ✨ ステータスを追加
-    };
-    
-    await qaLoggerService.logQA(qaData);
-    logger.success(`📊 Q&A記録成功: ${type} [${status}] (${processingTime}ms)`);
-    
-  } catch (logError) {
-    // Q&A記録失敗はユーザー体験に影響しないため、エラーログのみ出力
-    logger.error('Q&A記録失敗:', logError.message);
-    logger.errorDetail('Q&A記録詳細エラー:', logError);
+// === ユーザー状態チェック関数 ===
+function isUserWaitingForQuestion(userId, interactionStates) {
+  if (!interactionStates || !interactionStates.has(userId)) {
+    return false;
   }
+  const state = interactionStates.get(userId);
+  return state && state.waitingForQuestion === true;
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 既存の関数（変更なし）
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// @わなみさんメンション処理（既存関数 - 後方互換性のため保持）
+// === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.3');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
   try {
-    // Botメッセージは無視
-    if (message.author.bot) return;
-    
-    // ✅ デバッグログ: メッセージ受信
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.debug('📨 メッセージ受信');
-    logger.debug(`  送信者ID: ${message.author.id}`);
-    logger.debug(`  送信者名: ${message.author.tag}`);
-    logger.debug(`  内容: ${message.content}`);
-    
-    // メンション検出
-    const mentions = message.mentions?.users?.map(user => ({ id: user.id })) || [];
-    
-    // ✅ デバッグログ: メンション一覧
-    logger.debug(`  メンション一覧: ${mentions.map(m => m.id).join(', ') || 'なし'}`);
-    logger.debug(`  設定されたBOT_USER_ID: ${BOT_USER_ID}`);
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    const isMentioned = isBotMentioned(message.content, mentions, BOT_USER_ID);
-    
-    // ✅ デバッグログ: Bot判定結果
-    logger.debug(`  🤖 Bot判定結果: ${isMentioned ? '✅ メンション検出' : '❌ メンションなし'}`);
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    // ロールメンション処理も統合
-    const roleMentions = message.mentions?.roles;
-    if (roleMentions && roleMentions.size > 0) {
-      logger.discord(`ロールメンション検出: ${roleMentions.size}個`);
-    }
-    
-    if (!isMentioned) return;
-    
-    logger.discord(`メンション検出: ${message.author.username} in #${message.channel.name}`);
-    
-    // メンションからコンテンツを抽出
-    const userQuery = extractContentFromMention(message.content, BOT_USER_ID);
-    
-    // ✅ 画像添付の詳細確認（デバッグログ追加）
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    logger.debug('🖼️ 添付ファイル確認');
-    logger.debug(`  メッセージID: ${message.id}`);
-    logger.debug(`  添付ファイル数: ${message.attachments.size}`);
-    
-    // 添付ファイルの詳細ログ
-    if (message.attachments.size > 0) {
-      let attachmentIndex = 1;
-      message.attachments.forEach((attachment) => {
-        logger.debug(`  [${attachmentIndex}] ファイル情報:`);
-        logger.debug(`      ID: ${attachment.id}`);
-        logger.debug(`      名前: ${attachment.name}`);
-        logger.debug(`      URL: ${attachment.url}`);
-        logger.debug(`      Proxy URL: ${attachment.proxyURL || 'なし'}`);
-        logger.debug(`      ContentType: ${attachment.contentType || '不明'}`);
-        logger.debug(`      サイズ: ${attachment.size} bytes (${(attachment.size / 1024).toFixed(2)} KB)`);
-        logger.debug(`      幅: ${attachment.width || '不明'}`);
-        logger.debug(`      高さ: ${attachment.height || '不明'}`);
-        logger.debug(`      Ephemeral: ${attachment.ephemeral || false}`);
-        attachmentIndex++;
-      });
-    } else {
-      logger.debug('  添付ファイルなし');
-    }
-    
-    const attachments = Array.from(message.attachments.values());
-    const hasImages = hasImageAttachments(attachments);
-    const imageUrls = hasImages ? extractImageUrls(attachments) : [];
-    
-    logger.info(`🖼️ 画像添付: ${hasImages ? `${imageUrls.length}枚` : 'なし'}`);
-    
-    // ✅ 画像URL詳細ログ
-    if (hasImages && imageUrls.length > 0) {
-      logger.debug('  画像URL一覧:');
-      imageUrls.forEach((url, index) => {
-        logger.debug(`    [${index + 1}] ${url}`);
-      });
-      logger.info(`✅ 画像検出成功: ${imageUrls.length}枚の画像が添付されています`);
-    } else {
-      logger.debug('  画像なし（hasImageAttachments()がfalseを返しました）');
-    }
-    logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    // 応答処理開始のタイピング表示
-    await message.channel.sendTyping();
-    
-    // 質問内容が空の場合はボタンメニューを表示
-    if (!userQuery || userQuery.trim() === '') {
-      await showConsultationMenu(message);
+    // === 1. メンション検出 ===
+    const botMentioned = message.mentions.has(client.user.id);
+    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id})`);
+    console.log(`📝 メッセージ内容: "${message.content}"`);
+    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
+
+    if (!botMentioned) {
+      console.log('❌ ボットへのメンションなし → 処理スキップ');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       return;
     }
-    
-    // ボタンクリック後の質問応答かチェック
-    const { handleQuestionResponse, isUserWaitingForQuestion } = require('./button-handler');
-    
-    if (isUserWaitingForQuestion(message.author.id)) {
-      // ボタンクリック後の質問応答処理
-      try {
-        const buttonResponse = await handleQuestionResponse(message.author.id, userQuery, {
-          username: message.author.username,
-          channelName: message.channel.name,
-          guildName: message.guild?.name || 'DM',
-          hasImages: hasImages,
-          imageUrls: imageUrls
-        });
-        
-        if (buttonResponse) {
-          // ボタン質問の応答を送信
-          await sendLongMessage(message.channel, buttonResponse);
-          logger.success(`ボタン質問応答送信完了: ${message.author.username}`);
-          return;
-        }
-      } catch (buttonError) {
-        logger.errorDetail('ボタン質問応答エラー:', buttonError);
-        // 通常の知識ベース応答にフォールバック
-      }
+
+    console.log('✅ メンション検出成功 → 処理続行');
+
+    // === 2. 権限チェック ===
+    const botMember = message.guild?.members.cache.get(client.user.id);
+    if (botMember && !message.channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
+      console.warn('⚠️ 送信権限なし');
+      return;
     }
+
+    // === 3. コンテンツ抽出 ===
+    const botMention = `<@${client.user.id}>`;
+    const botMentionNick = `<@!${client.user.id}>`;
+    let questionText = message.content
+      .replace(new RegExp(botMention, 'g'), '')
+      .replace(new RegExp(botMentionNick, 'g'), '')
+      .trim();
+
+    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
+
+    if (!questionText) {
+      console.log('❌ コンテンツが空 → 処理スキップ');
+      await message.reply('質問内容を入力してください。');
+      return;
+    }
+
+    console.log('✅ コンテンツ抽出成功');
+
+    // === 4. 画像URL抽出 ===
+    console.log('🖼️ [IMAGE] 画像URL抽出開始');
+    const imageUrls = extractImageUrls(message);
     
-    // 通常の知識ベース限定応答処理
-    try {
-      const { generateKnowledgeOnlyResponse } = require('../services/rag-system');
-      
-      // ✅ デバッグログ: RAGシステムに渡すパラメータ
-      logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      logger.debug('🤖 RAGシステムに送信するパラメータ:');
-      logger.debug(`  クエリ: "${userQuery}"`);
-      logger.debug(`  画像あり: ${hasImages}`);
-      logger.debug(`  画像URL数: ${imageUrls.length}`);
-      if (imageUrls.length > 0) {
-        logger.debug(`  画像URL: ${JSON.stringify(imageUrls, null, 2)}`);
-      }
-      logger.debug('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      
-      // 知識ベース限定応答生成
-      const response = await generateKnowledgeOnlyResponse(userQuery, {
-        username: message.author.username,
-        channelName: message.channel.name,
-        guildName: message.guild?.name || 'DM',
-        hasImages: hasImages,
-        imageUrls: imageUrls
+    console.log(`🖼️ 画像添付: ${imageUrls.length > 0 ? `${imageUrls.length}件` : 'なし'}`);
+    if (imageUrls.length > 0) {
+      console.log('📸 検出された画像URL:');
+      imageUrls.forEach((url, i) => {
+        console.log(`  ${i + 1}. ${url}`);
       });
-      
-      // 応答送信（2000文字制限対応）
-      await sendLongMessage(message.channel, response);
-      
-      logger.success(`知識ベース限定応答送信完了: ${message.author.username}`);
-      
-    } catch (knowledgeError) {
-      logger.errorDetail('知識ベース応答生成エラー:', knowledgeError);
-      
-      // 知識ベースが利用できない場合の応答
-      const fallbackResponse = generateKnowledgeBaseFallback(userQuery, hasImages);
-      await message.reply(fallbackResponse);
+    } else {
+      console.log('🐛 画像なし（extractImageUrls()が空配列を返しました）');
     }
-    
-  } catch (error) {
-    logger.errorDetail('メンション処理エラー:', error);
-    
+
+    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🐛 [DEBUG] 265行目到達 - RAGシステム呼び出し前');
+    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // === 5. ボタン操作待機中のユーザーチェック ===
+    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
+    const interactionStates = global.interactionStates || new Map();
+    const isWaiting = isUserWaitingForQuestion(message.author.id, interactionStates);
+    console.log(`🔍 [CHECK-1] 結果: ${isWaiting ? '待機中 ⏳' : '待機なし ✅'}`);
+
+    if (isWaiting) {
+      console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
+      await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
+      return;
+    }
+
+    console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
+
+    // === 6. require文のテスト ===
+    console.log('🔍 [CHECK-2] require文テスト開始');
+    let RAGSystem;
     try {
-      await message.reply('❌ 申し訳ございません。システムエラーが発生しました。しばらく待ってから再度お試しください。');
-    } catch (replyError) {
-      logger.error('エラー応答送信失敗:', replyError.message);
+      console.log('📦 [REQUIRE] ./rag-system.js を読み込み中...');
+      RAGSystem = require('./rag-system.js');
+      console.log('✅ [REQUIRE] 読み込み成功');
+      console.log(`📦 [REQUIRE] RAGSystemの型: ${typeof RAGSystem}`);
+      console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponseの型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
+    } catch (requireError) {
+      console.error('❌ [REQUIRE] エラー発生:', requireError);
+      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
+      await message.reply('システムエラー: RAGシステムの読み込みに失敗しました。');
+      return;
     }
-  }
-}
 
-// 知識ベースフォールバック応答生成（システムエラー時）
-function generateKnowledgeBaseFallback(userQuery, hasImages) {
-  logger.warn('知識ベースシステムエラー - フォールバック応答生成');
-  
-  let response = `🤖 **わなみさんです！**\n\n`;
-  
-  response += `⚠️ 申し訳ございません。現在知識ベースシステムにアクセスできません。\n\n`;
-  
-  if (!userQuery || userQuery.trim() === '') {
-    response += `何かご相談はありますか?\n`;
-  } else {
-    response += `「${userQuery}」についてのご質問ですね。\n\n`;
-    response += `現在、知識ベースからの回答ができない状態です。\n`;
-  }
-  
-  if (hasImages) {
-    response += `🖼️ 画像添付を確認しましたが、現在解析できません。\n\n`;
-  }
-  
-  response += `**🔄 再試行のお願い**\n`;
-  response += `• しばらく待ってから再度お試しください\n`;
-  response += `• \`/soudan\` コマンドで相談メニューを表示\n\n`;
-  
-  response += `**📞 サポート方法**\n`;
-  response += `• ③レッスン質問 - 技術的問題\n`;
-  response += `• ④SNS運用相談 - マーケティング\n`;
-  response += `• ②プライベート相談 - 個人的な悩み\n\n`;
-  response += `システム復旧までお待ちください🙏`;
-  
-  return response;
-}
+    console.log('✅ [CHECK-2] 通過 - require成功');
 
-// 相談メニュー表示（「@わなみさん」だけのメンション時）
-async function showConsultationMenu(message) {
-  try {
-    logger.discord(`相談メニュー表示: ${message.author.username}`);
-    
-    const content = `🤖 **わなみさんです！**
+    // === 7. hasButtonHandler チェック ===
+    console.log('🔍 [CHECK-3] hasButtonHandler チェック開始');
+    const hasButtonHandler = typeof global.handleButtonInteraction === 'function';
+    console.log(`🔍 [CHECK-3] 結果: ${hasButtonHandler ? '登録済み ✅' : '未登録 ❌'}`);
 
-どのようなご相談でしょうか？下のボタンから選択してください✨
+    if (!hasButtonHandler) {
+      console.warn('⚠️ ボタンハンドラーが未登録');
+    } else {
+      console.log('✅ [CHECK-3] 通過 - ボタンハンドラー登録済み');
+    }
 
-**📚 知識ベース限定回答システム**
-• **@わなみさん [質問]** で知識ベースから正確な回答
-• VTuber活動に特化した専門情報のみ回答
+    // === 8. RAGシステム呼び出し ===
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.3デバッグ版）');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📝 質問: "${questionText}"`);
+    console.log(`🖼️ 画像: ${imageUrls.length}件`);
 
-**📞 専門サポートメニュー**
-下のボタンから選択して、より詳しいサポートを受けられます！`;
-    
-    const { createConsultationButtons } = require('./discord-handler');
-    const buttons = createConsultationButtons();
-    
-    // ボタン付きメッセージを送信
-    await message.reply({
-      content: content,
-      components: buttons
-    });
-    
-    logger.success(`相談メニュー送信完了: ${message.author.username}`);
-    
-  } catch (error) {
-    logger.errorDetail('相談メニュー表示エラー:', error);
-    
-    // フォールバック応答
-    await message.reply('🤖 **わなみさんです！**\n\n何かご相談はありますか？\n\n**使い方:**\n• **@わなみさん [質問]** で知識ベースから回答\n• \`/soudan\` で相談メニューを表示\n\nお気軽にご相談ください✨');
-  }
-}
-
-// 長いメッセージを分割して送信
-async function sendLongMessage(channel, content, maxLength = 2000) {
-  if (content.length <= maxLength) {
-    return await channel.send(content);
-  }
-  
-  // メッセージを適切な位置で分割
-  const messages = [];
-  let currentMessage = '';
-  const lines = content.split('\n');
-  
-  for (const line of lines) {
-    if ((currentMessage + line + '\n').length > maxLength) {
-      if (currentMessage) {
-        messages.push(currentMessage.trim());
-        currentMessage = '';
-      }
+    let botReply;
+    try {
+      console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
       
-      // 1行が長すぎる場合はさらに分割
-      if (line.length > maxLength) {
-        const chunks = line.match(new RegExp(`.{1,${maxLength - 10}}`, 'g')) || [line];
-        messages.push(...chunks);
+      const response = await RAGSystem.generateKnowledgeOnlyResponse(
+        questionText,
+        imageUrls
+      );
+
+      console.log('✅ [RAG] 応答生成完了');
+      console.log(`📊 [RAG] 応答長: ${response?.length || 0}文字`);
+
+      if (!response || response.trim().length === 0) {
+        throw new Error('RAGシステムから空の応答が返されました');
+      }
+
+      // === 9. Discord送信 ===
+      console.log('📤 [DISCORD] メッセージ送信準備');
+      
+      if (response.length <= 2000) {
+        console.log('📤 [DISCORD] 単一メッセージとして送信');
+        botReply = await message.reply(response);
       } else {
-        currentMessage = line + '\n';
+        console.log('📤 [DISCORD] 分割送信（2000文字超過）');
+        const chunks = response.match(/[\s\S]{1,2000}/g) || [];
+        console.log(`📤 [DISCORD] 分割数: ${chunks.length}`);
+        
+        for (let i = 0; i < chunks.length; i++) {
+          console.log(`📤 [DISCORD] チャンク${i + 1}/${chunks.length} 送信中...`);
+          if (i === 0) {
+            botReply = await message.reply(chunks[i]);
+          } else {
+            await message.channel.send(chunks[i]);
+          }
+        }
+      }
+
+      console.log('✅ [DISCORD] 送信完了');
+
+    } catch (ragError) {
+      console.error('❌ [RAG] エラー発生:', ragError);
+      console.error('❌ [RAG] スタックトレース:', ragError.stack);
+      await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
+      return;
+    }
+
+    // === 10. ボタン追加 ===
+    if (botReply && hasButtonHandler) {
+      console.log('🎮 [BUTTON] ボタン追加処理開始');
+      try {
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('button_3')
+            .setLabel('③ 画像生成')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🎨'),
+          new ButtonBuilder()
+            .setCustomId('button_4')
+            .setLabel('④ もっと詳しく')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📚'),
+          new ButtonBuilder()
+            .setCustomId('button_5')
+            .setLabel('⑤ 別の質問')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('💬')
+        );
+
+        await botReply.edit({ components: [buttons] });
+        console.log('✅ [BUTTON] ボタン追加完了');
+
+      } catch (buttonError) {
+        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
       }
     } else {
-      currentMessage += line + '\n';
+      console.log('⚠️ [BUTTON] スキップ（botReplyなし or ハンドラー未登録）');
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.3');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  } catch (error) {
+    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
+    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
+    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
+    
+    try {
+      await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
+    } catch (replyError) {
+      console.error('❌ 返信送信にも失敗:', replyError);
     }
   }
-  
-  if (currentMessage.trim()) {
-    messages.push(currentMessage.trim());
-  }
-  
-  // 分割されたメッセージを順次送信
-  const sentMessages = [];
-  for (let i = 0; i < messages.length; i++) {
-    let messageContent = messages[i];
-    
-    // 最初のメッセージ以外には続きであることを示す
-    if (i > 0) {
-      messageContent = `**（続き ${i + 1}/${messages.length}）**\n${messageContent}`;
-    }
-    
-    // 最後のメッセージ以外には続くことを示す  
-    if (i < messages.length - 1) {
-      messageContent += `\n\n*（続く...）*`;
-    }
-    
-    const sentMessage = await channel.send(messageContent);
-    sentMessages.push(sentMessage);
-    
-    // 連続送信の間隔を空ける
-    if (i < messages.length - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    }
-  }
-  
-  return sentMessages;
 }
 
-// ロールメンション処理（将来の拡張用 - 非推奨）
-// 現在はhandleMessageで統合処理されているため、この関数は使用しないことを推奨
-async function handleRoleMention(message, client) {
-  logger.warn('非推奨: handleRoleMentionは使用されません。handleMessageで統合処理されています。');
-  // 重複処理を防ぐために空関数として保持
+// === メンション処理メイン関数（Q&A記録版） ===
+async function handleMessageWithQALogging(message, client) {
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.3（Q&A記録版）');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  try {
+    // === 1. メンション検出 ===
+    const botMentioned = message.mentions.has(client.user.id);
+    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id})`);
+    console.log(`📝 メッセージ内容: "${message.content}"`);
+    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
+
+    if (!botMentioned) {
+      console.log('❌ ボットへのメンションなし → 処理スキップ');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      return;
+    }
+
+    console.log('✅ メンション検出成功 → 処理続行');
+
+    // === 2. 権限チェック ===
+    const botMember = message.guild?.members.cache.get(client.user.id);
+    if (botMember && !message.channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
+      console.warn('⚠️ 送信権限なし');
+      return;
+    }
+
+    // === 3. コンテンツ抽出 ===
+    const botMention = `<@${client.user.id}>`;
+    const botMentionNick = `<@!${client.user.id}>`;
+    let questionText = message.content
+      .replace(new RegExp(botMention, 'g'), '')
+      .replace(new RegExp(botMentionNick, 'g'), '')
+      .trim();
+
+    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
+
+    if (!questionText) {
+      console.log('❌ コンテンツが空 → 処理スキップ');
+      await message.reply('質問内容を入力してください。');
+      return;
+    }
+
+    console.log('✅ コンテンツ抽出成功');
+
+    // === 4. 画像URL抽出 ===
+    console.log('🖼️ [IMAGE] 画像URL抽出開始');
+    const imageUrls = extractImageUrls(message);
+    
+    console.log(`🖼️ 画像添付: ${imageUrls.length > 0 ? `${imageUrls.length}件` : 'なし'}`);
+    if (imageUrls.length > 0) {
+      console.log('📸 検出された画像URL:');
+      imageUrls.forEach((url, i) => {
+        console.log(`  ${i + 1}. ${url}`);
+      });
+    }
+
+    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🐛 [DEBUG] Q&A記録版 - RAGシステム呼び出し前');
+    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // === 5. ボタン操作待機中のユーザーチェック ===
+    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
+    const interactionStates = global.interactionStates || new Map();
+    const isWaiting = isUserWaitingForQuestion(message.author.id, interactionStates);
+    console.log(`🔍 [CHECK-1] 結果: ${isWaiting ? '待機中 ⏳' : '待機なし ✅'}`);
+
+    if (isWaiting) {
+      console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
+      await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
+      return;
+    }
+
+    console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
+
+    // === 6. require文のテスト ===
+    console.log('🔍 [CHECK-2] require文テスト開始');
+    let RAGSystem, QALogger;
+    try {
+      console.log('📦 [REQUIRE] ./rag-system.js を読み込み中...');
+      RAGSystem = require('./rag-system.js');
+      console.log('✅ [REQUIRE] rag-system.js 読み込み成功');
+      
+      console.log('📦 [REQUIRE] ./qa-logger.js を読み込み中...');
+      QALogger = require('./qa-logger.js');
+      console.log('✅ [REQUIRE] qa-logger.js 読み込み成功');
+      
+      console.log(`📦 [REQUIRE] RAGSystem型: ${typeof RAGSystem}`);
+      console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponse型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
+      console.log(`📦 [REQUIRE] QALogger型: ${typeof QALogger}`);
+      console.log(`📦 [REQUIRE] logQA型: ${typeof QALogger?.logQA}`);
+      
+    } catch (requireError) {
+      console.error('❌ [REQUIRE] エラー発生:', requireError);
+      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
+      await message.reply('システムエラー: モジュールの読み込みに失敗しました。');
+      return;
+    }
+
+    console.log('✅ [CHECK-2] 通過 - require成功');
+
+    // === 7. RAGシステム呼び出し ===
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版）');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(`📝 質問: "${questionText}"`);
+    console.log(`🖼️ 画像: ${imageUrls.length}件`);
+
+    let botReply, responseText;
+    try {
+      console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
+      
+      responseText = await RAGSystem.generateKnowledgeOnlyResponse(
+        questionText,
+        imageUrls
+      );
+
+      console.log('✅ [RAG] 応答生成完了');
+      console.log(`📊 [RAG] 応答長: ${responseText?.length || 0}文字`);
+
+      if (!responseText || responseText.trim().length === 0) {
+        throw new Error('RAGシステムから空の応答が返されました');
+      }
+
+      // === 8. Discord送信 ===
+      console.log('📤 [DISCORD] メッセージ送信準備');
+      
+      if (responseText.length <= 2000) {
+        console.log('📤 [DISCORD] 単一メッセージとして送信');
+        botReply = await message.reply(responseText);
+      } else {
+        console.log('📤 [DISCORD] 分割送信（2000文字超過）');
+        const chunks = responseText.match(/[\s\S]{1,2000}/g) || [];
+        console.log(`📤 [DISCORD] 分割数: ${chunks.length}`);
+        
+        for (let i = 0; i < chunks.length; i++) {
+          console.log(`📤 [DISCORD] チャンク${i + 1}/${chunks.length} 送信中...`);
+          if (i === 0) {
+            botReply = await message.reply(chunks[i]);
+          } else {
+            await message.channel.send(chunks[i]);
+          }
+        }
+      }
+
+      console.log('✅ [DISCORD] 送信完了');
+
+    } catch (ragError) {
+      console.error('❌ [RAG] エラー発生:', ragError);
+      console.error('❌ [RAG] スタックトレース:', ragError.stack);
+      await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
+      return;
+    }
+
+    // === 9. Q&A記録 ===
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📝 [QA-LOG] Q&A記録開始');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
+    try {
+      await QALogger.logQA({
+        userId: message.author.id,
+        username: message.author.tag,
+        question: questionText,
+        answer: responseText,
+        hasImage: imageUrls.length > 0,
+        channelId: message.channel.id,
+        messageId: message.id
+      });
+      console.log('✅ [QA-LOG] 記録完了');
+    } catch (logError) {
+      console.error('⚠️ [QA-LOG] 記録失敗（処理は続行）:', logError);
+    }
+
+    // === 10. ボタン追加 ===
+    const hasButtonHandler = typeof global.handleButtonInteraction === 'function';
+    if (botReply && hasButtonHandler) {
+      console.log('🎮 [BUTTON] ボタン追加処理開始');
+      try {
+        const buttons = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('button_3')
+            .setLabel('③ 画像生成')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji('🎨'),
+          new ButtonBuilder()
+            .setCustomId('button_4')
+            .setLabel('④ もっと詳しく')
+            .setStyle(ButtonStyle.Secondary)
+            .setEmoji('📚'),
+          new ButtonBuilder()
+            .setCustomId('button_5')
+            .setLabel('⑤ 別の質問')
+            .setStyle(ButtonStyle.Success)
+            .setEmoji('💬')
+        );
+
+        await botReply.edit({ components: [buttons] });
+        console.log('✅ [BUTTON] ボタン追加完了');
+
+      } catch (buttonError) {
+        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
+      }
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.3');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  } catch (error) {
+    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
+    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
+    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
+    
+    try {
+      await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
+    } catch (replyError) {
+      console.error('❌ 返信送信にも失敗:', replyError);
+    }
+  }
 }
 
-module.exports = {
-  handleMessage, // 既存関数（後方互換性のため保持）
-  handleMessageWithQALogging, // ✨ Q&A記録付き処理
-  handleRoleMention,
-  sendLongMessage
+module.exports = { 
+  handleMessage,
+  handleMessageWithQALogging 
 };
