@@ -1,16 +1,17 @@
 /**
- * メンション処理ハンドラー v15.5.5（services/パス対応版）
+ * メンション処理ハンドラー v15.5.6（Typing Indicator復活版）
  * 
- * 【v15.5.5 変更点】
- * - require パスを修正: '../rag-system.js' → '../services/rag-system'
- * - require パスを修正: '../qa-logger.js' → '../services/qa-logger'
- * - index.js の構造に合わせて services/ ディレクトリ対応
+ * 【v15.5.6 変更点】
+ * - メンション検出後に channel.sendTyping() を追加
+ * - RAGシステム処理中に「入力中...」表示を維持
+ * - 15秒ごとに自動更新（長時間処理対応）
  * 
  * 【機能】
  * 1. メンション検索: ボット宛のメンションを検出
  * 2. 画像URL抽出: 添付画像・埋め込み画像を自動検出
  * 3. 知識ベース検索: RAGシステムで関連情報を取得
  * 4. Q&A記録: 質問と回答をスプレッドシートに自動保存
+ * 5. Typing Indicator: 「わなみさんが入力中...」表示
  */
 
 const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
@@ -75,11 +76,39 @@ function isUserWaitingForQuestion(userId, interactionStates) {
   return state && state.waitingForQuestion === true;
 }
 
+// === Typing Indicator 管理関数 ===
+function startTypingIndicator(channel) {
+  console.log('⌨️ [TYPING] Typing Indicator 開始');
+  
+  // 初回送信
+  channel.sendTyping().catch(err => {
+    console.error('⚠️ [TYPING] 送信エラー:', err.message);
+  });
+  
+  // 15秒ごとに自動更新（Discordの仕様：10秒で消えるため）
+  const typingInterval = setInterval(() => {
+    channel.sendTyping().catch(err => {
+      console.error('⚠️ [TYPING] 更新エラー:', err.message);
+    });
+  }, 8000); // 8秒ごとに更新（余裕を持たせる）
+  
+  return typingInterval;
+}
+
+function stopTypingIndicator(typingInterval) {
+  if (typingInterval) {
+    clearInterval(typingInterval);
+    console.log('⌨️ [TYPING] Typing Indicator 停止');
+  }
+}
+
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.5');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.6');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  let typingInterval = null;
 
   try {
     // === 1. メンション検出 ===
@@ -121,6 +150,9 @@ async function handleMessage(message, client) {
 
     console.log('✅ コンテンツ抽出成功');
 
+    // ✨ === Typing Indicator 開始 === ✨
+    typingInterval = startTypingIndicator(message.channel);
+
     // === 4. 画像URL抽出 ===
     console.log('🖼️ [IMAGE] 画像URL抽出開始');
     const imageUrls = extractImageUrls(message);
@@ -147,6 +179,7 @@ async function handleMessage(message, client) {
 
     if (isWaiting) {
       console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
+      stopTypingIndicator(typingInterval);
       await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
       return;
     }
@@ -165,6 +198,7 @@ async function handleMessage(message, client) {
     } catch (requireError) {
       console.error('❌ [REQUIRE] エラー発生:', requireError);
       console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
+      stopTypingIndicator(typingInterval);
       await message.reply('システムエラー: RAGシステムの読み込みに失敗しました。');
       return;
     }
@@ -184,7 +218,7 @@ async function handleMessage(message, client) {
 
     // === 8. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.5）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.6）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -200,6 +234,10 @@ async function handleMessage(message, client) {
 
       console.log('✅ [RAG] 応答生成完了');
       console.log(`📊 [RAG] 応答長: ${response?.length || 0}文字`);
+
+      // ✨ Typing Indicator 停止 ✨
+      stopTypingIndicator(typingInterval);
+      typingInterval = null;
 
       if (!response || response.trim().length === 0) {
         throw new Error('RAGシステムから空の応答が返されました');
@@ -231,6 +269,7 @@ async function handleMessage(message, client) {
     } catch (ragError) {
       console.error('❌ [RAG] エラー発生:', ragError);
       console.error('❌ [RAG] スタックトレース:', ragError.stack);
+      stopTypingIndicator(typingInterval);
       await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
       return;
     }
@@ -268,13 +307,15 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.5');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.6');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
     console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
     console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
     console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
+    
+    stopTypingIndicator(typingInterval);
     
     try {
       await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
@@ -287,8 +328,10 @@ async function handleMessage(message, client) {
 // === メンション処理メイン関数（Q&A記録版） ===
 async function handleMessageWithQALogging(message, client, qaLoggerService) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.5（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.6（Q&A記録版）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  let typingInterval = null;
 
   try {
     // === 1. メンション検出 ===
@@ -330,6 +373,9 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     console.log('✅ コンテンツ抽出成功');
 
+    // ✨ === Typing Indicator 開始 === ✨
+    typingInterval = startTypingIndicator(message.channel);
+
     // === 4. 画像URL抽出 ===
     console.log('🖼️ [IMAGE] 画像URL抽出開始');
     const imageUrls = extractImageUrls(message);
@@ -354,6 +400,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     if (isWaiting) {
       console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
+      stopTypingIndicator(typingInterval);
       await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
       return;
     }
@@ -374,6 +421,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     } catch (requireError) {
       console.error('❌ [REQUIRE] エラー発生:', requireError);
       console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
+      stopTypingIndicator(typingInterval);
       await message.reply('システムエラー: モジュールの読み込みに失敗しました。');
       return;
     }
@@ -382,7 +430,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     // === 7. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.5）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.6）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -398,6 +446,10 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
       console.log('✅ [RAG] 応答生成完了');
       console.log(`📊 [RAG] 応答長: ${responseText?.length || 0}文字`);
+
+      // ✨ Typing Indicator 停止 ✨
+      stopTypingIndicator(typingInterval);
+      typingInterval = null;
 
       if (!responseText || responseText.trim().length === 0) {
         throw new Error('RAGシステムから空の応答が返されました');
@@ -429,6 +481,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     } catch (ragError) {
       console.error('❌ [RAG] エラー発生:', ragError);
       console.error('❌ [RAG] スタックトレース:', ragError.stack);
+      stopTypingIndicator(typingInterval);
       await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
       return;
     }
@@ -489,13 +542,15 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.5');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.6');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
     console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
     console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
     console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
+    
+    stopTypingIndicator(typingInterval);
     
     try {
       await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
