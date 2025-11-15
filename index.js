@@ -1,511 +1,477 @@
-/**
- * メンション処理ハンドラー v15.5.5（services/パス対応版）
- * 
- * 【v15.5.5 変更点】
- * - require パスを修正: '../rag-system.js' → '../services/rag-system'
- * - require パスを修正: '../qa-logger.js' → '../services/qa-logger'
- * - index.js の構造に合わせて services/ ディレクトリ対応
- * 
- * 【機能】
- * 1. メンション検索: ボット宛のメンションを検出
- * 2. 画像URL抽出: 添付画像・埋め込み画像を自動検出
- * 3. 知識ベース検索: RAGシステムで関連情報を取得
- * 4. Q&A記録: 質問と回答をスプレッドシートに自動保存
- */
+// Discord Bot for わなみさん - VTuber育成スクール相談システム
+// Version: 15.5.0 - Q&A記録機能追加版
 
-const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+const express = require('express');
+const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionType } = require('discord.js');
+const crypto = require('crypto');
 
-// === 画像URL抽出関数（インライン実装） ===
-function extractImageUrls(message) {
-  const imageUrls = [];
-  const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
+// 設定とサービスのインポート
+const env = require('./config/environment');
+const logger = require('./utils/logger');
+const discordHandler = require('./handlers/discord-handler');
+const mentionHandler = require('./handlers/mention-handler');
+const buttonHandler = require('./handlers/button-handler');
+const { initializeServices } = require('./services/google-apis');
+const knowledgeBase = require('./services/knowledge-base');
+const { initializeRAG } = require('./services/rag-system');
+const { qaLoggerService } = require('./services/qa-logger'); // ✅ 追加
 
-  console.log('🖼️ [IMAGE] 画像URL抽出開始');
-  console.log(`📎 添付ファイル数: ${message.attachments.size}`);
-  console.log(`🎨 埋め込み数: ${message.embeds.length}`);
+const app = express();
 
-  // 1. 添付ファイルから画像を抽出
-  message.attachments.forEach(attachment => {
-    const url = attachment.url || attachment.proxyURL;
-    if (url) {
-      const isImage = imageExtensions.some(ext => url.toLowerCase().includes(ext));
-      console.log(`📎 添付: ${url.substring(0, 80)}... (画像: ${isImage})`);
-      if (isImage) {
-        imageUrls.push(url);
-        console.log(`✅ 画像追加: ${url}`);
-      }
-    }
-  });
+// Discord Client初期化
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.DirectMessages
+  ]
+});
 
-  // 2. 埋め込みから画像を抽出
-  message.embeds.forEach((embed, index) => {
-    console.log(`🎨 埋め込み[${index}]タイプ: ${embed.data?.type || 'unknown'}`);
-    
-    if (embed.image?.url) {
-      console.log(`🖼️ embed.image.url発見: ${embed.image.url}`);
-      imageUrls.push(embed.image.url);
-    }
-    if (embed.thumbnail?.url) {
-      console.log(`🖼️ embed.thumbnail.url発見: ${embed.thumbnail.url}`);
-      imageUrls.push(embed.thumbnail.url);
-    }
-    if (embed.data?.image?.url) {
-      console.log(`🖼️ embed.data.image.url発見: ${embed.data.image.url}`);
-      imageUrls.push(embed.data.image.url);
-    }
-    if (embed.data?.thumbnail?.url) {
-      console.log(`🖼️ embed.data.thumbnail.url発見: ${embed.data.thumbnail.url}`);
-      imageUrls.push(embed.data.thumbnail.url);
-    }
-  });
+// JSONパース用ミドルウェア
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
-  // 3. 重複削除
-  const uniqueUrls = [...new Set(imageUrls)];
-  console.log(`✅ 抽出完了: ${uniqueUrls.length}件の画像`);
-  
-  return uniqueUrls;
-}
-
-// === ユーザー状態チェック関数 ===
-function isUserWaitingForQuestion(userId, interactionStates) {
-  if (!interactionStates || !interactionStates.has(userId)) {
+// Discord署名検証関数
+function verifySignature(req) {
+  const publicKey = env.DISCORD_PUBLIC_KEY;
+  if (!publicKey) {
+    logger.error('DISCORD_PUBLIC_KEY環境変数が設定されていません');
     return false;
   }
-  const state = interactionStates.get(userId);
-  return state && state.waitingForQuestion === true;
-}
 
-// === メンション処理メイン関数（既存） ===
-async function handleMessage(message, client) {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.5');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  const signature = req.headers['x-signature-ed25519'];
+  const timestamp = req.headers['x-signature-timestamp'];
+  
+  if (!signature || !timestamp) {
+    logger.error('必要なヘッダーが見つかりません');
+    return false;
+  }
 
+  const body = req.rawBody || '';
+  
   try {
-    // === 1. メンション検出 ===
-    const botMentioned = message.mentions.has(client.user.id);
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id})`);
-    console.log(`📝 メッセージ内容: "${message.content}"`);
-    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
-
-    if (!botMentioned) {
-      console.log('❌ ボットへのメンションなし → 処理スキップ');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      return;
-    }
-
-    console.log('✅ メンション検出成功 → 処理続行');
-
-    // === 2. 権限チェック ===
-    const botMember = message.guild?.members.cache.get(client.user.id);
-    if (botMember && !message.channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
-      console.warn('⚠️ 送信権限なし');
-      return;
-    }
-
-    // === 3. コンテンツ抽出 ===
-    const botMention = `<@${client.user.id}>`;
-    const botMentionNick = `<@!${client.user.id}>`;
-    let questionText = message.content
-      .replace(new RegExp(botMention, 'g'), '')
-      .replace(new RegExp(botMentionNick, 'g'), '')
-      .trim();
-
-    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
-
-    if (!questionText) {
-      console.log('❌ コンテンツが空 → 処理スキップ');
-      await message.reply('質問内容を入力してください。');
-      return;
-    }
-
-    console.log('✅ コンテンツ抽出成功');
-
-    // === 4. 画像URL抽出 ===
-    console.log('🖼️ [IMAGE] 画像URL抽出開始');
-    const imageUrls = extractImageUrls(message);
+    const isValid = crypto.verify(
+      'ed25519',
+      Buffer.concat([Buffer.from(timestamp), body]),
+      Buffer.from(publicKey, 'hex'),
+      Buffer.from(signature, 'hex')
+    );
     
-    console.log(`🖼️ 画像添付: ${imageUrls.length > 0 ? `${imageUrls.length}件` : 'なし'}`);
-    if (imageUrls.length > 0) {
-      console.log('📸 検出された画像URL:');
-      imageUrls.forEach((url, i) => {
-        console.log(`  ${i + 1}. ${url}`);
-      });
-    } else {
-      console.log('🐛 画像なし（extractImageUrls()が空配列を返しました）');
-    }
-
-    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🐛 [DEBUG] 265行目到達 - RAGシステム呼び出し前');
-    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    // === 5. ボタン操作待機中のユーザーチェック ===
-    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
-    const interactionStates = global.interactionStates || new Map();
-    const isWaiting = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${isWaiting ? '待機中 ⏳' : '待機なし ✅'}`);
-
-    if (isWaiting) {
-      console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
-      await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
-      return;
-    }
-
-    console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
-
-    // === 6. require文のテスト（services/パス対応版） ===
-    console.log('🔍 [CHECK-2] require文テスト開始');
-    let RAGSystem;
-    try {
-      console.log('📦 [REQUIRE] ../services/rag-system を読み込み中...');
-      RAGSystem = require('../services/rag-system');
-      console.log('✅ [REQUIRE] 読み込み成功');
-      console.log(`📦 [REQUIRE] RAGSystemの型: ${typeof RAGSystem}`);
-      console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponseの型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
-    } catch (requireError) {
-      console.error('❌ [REQUIRE] エラー発生:', requireError);
-      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
-      await message.reply('システムエラー: RAGシステムの読み込みに失敗しました。');
-      return;
-    }
-
-    console.log('✅ [CHECK-2] 通過 - require成功');
-
-    // === 7. hasButtonHandler チェック ===
-    console.log('🔍 [CHECK-3] hasButtonHandler チェック開始');
-    const hasButtonHandler = typeof global.handleButtonInteraction === 'function';
-    console.log(`🔍 [CHECK-3] 結果: ${hasButtonHandler ? '登録済み ✅' : '未登録 ❌'}`);
-
-    if (!hasButtonHandler) {
-      console.warn('⚠️ ボタンハンドラーが未登録');
-    } else {
-      console.log('✅ [CHECK-3] 通過 - ボタンハンドラー登録済み');
-    }
-
-    // === 8. RAGシステム呼び出し ===
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.5）');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📝 質問: "${questionText}"`);
-    console.log(`🖼️ 画像: ${imageUrls.length}件`);
-
-    let botReply;
-    try {
-      console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
-      
-      const response = await RAGSystem.generateKnowledgeOnlyResponse(
-        questionText,
-        imageUrls
-      );
-
-      console.log('✅ [RAG] 応答生成完了');
-      console.log(`📊 [RAG] 応答長: ${response?.length || 0}文字`);
-
-      if (!response || response.trim().length === 0) {
-        throw new Error('RAGシステムから空の応答が返されました');
-      }
-
-      // === 9. Discord送信 ===
-      console.log('📤 [DISCORD] メッセージ送信準備');
-      
-      if (response.length <= 2000) {
-        console.log('📤 [DISCORD] 単一メッセージとして送信');
-        botReply = await message.reply(response);
-      } else {
-        console.log('📤 [DISCORD] 分割送信（2000文字超過）');
-        const chunks = response.match(/[\s\S]{1,2000}/g) || [];
-        console.log(`📤 [DISCORD] 分割数: ${chunks.length}`);
-        
-        for (let i = 0; i < chunks.length; i++) {
-          console.log(`📤 [DISCORD] チャンク${i + 1}/${chunks.length} 送信中...`);
-          if (i === 0) {
-            botReply = await message.reply(chunks[i]);
-          } else {
-            await message.channel.send(chunks[i]);
-          }
-        }
-      }
-
-      console.log('✅ [DISCORD] 送信完了');
-
-    } catch (ragError) {
-      console.error('❌ [RAG] エラー発生:', ragError);
-      console.error('❌ [RAG] スタックトレース:', ragError.stack);
-      await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
-      return;
-    }
-
-    // === 10. ボタン追加 ===
-    if (botReply && hasButtonHandler) {
-      console.log('🎮 [BUTTON] ボタン追加処理開始');
-      try {
-        const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('button_3')
-            .setLabel('③ 画像生成')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎨'),
-          new ButtonBuilder()
-            .setCustomId('button_4')
-            .setLabel('④ もっと詳しく')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📚'),
-          new ButtonBuilder()
-            .setCustomId('button_5')
-            .setLabel('⑤ 別の質問')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('💬')
-        );
-
-        await botReply.edit({ components: [buttons] });
-        console.log('✅ [BUTTON] ボタン追加完了');
-
-      } catch (buttonError) {
-        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
-      }
-    } else {
-      console.log('⚠️ [BUTTON] スキップ（botReplyなし or ハンドラー未登録）');
-    }
-
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.5');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
+    logger.info('署名検証結果:', isValid);
+    return isValid;
   } catch (error) {
-    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
-    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
-    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
-    
-    try {
-      await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
-    } catch (replyError) {
-      console.error('❌ 返信送信にも失敗:', replyError);
-    }
+    logger.error('署名検証エラー:', error);
+    return false;
   }
 }
 
-// === メンション処理メイン関数（Q&A記録版） ===
-async function handleMessageWithQALogging(message, client, qaLoggerService) {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.5（Q&A記録版）');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
+// Discord Bot Events
+client.once('ready', async () => {
+  logger.startup('Discord Bot for わなみさん', '15.5.0', env.PORT);
+  logger.info(`🔗 サーバー数: ${client.guilds.cache.size}`);
+  
+  // Bot User IDの確認と検証
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  logger.info('🆔 Bot User ID 確認');
+  logger.info(`  実際のBot User ID: ${client.user.id}`);
+  
+  const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
+  logger.info(`  設定されたBOT_USER_ID: ${configuredBotId}`);
+  
+  if (client.user.id === configuredBotId) {
+    logger.success('  ✅ Bot User IDが正しく設定されています');
+  } else {
+    logger.error('  ❌ Bot User IDが一致しません！');
+    logger.error(`     実際のID: ${client.user.id}`);
+    logger.error(`     設定値: ${configuredBotId}`);
+    logger.error('     → 環境変数のBOT_USER_IDを修正してください');
+  }
+  logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  
   try {
-    // === 1. メンション検出 ===
-    const botMentioned = message.mentions.has(client.user.id);
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id})`);
-    console.log(`📝 メッセージ内容: "${message.content}"`);
-    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
-
-    if (!botMentioned) {
-      console.log('❌ ボットへのメンションなし → 処理スキップ');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      return;
-    }
-
-    console.log('✅ メンション検出成功 → 処理続行');
-
-    // === 2. 権限チェック ===
-    const botMember = message.guild?.members.cache.get(client.user.id);
-    if (botMember && !message.channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
-      console.warn('⚠️ 送信権限なし');
-      return;
-    }
-
-    // === 3. コンテンツ抽出 ===
-    const botMention = `<@${client.user.id}>`;
-    const botMentionNick = `<@!${client.user.id}>`;
-    let questionText = message.content
-      .replace(new RegExp(botMention, 'g'), '')
-      .replace(new RegExp(botMentionNick, 'g'), '')
-      .trim();
-
-    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
-
-    if (!questionText) {
-      console.log('❌ コンテンツが空 → 処理スキップ');
-      await message.reply('質問内容を入力してください。');
-      return;
-    }
-
-    console.log('✅ コンテンツ抽出成功');
-
-    // === 4. 画像URL抽出 ===
-    console.log('🖼️ [IMAGE] 画像URL抽出開始');
-    const imageUrls = extractImageUrls(message);
+    // 各種サービス初期化
+    logger.info('🔄 サービス初期化開始...');
     
-    console.log(`🖼️ 画像添付: ${imageUrls.length > 0 ? `${imageUrls.length}件` : 'なし'}`);
-    if (imageUrls.length > 0) {
-      console.log('📸 検出された画像URL:');
-      imageUrls.forEach((url, i) => {
-        console.log(`  ${i + 1}. ${url}`);
-      });
-    }
-
-    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🐛 [DEBUG] Q&A記録版 - RAGシステム呼び出し前');
-    console.log('🐛 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    // === 5. ボタン操作待機中のユーザーチェック ===
-    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
-    const interactionStates = global.interactionStates || new Map();
-    const isWaiting = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${isWaiting ? '待機中 ⏳' : '待機なし ✅'}`);
-
-    if (isWaiting) {
-      console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
-      await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
-      return;
-    }
-
-    console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
-
-    // === 6. require文のテスト（services/パス対応版） ===
-    console.log('🔍 [CHECK-2] require文テスト開始');
-    let RAGSystem;
-    try {
-      console.log('📦 [REQUIRE] ../services/rag-system を読み込み中...');
-      RAGSystem = require('../services/rag-system');
-      console.log('✅ [REQUIRE] rag-system 読み込み成功');
-      
-      console.log(`📦 [REQUIRE] RAGSystem型: ${typeof RAGSystem}`);
-      console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponse型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
-      
-    } catch (requireError) {
-      console.error('❌ [REQUIRE] エラー発生:', requireError);
-      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
-      await message.reply('システムエラー: モジュールの読み込みに失敗しました。');
-      return;
-    }
-
-    console.log('✅ [CHECK-2] 通過 - require成功');
-
-    // === 7. RAGシステム呼び出し ===
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.5）');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📝 質問: "${questionText}"`);
-    console.log(`🖼️ 画像: ${imageUrls.length}件`);
-
-    let botReply, responseText;
-    try {
-      console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
-      
-      responseText = await RAGSystem.generateKnowledgeOnlyResponse(
-        questionText,
-        imageUrls
-      );
-
-      console.log('✅ [RAG] 応答生成完了');
-      console.log(`📊 [RAG] 応答長: ${responseText?.length || 0}文字`);
-
-      if (!responseText || responseText.trim().length === 0) {
-        throw new Error('RAGシステムから空の応答が返されました');
-      }
-
-      // === 8. Discord送信 ===
-      console.log('📤 [DISCORD] メッセージ送信準備');
-      
-      if (responseText.length <= 2000) {
-        console.log('📤 [DISCORD] 単一メッセージとして送信');
-        botReply = await message.reply(responseText);
-      } else {
-        console.log('📤 [DISCORD] 分割送信（2000文字超過）');
-        const chunks = responseText.match(/[\s\S]{1,2000}/g) || [];
-        console.log(`📤 [DISCORD] 分割数: ${chunks.length}`);
-        
-        for (let i = 0; i < chunks.length; i++) {
-          console.log(`📤 [DISCORD] チャンク${i + 1}/${chunks.length} 送信中...`);
-          if (i === 0) {
-            botReply = await message.reply(chunks[i]);
-          } else {
-            await message.channel.send(chunks[i]);
-          }
-        }
-      }
-
-      console.log('✅ [DISCORD] 送信完了');
-
-    } catch (ragError) {
-      console.error('❌ [RAG] エラー発生:', ragError);
-      console.error('❌ [RAG] スタックトレース:', ragError.stack);
-      await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
-      return;
-    }
-
-    // === 9. Q&A記録 ===
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📝 [QA-LOG] Q&A記録開始');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    // Google APIs初期化
+    await initializeServices();
+    logger.success('✅ Google APIs初期化完了');
     
-    try {
-      if (qaLoggerService && typeof qaLoggerService.logQA === 'function') {
-        await qaLoggerService.logQA({
-          userId: message.author.id,
-          username: message.author.tag,
-          question: questionText,
-          answer: responseText,
-          hasImage: imageUrls.length > 0,
-          channelId: message.channel.id,
-          messageId: message.id
+    // 知識ベース初期化
+    await knowledgeBase.initialize();
+    logger.success('✅ 知識ベース初期化完了');
+    
+    // RAGシステム初期化
+    await initializeRAG();
+    logger.success('✅ RAGシステム初期化完了');
+    
+    // ✅ 追加: Q&A記録サービス初期化
+    if (env.QA_SPREADSHEET_ID) {
+      try {
+        await qaLoggerService.initialize(env.QA_SPREADSHEET_ID);
+        logger.success('✅ Q&A記録サービス初期化完了');
+      } catch (error) {
+        logger.error('❌ Q&A記録サービス初期化失敗:', error.message);
+        logger.warn('⚠️ Q&A記録機能は無効です');
+      }
+    } else {
+      logger.warn('⚠️ QA_SPREADSHEET_IDが設定されていません。Q&A記録機能は無効です。');
+    }
+    
+    logger.success('🎉 全サービス初期化完了！');
+    
+  } catch (error) {
+    logger.errorDetail('❌ サービス初期化失敗:', error);
+    logger.warn('⚠️ 一部機能が制限される可能性があります');
+  }
+  
+  // ステータス設定
+  client.user.setActivity('VTuber育成スクールサポート 🎥✨', { type: 'WATCHING' });
+});
+
+// メンション対応（AI知識ベース統合 + Q&A記録）
+client.on('messageCreate', async (message) => {
+  try {
+    // ✅ 修正: Q&A記録対応版
+    await mentionHandler.handleMessageWithQALogging(message, client, qaLoggerService);
+  } catch (error) {
+    logger.errorDetail('メッセージ処理エラー:', error);
+  }
+});
+
+// ボタンインタラクション対応（Gateway経由）
+client.on('interactionCreate', async (interaction) => {
+  try {
+    // MESSAGE_COMPONENTタイプの判定
+    if (interaction.isMessageComponent()) {
+      logger.discord(`インタラクション受信: ${interaction.customId} by ${interaction.user.username}`);
+      
+      const response = await buttonHandler.handleButtonClickGateway(interaction, client);
+      
+      // Gateway経由の場合は直接reply
+      if (response && response.data) {
+        await interaction.reply({
+          content: response.data.content,
+          ephemeral: response.data.flags === 64
         });
-        console.log('✅ [QA-LOG] 記録完了');
-      } else {
-        console.log('⚠️ [QA-LOG] スキップ（qaLoggerService未初期化）');
-      }
-    } catch (logError) {
-      console.error('⚠️ [QA-LOG] 記録失敗（処理は続行）:', logError);
-    }
-
-    // === 10. ボタン追加 ===
-    const hasButtonHandler = typeof global.handleButtonInteraction === 'function';
-    if (botReply && hasButtonHandler) {
-      console.log('🎮 [BUTTON] ボタン追加処理開始');
-      try {
-        const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('button_3')
-            .setLabel('③ 画像生成')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎨'),
-          new ButtonBuilder()
-            .setCustomId('button_4')
-            .setLabel('④ もっと詳しく')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📚'),
-          new ButtonBuilder()
-            .setCustomId('button_5')
-            .setLabel('⑤ 別の質問')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('💬')
-        );
-
-        await botReply.edit({ components: [buttons] });
-        console.log('✅ [BUTTON] ボタン追加完了');
-
-      } catch (buttonError) {
-        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
       }
     }
+  } catch (error) {
+    logger.errorDetail('インタラクション処理エラー:', error);
+    
+    // エラーレスポンス
+    try {
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: '❌ 処理中にエラーが発生しました。再度お試しください。',
+          ephemeral: true
+        });
+      }
+    } catch (replyError) {
+      logger.error('エラー応答送信失敗:', replyError.message);
+    }
+  }
+});
 
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.5');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+// Discord Interactions エンドポイント
+app.post('/interactions', async (req, res) => {
+  logger.discord('Discord Interaction受信');
+  
+  // 署名検証
+  if (!verifySignature(req)) {
+    logger.security('署名検証失敗');
+    return res.status(401).send('署名が無効です');
+  }
+
+  const interaction = req.body;
+
+  try {
+    // PING応答
+    if (interaction.type === 1) {
+      logger.info('PING受信 - PONG応答');
+      return res.json({ type: 1 });
+    }
+
+    // APPLICATION_COMMAND
+    if (interaction.type === 2) {
+      const response = await discordHandler.handleSlashCommand(interaction);
+      return res.json(response);
+    }
+
+    // MESSAGE_COMPONENT - ボタンクリック（AI統合対応）
+    if (interaction.type === 3) {
+      const response = await buttonHandler.handleButtonClick(interaction, client);
+      return res.json(response);
+    }
+
+    // その他のInteraction
+    logger.warn('未対応のInteractionタイプ:', interaction.type);
+    return res.status(400).json({ error: '未対応のInteractionです' });
 
   } catch (error) {
-    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
-    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
-    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
+    logger.errorDetail('Interaction処理エラー:', error);
+    return res.status(500).json({ error: 'サーバーエラー' });
+  }
+});
+
+// 知識ベース管理エンドポイント
+app.get('/api/knowledge-base/status', (req, res) => {
+  try {
+    const stats = knowledgeBase.getStats();
+    res.json(stats);
+  } catch (error) {
+    logger.errorDetail('知識ベース状態取得エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// 知識ベース手動更新エンドポイント
+app.post('/api/knowledge-base/refresh', async (req, res) => {
+  try {
+    const success = await knowledgeBase.buildKnowledgeBase();
+    res.json({ success: !!success, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.errorDetail('知識ベース更新エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// ✅ 追加: Q&A記録統計エンドポイント
+app.get('/api/qa-log/stats', async (req, res) => {
+  try {
+    const stats = await qaLoggerService.getStats();
+    res.json(stats || { error: 'Q&A記録サービスが初期化されていません' });
+  } catch (error) {
+    logger.errorDetail('Q&A統計取得エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// Bot User ID 確認エンドポイント
+app.get('/api/bot/user-id', (req, res) => {
+  try {
+    const actualId = client.user?.id || 'Bot未接続';
+    const configuredId = process.env.BOT_USER_ID || '1420328163497607199';
+    const isMatch = actualId === configuredId;
     
+    res.json({
+      actual_bot_user_id: actualId,
+      configured_bot_user_id: configuredId,
+      is_match: isMatch,
+      status: isMatch ? '✅ 正常' : '❌ 不一致',
+      recommendation: isMatch ? 
+        'Bot User IDは正しく設定されています' : 
+        `環境変数 BOT_USER_ID を ${actualId} に変更してください`,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.errorDetail('Bot User ID確認エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// ヘルスチェックエンドポイント（完全版）
+app.get('/', (req, res) => {
+  try {
+    const status = env.getStatus();
+    
+    const actualBotId = client.user?.id || 'Not connected';
+    const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
+    const botIdMatch = actualBotId === configuredBotId;
+    
+    // 各サービスの状態取得
+    let servicesStatus = {};
     try {
-      await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
-    } catch (replyError) {
-      console.error('❌ 返信送信にも失敗:', replyError);
+      const { googleAPIsService } = require('./services/google-apis');
+      const { openAIService } = require('./services/openai-service');
+      const { ragSystem } = require('./services/rag-system');
+      
+      servicesStatus = {
+        google_apis: googleAPIsService.getStatus(),
+        openai: openAIService.getStatus(),
+        knowledge_base: knowledgeBase.getStatus(),
+        rag_system: ragSystem.getStatus(),
+        qa_logger: {
+          initialized: qaLoggerService.isInitialized,
+          spreadsheet_id: env.QA_SPREADSHEET_ID ? '設定済み' : '未設定'
+        }
+      };
+    } catch (serviceError) {
+      logger.warn('サービス状態取得エラー:', serviceError.message);
     }
+    
+    res.json({
+      status: 'Discord Bot for わなみさん - Running (Full Version + QA Logger)',
+      version: '15.5.0',
+      timestamp: new Date().toISOString(),
+      environment: {
+        node_env: process.env.NODE_ENV || 'development',
+        port: env.PORT,
+        uptime: Math.floor(process.uptime()),
+        log_level: process.env.LOG_LEVEL || 'info'
+      },
+      discord: {
+        bot_connected: client.isReady(),
+        guilds: client.guilds?.cache.size || 0,
+        user: client.user?.tag || 'Not connected',
+        latency: client.ws.ping || 0,
+        bot_user_id: {
+          actual: actualBotId,
+          configured: configuredBotId,
+          match: botIdMatch,
+          status: botIdMatch ? '✅ 正常' : '❌ 不一致'
+        }
+      },
+      environment_vars: status,
+      services: servicesStatus,
+      features: [
+        '✅ Discord Gateway接続',
+        '✅ Discord Interactions API',
+        '✅ @わなみさんメンション対応（AI統合）',
+        '✅ /soudanスラッシュコマンド',
+        '✅ AI知識ベース統合（スプレッドシートA-G列対応）',
+        '✅ 画像検出・抽出・Vision解析機能',
+        '✅ RAGシステム（OpenAI統合）',
+        '✅ Notion/WEBサイト読み込み',
+        '✅ 文書内画像抽出・AI解析',
+        '✅ ロールメンション対応',
+        '✅ 知識ベース限定回答システム',
+        '✅ 回答不能システム',
+        '✅ ミッション特別処理',
+        '✅ モジュール化アーキテクチャ',
+        '✅ Bot User ID検証機能',
+        '✅ デバッグログシステム',
+        '✅ Q&A記録機能（Googleスプレッドシート連携）', // ✅ 追加
+        '🚀 完全機能版'
+      ],
+      performance: {
+        memory_usage: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
+        cpu_usage: process.cpuUsage(),
+        node_version: process.version
+      },
+      debug: {
+        bot_id_check_endpoint: '/api/bot/user-id',
+        knowledge_base_status: '/api/knowledge-base/status',
+        knowledge_base_refresh: 'POST /api/knowledge-base/refresh',
+        qa_log_stats: '/api/qa-log/stats' // ✅ 追加
+      }
+    });
+  } catch (error) {
+    logger.errorDetail('ヘルスチェックエラー:', error);
+    res.status(500).json({ 
+      status: 'Error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// エラーハンドリング
+app.use((error, req, res, next) => {
+  logger.errorDetail('Express エラー:', error);
+  res.status(500).json({ error: 'Internal Server Error' });
+});
+
+// Discord Client エラーハンドリング
+client.on('error', (error) => {
+  logger.errorDetail('Discord Client エラー:', error);
+});
+
+client.on('warn', (warning) => {
+  logger.warn('Discord Client 警告:', warning);
+});
+
+client.on('disconnect', () => {
+  logger.warn('Discord Client 切断');
+});
+
+client.on('reconnecting', () => {
+  logger.info('Discord Client 再接続中...');
+});
+
+// サーバー起動
+async function startServer() {
+  try {
+    // 環境変数チェック
+    if (!env.DISCORD_BOT_TOKEN) {
+      throw new Error('DISCORD_BOT_TOKEN環境変数が設定されていません');
+    }
+    if (!env.DISCORD_PUBLIC_KEY) {
+      throw new Error('DISCORD_PUBLIC_KEY環境変数が設定されていません');
+    }
+
+    // Discord Bot接続
+    logger.info('🔄 Discord Bot接続開始...');
+    await client.login(env.DISCORD_BOT_TOKEN);
+    logger.success('✅ Discord Bot接続完了');
+    
+    // Express サーバー起動
+    app.listen(env.PORT, () => {
+      logger.success(`🌐 Expressサーバー起動: ポート ${env.PORT}`);
+      logger.info('');
+      logger.info('📊 利用可能なエンドポイント:');
+      logger.info(`   GET  / - ヘルスチェック`);
+      logger.info(`   GET  /api/bot/user-id - Bot User ID確認`);
+      logger.info(`   GET  /api/knowledge-base/status - 知識ベース状態`);
+      logger.info(`   POST /api/knowledge-base/refresh - 知識ベース更新`);
+      logger.info(`   GET  /api/qa-log/stats - Q&A記録統計`); // ✅ 追加
+      logger.info(`   POST /interactions - Discord Interactions`);
+      logger.info('');
+    });
+    
+  } catch (error) {
+    logger.errorDetail('サーバー起動エラー:', error);
+    process.exit(1);
   }
 }
 
-module.exports = { 
-  handleMessage,
-  handleMessageWithQALogging 
-};
+// プロセス終了時の処理
+process.on('SIGTERM', async () => {
+  logger.shutdown('Discord Bot for わなみさん', 'SIGTERM受信');
+  
+  try {
+    // 知識ベース自動更新停止
+    if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
+      knowledgeBase.knowledgeBaseService.stop();
+    }
+  } catch (error) {
+    logger.warn('サービス停止エラー:', error.message);
+  }
+  
+  if (client.isReady()) {
+    await client.destroy();
+  }
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  logger.shutdown('Discord Bot for わなみさん', 'SIGINT受信');
+  
+  try {
+    if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
+      knowledgeBase.knowledgeBaseService.stop();
+    }
+  } catch (error) {
+    logger.warn('サービス停止エラー:', error.message);
+  }
+  
+  if (client.isReady()) {
+    await client.destroy();
+  }
+  process.exit(0);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.errorDetail('未処理のPromise拒否:', reason);
+});
+
+process.on('uncaughtException', (error) => {
+  logger.errorDetail('未処理の例外:', error);
+  process.exit(1);
+});
+
+// サーバー起動実行
+startServer();
