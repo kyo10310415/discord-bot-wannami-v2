@@ -1,10 +1,10 @@
 /**
- * メンション処理ハンドラー v15.5.7（空メンション時ボタン表示対応版）
+ * メンション処理ハンドラー v15.5.8（クラシックボタンスタイル復元版）
  * 
- * 【v15.5.7 変更点】
- * - @わなみさんのみでメンションした場合に /soudan と同じボタンを表示
- * - 質問内容が空でもボタンを表示してから終了
- * - Typing Indicator 機能を維持
+ * 【v15.5.8 変更点】
+ * - 以前のボタンスタイル（丸みのある青いボタン）に復元
+ * - ボタン配置を2行に変更
+ * - 絵文字なしのシンプルなデザイン
  * 
  * 【機能】
  * 1. メンション検索: ボット宛のメンションを検出
@@ -103,36 +103,43 @@ function stopTypingIndicator(typingInterval) {
   }
 }
 
-// === /soudan と同じボタンセットを作成する関数 ===
-function createSoudanButtons() {
-  return new ActionRowBuilder().addComponents(
+// === 以前のスタイルのボタンセットを作成する関数 ===
+function createClassicButtons() {
+  // 1行目: 主要な相談ボタン（3つ）
+  const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('lesson_question')
-      .setLabel('📚 レッスン質問')
+      .setCustomId('payment_consultation')
+      .setLabel('①お支払い相談')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
+      .setCustomId('private_consultation')
+      .setLabel('②プライベート相談')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('lesson_question')
+      .setLabel('③レッスン質問')
+      .setStyle(ButtonStyle.Primary)
+  );
+
+  // 2行目: その他のボタン（2つ）
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
       .setCustomId('sns_consultation')
-      .setLabel('📱 SNS運用相談')
+      .setLabel('④SNS運用相談')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('mission_submission')
-      .setLabel('🎯 ミッション提出')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('payment_consultation')
-      .setLabel('💰 お支払い相談')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId('private_consultation')
-      .setLabel('💬 プライベート相談')
-      .setStyle(ButtonStyle.Secondary)
+      .setLabel('⑤ミッション提出')
+      .setStyle(ButtonStyle.Primary)
   );
+
+  return [row1, row2];
 }
 
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.7');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.8');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
@@ -169,29 +176,28 @@ async function handleMessage(message, client) {
 
     console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
 
-    // ✨ === v15.5.7: 空メンション時の特別処理 === ✨
+    // ✨ === v15.5.8: 空メンション時の特別処理（クラシックスタイル） === ✨
     if (!questionText) {
-      console.log('✨ 質問内容が空 → /soudanと同じボタンを表示');
+      console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
       
-      const welcomeMessage = `🎉 **わなみさんです！VTuber育成スクールへようこそ！** 🎉
+      const welcomeMessage = `🤖 **わなみさんです！**
 
-お困りのことやご相談内容を、以下のボタンから選んでください✨
+どのようなご相談でしょうか？下のボタンから選択してください✨
 
-📚 **レッスン質問**: 配信技術・Live2D・機材設定など
-📱 **SNS運用相談**: X・YouTube戦略、ファン獲得方法
-🎯 **ミッション提出**: 課題成果物の評価・フィードバック
-💰 **お支払い相談**: 料金・請求に関するお問い合わせ
-💬 **プライベート相談**: 個別のご相談事項
+📘 **知識ベース限定回答システム**
+• @わなみさん【質問】で知識ベースから正確な回答
+• VTuber活動に特化した専門情報のみ回答
 
-または、直接質問を入力していただいても大丈夫です！
-例: \`@わなみさん 配信ソフトの設定方法を教えてください\``;
+📖 **専門サポートメニュー**
+下のボタンから選択して、より詳しいサポートを受けられます！`;
 
       try {
+        const buttons = createClassicButtons();
         const botReply = await message.reply({
           content: welcomeMessage,
-          components: [createSoudanButtons()]
+          components: buttons
         });
-        console.log('✅ 空メンション応答送信完了（ボタン付き）');
+        console.log('✅ 空メンション応答送信完了（クラシックボタン付き）');
       } catch (error) {
         console.error('❌ 空メンション応答送信失敗:', error);
       }
@@ -263,7 +269,7 @@ async function handleMessage(message, client) {
 
     // === 8. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.7）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.8）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -352,7 +358,7 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.7');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.8');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
@@ -373,7 +379,7 @@ async function handleMessage(message, client) {
 // === メンション処理メイン関数（Q&A記録版） ===
 async function handleMessageWithQALogging(message, client, qaLoggerService) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.7（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.8（Q&A記録版）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
@@ -410,29 +416,28 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
 
-    // ✨ === v15.5.7: 空メンション時の特別処理 === ✨
+    // ✨ === v15.5.8: 空メンション時の特別処理（クラシックスタイル） === ✨
     if (!questionText) {
-      console.log('✨ 質問内容が空 → /soudanと同じボタンを表示');
+      console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
       
-      const welcomeMessage = `🎉 **わなみさんです！VTuber育成スクールへようこそ！** 🎉
+      const welcomeMessage = `🤖 **わなみさんです！**
 
-お困りのことやご相談内容を、以下のボタンから選んでください✨
+どのようなご相談でしょうか？下のボタンから選択してください✨
 
-📚 **レッスン質問**: 配信技術・Live2D・機材設定など
-📱 **SNS運用相談**: X・YouTube戦略、ファン獲得方法
-🎯 **ミッション提出**: 課題成果物の評価・フィードバック
-💰 **お支払い相談**: 料金・請求に関するお問い合わせ
-💬 **プライベート相談**: 個別のご相談事項
+📘 **知識ベース限定回答システム**
+• @わなみさん【質問】で知識ベースから正確な回答
+• VTuber活動に特化した専門情報のみ回答
 
-または、直接質問を入力していただいても大丈夫です！
-例: \`@わなみさん 配信ソフトの設定方法を教えてください\``;
+📖 **専門サポートメニュー**
+下のボタンから選択して、より詳しいサポートを受けられます！`;
 
       try {
+        const buttons = createClassicButtons();
         const botReply = await message.reply({
           content: welcomeMessage,
-          components: [createSoudanButtons()]
+          components: buttons
         });
-        console.log('✅ 空メンション応答送信完了（ボタン付き）');
+        console.log('✅ 空メンション応答送信完了（クラシックボタン付き）');
       } catch (error) {
         console.error('❌ 空メンション応答送信失敗:', error);
       }
@@ -495,7 +500,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     // === 7. RAGシステム呼び出し ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.7）');
+    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.8）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -607,7 +612,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.7');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.8');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
