@@ -1,11 +1,11 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.8.0 (厳格な知識ベース限定版)
-// Version: 2.8.0
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.9.0 (超厳格版)
+// Version: 2.9.0
 // 更新日: 2025-11-17
 // 変更内容: 
-// - プロンプトを大幅に簡潔化
-// - 知識ベース限定ルールを最優先で配置
-// - 検索結果0件時の早期リターンを追加
-// - 一般知識使用を完全に禁止
+// - プロンプトを完全に再設計（一般知識使用を物理的にブロック）
+// - Few-shot例を追加（正しい振る舞いを示す）
+// - システムメッセージを最小化し、参照資料を最優先に配置
+// - 「資料に書かれている内容をそのまま引用する」指示を強化
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -133,7 +133,7 @@ class RAGSystem {
       }
     });
     
-    optimizedQuery = optimizedQuery.replace(/\s+/g, ' ').trim();
+    optimizedQuery = optimizedQuery.replace(/\\s+/g, ' ').trim();
     optimizedQuery = optimizedQuery.replace(/[？?！!。、，,]/g, '').trim();
     
     if (!optimizedQuery || optimizedQuery.length < 2) {
@@ -171,12 +171,12 @@ class RAGSystem {
 
       let knowledgeContext = '';
       if (knowledgeResults.length > 0) {
-        knowledgeContext = '【知識ベースからの関連情報】\n\n';
+        knowledgeContext = '【知識ベースからの関連情報】\\n\\n';
         knowledgeResults.forEach((result, index) => {
-          knowledgeContext += `${index + 1}. ${result.title || result.source}\n`;
+          knowledgeContext += `${index + 1}. ${result.title || result.source}\\n`;
           const contentPreview = result.answer || result.content.substring(0, 2000);
-          knowledgeContext += `${contentPreview}\n`;
-          knowledgeContext += `(関連度: ${(result.score * 100).toFixed(1)}%)\n\n`;
+          knowledgeContext += `${contentPreview}\\n`;
+          knowledgeContext += `(関連度: ${(result.score * 100).toFixed(1)}%)\\n\\n`;
         });
       }
 
@@ -251,15 +251,15 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
 
       let visionContext = '';
       if (imageUrls.length > 0) {
-        visionContext = `\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。画像の内容を確認して、適切なアドバイスを提供してください。`;
+        visionContext = `\\n【添付画像】\\nユーザーが${imageUrls.length}枚の画像を添付しています。画像の内容を確認して、適切なアドバイスを提供してください。`;
       }
 
       let knowledgeContext = '';
       if (knowledgeResults.length > 0) {
-        knowledgeContext = '【知識ベース情報】\n';
+        knowledgeContext = '【知識ベース情報】\\n';
         knowledgeResults.forEach(result => {
           const contentPreview = result.answer || result.content.substring(0, 300);
-          knowledgeContext += `- ${result.title || result.source}: ${contentPreview}\n`;
+          knowledgeContext += `- ${result.title || result.source}: ${contentPreview}\\n`;
         });
       }
 
@@ -316,11 +316,11 @@ ${visionContext}
       logger.info(`✅ 検索完了: ${knowledgeResults.length}件ヒット`);
 
       if (knowledgeResults.length > 0) {
-        logger.info('\n🔍 ===== 検索結果サンプル（最初の10件） =====');
+        logger.info('\\n🔍 ===== 検索結果サンプル（最初の10件） =====');
         knowledgeResults.slice(0, 10).forEach((result, index) => {
           logger.info(`📄 [${index + 1}] ${result.source} - スコア:${result.score.toFixed(3)} - 分類:${result.metadata?.classification || 'なし'} - 例:${result.metadata?.goodBadExample || 'なし'}`);
         });
-        logger.info('==========================================\n');
+        logger.info('==========================================\\n');
       }
 
       const missionDocs = knowledgeResults.filter(result => {
@@ -378,7 +378,7 @@ ${visionContext}
 • ミッション資料の内容が読み込まれていない
 
 📞 **次のステップ**:
-• \`②プライベート相談\` で個別フィードバックを受ける
+• \\`②プライベート相談\\` で個別フィードバックを受ける
 • 担任の先生に直接確認する
 
 引き続きサポートさせていただきます！✨`;
@@ -405,27 +405,27 @@ ${visionContext}
 
       logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
 
-      let missionContext = '【ミッション評価基準】\n\n';
+      let missionContext = '【ミッション評価基準】\\n\\n';
       
       if (goodExamples.length > 0) {
-        missionContext += '## ✅ 良い例の特徴\n';
+        missionContext += '## ✅ 良い例の特徴\\n';
         goodExamples.slice(0, 5).forEach((doc, index) => {
           const content = doc.answer || doc.content.substring(0, 800);
-          missionContext += `${index + 1}. ${doc.source}\n${content}\n\n`;
+          missionContext += `${index + 1}. ${doc.source}\\n${content}\\n\\n`;
         });
       }
 
       if (badExamples.length > 0) {
-        missionContext += '## ❌ 悪い例（避けるべきポイント）\n';
+        missionContext += '## ❌ 悪い例（避けるべきポイント）\\n';
         badExamples.slice(0, 5).forEach((doc, index) => {
           const content = doc.answer || doc.content.substring(0, 800);
-          missionContext += `${index + 1}. ${doc.source}\n${content}\n\n`;
+          missionContext += `${index + 1}. ${doc.source}\\n${content}\\n\\n`;
         });
       }
 
       let imageContext = '';
       if (imageUrls.length > 0) {
-        imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。\n画像の内容を確認して、ミッション評価に反映してください。\n`;
+        imageContext = `\\n\\n【添付画像】\\nユーザーが${imageUrls.length}枚の画像を添付しています。\\n画像の内容を確認して、ミッション評価に反映してください。\\n`;
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
@@ -482,7 +482,7 @@ ${userQuery}
       
       const isPassed = this._detectPassFailStatus(aiResponse);
       logger.info(`🎯 判定結果: ${isPassed ? '合格' : '不合格または要改善'}`);
-      logger.info('📝 ===== ミッション評価処理完了 =====\n');
+      logger.info('📝 ===== ミッション評価処理完了 =====\\n');
 
       return aiResponse;
 
@@ -510,10 +510,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✨ v2.8.0: 厳格な知識ベース限定応答（プロンプト簡潔化版）
-  async generateKnowledgeOnlyResponse(userQuery, context = {}) {
+  // ✨ v2.9.0: 超厳格な知識ベース限定応答（完全再設計版）
+  async generateKnowledgeOnlyResponse(userQuery, images = null, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（v2.8.0 - 厳格版）');
+      logger.ai('知識ベース限定応答生成開始（v2.9.0 - 超厳格版）');
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
@@ -523,7 +523,7 @@ ${userQuery}
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
 
-      // ✨ v2.8.0: 検索結果0件の場合は即座にリターン
+      // 検索結果0件の場合は即座にリターン
       if (knowledgeResults.length === 0) {
         logger.warn('⚠️ 知識ベースに情報なし → 即座に「情報なし」メッセージを返す');
         return `🤖 **わなみさんです！**
@@ -533,7 +533,7 @@ ${userQuery}
 **🔍 他の質問方法を試してみてください：**
 • より具体的なキーワードで質問
 • 関連する別の表現で質問
-• \`/soudan\` コマンドから該当するカテゴリを選択
+• \\`/soudan\\` コマンドから該当するカテゴリを選択
 
 **📚 現在の知識ベースには以下の情報が含まれています：**
 • VTuber活動の基本
@@ -546,80 +546,96 @@ ${userQuery}
 📚 *知識ベースに情報がありませんでした*`;
       }
 
-      // ✨ v2.8.0: 知識コンテキストを作成（簡潔版）
-      let knowledgeContext = '';
-      let sourcesList = '';
+      // ✨ v2.9.0: 参照資料を明確にマークアップ
+      let referenceMaterials = '='.repeat(60) + '\\n';
+      referenceMaterials += '📚 参照資料（これだけを使って回答してください）\\n';
+      referenceMaterials += '='.repeat(60) + '\\n\\n';
       
       knowledgeResults.forEach((result, index) => {
         const sourceTitle = result.title || result.source;
-        const content = result.answer || result.content.substring(0, 800);
+        const content = result.answer || result.content;
         
-        knowledgeContext += `## 資料${index + 1}: ${sourceTitle}\n${content}\n\n`;
-        sourcesList += `${index + 1}. ${sourceTitle}\n`;
+        referenceMaterials += `【資料${index + 1}】${sourceTitle}\\n`;
+        referenceMaterials += '-'.repeat(60) + '\\n';
+        referenceMaterials += `${content}\\n\\n`;
       });
+      
+      referenceMaterials += '='.repeat(60) + '\\n';
+      referenceMaterials += '以上が参照資料です。この内容だけを使って回答してください。\\n';
+      referenceMaterials += '='.repeat(60) + '\\n';
 
-      // ✨ v2.8.0: プロンプトを大幅に簡潔化
-      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
+      // ✨ v2.9.0: Few-shot例を追加
+      const fewShotExamples = `
+【回答の良い例】
+質問: 「配信の準備で必要なことは？」
+参照資料: 「配信前には機材チェック、照明調整、音声テストが必要です」
+正しい回答: 「配信の準備として、機材チェック、照明調整、音声テストが必要です✨ これらを事前に確認することで...」
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚨 **最重要ルール（絶対に守ること）** 🚨
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+【回答の悪い例（絶対にしてはいけない）】
+質問: 「配信の準備で必要なことは？」
+参照資料: （上記と同じ）
+間違った回答: 「配信の準備では、機材チェックや照明調整はもちろん、**配信スケジュールの告知やサムネイル作成**も重要です」
+→ ❌ 「スケジュール告知」「サムネイル作成」は参照資料にない情報！`;
 
-1. **以下の【参照資料】の内容だけを使って回答する**
-2. **参照資料にない情報は絶対に答えない**
-3. **あなたの一般知識は一切使わない**
-4. **推測や想像で答えない**
-5. **情報がない場合は「知識ベースに情報がありません」と答える**
+      // ✨ v2.9.0: プロンプトを完全再設計
+      const systemPrompt = `あなたは厳格な制約下で動作するAIアシスタント「わなみさん」です。
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨 絶対に守るべき3つのルール 🚨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-【参照資料】
-${knowledgeContext}
+1️⃣ **以下の【参照資料】に書かれている内容だけを使う**
+   → 参照資料の文章を理解し、要約・整理して説明する
+   
+2️⃣ **参照資料にない情報は絶対に答えない**
+   → あなたの学習データや一般知識は完全に無視する
+   
+3️⃣ **情報がない場合は正直に「資料にありません」と答える**
+   → 推測や想像で補完しない
 
-【重要なスクールルール】
-- コラボ配信禁止
-- 生徒同士の横つながり禁止
-- YouTube: 週4回以上配信（1回1.5時間以上）
-- X: 1日2回以上投稿（画像付き、ハッシュタグ2つまで）
-- XのDMは案件のみ
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-【回答の要件】
-✅ 参照資料の内容を要約・整理して説明
-✅ 絵文字で見やすく（🎯📝💡など）
-✅ 具体例を交えて実践的に
-✅ 初心者にもわかりやすく
-✅ 最後に出典を明記：「📚 **出典**: [資料名]」
+${fewShotExamples}
 
-❌ 生のスライド内容をコピペしない
-❌ 参照資料にない情報を追加しない
-❌ 一般知識で補足しない
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━
-🚨 もう一度確認: 参照資料だけを使う！🚨
-━━━━━━━━━━━━━━━━━━━━━━━━━━
+${referenceMaterials}
 
 【質問】
 ${userQuery}
 
-【回答形式】
-- 800文字以上の詳細な説明
-- 段階的な手順
-- 具体例（複数）
-- 背景・理由の説明
-- 最後に必ず出典表示`;
+【回答の要件】
+✅ 参照資料の内容を理解し、わかりやすく要約・説明する
+✅ 800文字以上の詳細な説明（参照資料の内容が許す限り）
+✅ 絵文字で見やすく（🎯📝💡など）
+✅ 具体例は参照資料内のものだけを使う
+✅ 最後に「📚 **出典**: [資料1][資料2]...」と明記
 
+❌ 参照資料にない情報を追加しない
+❌ 一般知識で補足しない
+❌ 推測や想像で答えない
+❌ 生のスライド内容をコピペしない
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️ 最終確認: 今から書く回答は、すべて上記の参照資料に基づいていますか？
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+      // ✨ v2.9.0: 画像対応
+      const imageMessages = images && images.length > 0 ? images.map(url => ({ url })) : [];
+      
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        [],
+        imageMessages,
         context,
-        { maxTokens: 3000 }
+        { 
+          maxTokens: 3000,
+          temperature: 0.3  // 創造性を抑えて厳格に
+        }
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了（v2.8.0）');
+      logger.info('✅ 知識ベース限定応答生成完了（v2.9.0）');
       
-      // ✨ v2.8.0: フッター追加
-      const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
+      // フッター追加
+      const footer = `\\n\\n---\\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
 
@@ -639,7 +655,7 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.8.0'
+      version: '2.9.0'
     };
   }
 }
@@ -650,8 +666,8 @@ async function initializeRAG() {
   await ragSystem.initialize();
 }
 
-async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
-  return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
+async function generateKnowledgeOnlyResponse(userQuery, images = null, context = {}) {
+  return await ragSystem.generateKnowledgeOnlyResponse(userQuery, images, context);
 }
 
 async function generateMissionResponse(userQuery, imageUrls = [], context = {}) {
