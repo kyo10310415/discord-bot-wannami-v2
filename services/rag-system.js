@@ -1,17 +1,16 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.9.2 (安全な超厳格版)
-// Version: 2.9.2
-// 更新日: 2025-11-17
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.10.0
+// Version: 2.10.0
+// 更新日: 2025-11-21
 // 変更内容: 
-// - v2.8.0ベース（構文エラー修正）
-// - プロンプトに Few-shot 例を追加
-// - temperature を 0.3 に設定（創造性抑制）
-// - 参照資料の明確なマークアップ
-// - 最終確認プロンプトを追加
+// - v2.9.2ベース
+// - ミッション提出時のURL読み込み機能追加
+// - url-content-loader.jsサービスを使用
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
 const { generateAIResponse } = require('./openai-service');
 const { LIMITS } = require('../utils/constants');
+const { urlContentLoader } = require('./url-content-loader');
 
 class RAGSystem {
   constructor() {
@@ -289,14 +288,26 @@ ${visionContext}
     }
   }
 
+  /**
+   * 🆕 v2.10.0: ミッション評価用の回答生成（URL読み込み機能統合）
+   */
   async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
-      logger.ai('📝 ===== ミッション提出専用処理開始 =====');
+      logger.ai('📝 ===== ミッション提出専用処理開始 (v2.10.0) =====');
       logger.info('📝 ユーザー入力:', userQuery);
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
 
       await this.waitForInitialization();
 
+      // 🆕 Step 1: URL検出と内容取得（url-content-loader使用）
+      const urlContents = await urlContentLoader.extractAndFetchUrls(userQuery);
+      
+      if (urlContents.length > 0) {
+        const stats = urlContentLoader.getStats(urlContents);
+        logger.info(`📊 URL取得統計: 合計${stats.total}件、成功${stats.success}件、失敗${stats.failed}件、総文字数${stats.totalChars}文字`);
+      }
+
+      // Step 2: クエリ最適化
       const { optimizedQuery, lessonNumber, originalQuery } = this._optimizeSearchQuery(userQuery);
       
       logger.info(`🔍 検索クエリ最適化:`);
@@ -306,6 +317,7 @@ ${visionContext}
         logger.info(`  レッスン番号: ${lessonNumber}`);
       }
 
+      // Step 3: 知識ベース検索
       logger.info('🔍 知識ベース検索開始（ミッション資料）...');
       
       const knowledgeResults = await this._searchKnowledge(optimizedQuery, {
@@ -324,6 +336,7 @@ ${visionContext}
         logger.info('==========================================\n');
       }
 
+      // Step 4: ミッション資料のフィルタリング
       const missionDocs = knowledgeResults.filter(result => {
         const source = result.source || '';
         const metadata = result.metadata || {};
@@ -375,8 +388,8 @@ ${visionContext}
 • 検索クエリ: "${optimizedQuery}"
 
 **📋 考えられる原因:**
-• スプレッドシートにミッション資料のURLが設定されていない
-• ミッション資料の内容が読み込まれていない
+• 知識ベースにミッション資料が登録されていない
+• ミッション資料の分類が正しく設定されていない
 
 📞 **次のステップ**:
 • \`②プライベート相談\` で個別フィードバックを受ける
@@ -385,6 +398,7 @@ ${visionContext}
 引き続きサポートさせていただきます！✨`;
       }
 
+      // Step 5: 良い例・悪い例の抽出
       const goodExamples = filteredMissionDocs.filter(doc => {
         const metadata = doc.metadata || {};
         const exampleType = metadata.goodBadExample || metadata.exampleType || '';
@@ -406,6 +420,7 @@ ${visionContext}
 
       logger.info(`📁 ミッションカテゴリ: ${missionCategory}`);
 
+      // Step 6: 評価基準コンテキスト構築
       let missionContext = '【ミッション評価基準】\n\n';
       
       if (goodExamples.length > 0) {
@@ -424,19 +439,29 @@ ${visionContext}
         });
       }
 
+      // 🆕 Step 7: URL資料を評価基準に追加
+      if (urlContents.length > 0) {
+        const urlContext = urlContentLoader.formatUrlContentsForContext(urlContents);
+        missionContext += urlContext;
+        logger.info('✅ URL資料を評価基準コンテキストに追加しました');
+      }
+
+      // Step 8: 画像コンテキスト
       let imageContext = '';
       if (imageUrls.length > 0) {
         imageContext = `\n\n【添付画像】\nユーザーが${imageUrls.length}枚の画像を添付しています。\n画像の内容を確認して、ミッション評価に反映してください。\n`;
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
+      // Step 9: システムプロンプト構築
       const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師で、ミッション提出を評価します。
 
 【あなたの役割】
 1. 提出されたミッション内容を評価する
 2. 良い例と悪い例を参考に、**合格か不合格かを明確に判定する**
-3. 具体的な改善ポイントを提示する
-4. 励ましの言葉で次のステップを示す。**励ましの言葉というワードは入れない**
+3. 提出されたURL資料（ある場合）も評価の参考にする
+4. 具体的な改善ポイントを提示する
+5. 励ましの言葉で次のステップを示す。**励ましの言葉というワードは入れない**
 
 【ミッションのカテゴリ】
 ${missionCategory}
@@ -466,8 +491,10 @@ ${userQuery}
 - 評価は厳格に、でも励ましの言葉も忘れずに
 - スライドやドキュメントの生テキストをコピペしない
 - 具体的で実践的なアドバイスを提供
-- 添付画像がある場合は、画像の内容も評価に含める`;
+- 添付画像がある場合は、画像の内容も評価に含める
+- 提出されたURL資料がある場合は、その内容も評価に活用する`;
 
+      // Step 10: AI応答生成
       const imageMessages = imageUrls.map(url => ({ url }));
       logger.info(`🖼️ OpenAI APIに渡す画像: ${imageMessages.length}件`);
 
@@ -483,7 +510,14 @@ ${userQuery}
       
       const isPassed = this._detectPassFailStatus(aiResponse);
       logger.info(`🎯 判定結果: ${isPassed ? '合格' : '不合格または要改善'}`);
-      logger.info('📝 ===== ミッション評価処理完了 =====\n');
+      
+      // 🆕 URL取得情報をログに記録
+      if (urlContents.length > 0) {
+        const stats = urlContentLoader.getStats(urlContents);
+        logger.info(`📊 URL資料最終統計: 成功${stats.success}/${stats.total}件、総文字数${stats.totalChars}文字`);
+      }
+      
+      logger.info('📝 ===== ミッション評価処理完了 (v2.10.0) =====\n');
 
       return aiResponse;
 
@@ -514,7 +548,7 @@ ${userQuery}
   // ✨ v2.8.0: 厳格な知識ベース限定応答（プロンプト簡潔化版）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（v2.9.2 - 安全な超厳格版）');
+      logger.ai('知識ベース限定応答生成開始（v2.10.0）');
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
@@ -641,7 +675,7 @@ ${userQuery}
         }
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了（v2.9.2 - 安全な超厳格版）');
+      logger.info('✅ 知識ベース限定応答生成完了（v2.10.0）');
       
       // ✨ v2.8.0: フッター追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
@@ -664,7 +698,8 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.9.2'
+      version: '2.10.0',  // 🆕 バージョン更新
+      urlLoader: urlContentLoader.getStatus()  // 🆕 URL Loaderの状態追加
     };
   }
 }
