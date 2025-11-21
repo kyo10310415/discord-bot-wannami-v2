@@ -1,5 +1,10 @@
 /**
- * メンション処理ハンドラー v15.5.8（クラシックボタンスタイル復元版）
+ * メンション処理ハンドラー v15.5.9（ミッション提出バグ修正版）
+ * 
+ * 【v15.5.9 変更点】
+ * - isUserWaitingForQuestion()が状態タイプを返すように修正
+ * - ミッション提出時にgenerateMissionResponse()を呼び出すように修正
+ * - ログ出力を改善
  * 
  * 【v15.5.8 変更点】
  * - 以前のボタンスタイル（丸みのある青いボタン）に復元
@@ -68,13 +73,27 @@ function extractImageUrls(message) {
   return uniqueUrls;
 }
 
-// === ユーザー状態チェック関数 ===
+// === ✨ v15.5.9 修正: ユーザー状態チェック関数（状態タイプを返す） ===
 function isUserWaitingForQuestion(userId, interactionStates) {
   if (!interactionStates || !interactionStates.has(userId)) {
-    return false;
+    return null; // 待機状態なし
   }
   const state = interactionStates.get(userId);
-  return state && state.waitingForQuestion === true;
+  
+  // waitingForQuestionがtrueの場合、stateTypeを返す
+  if (state && state.waitingForQuestion === true) {
+    return state.stateType || null; // 例: 'mission_submission'
+  }
+  
+  return null;
+}
+
+// === ✨ v15.5.9 追加: 待機状態クリア関数 ===
+function clearWaitingQuestion(userId, interactionStates) {
+  if (interactionStates && interactionStates.has(userId)) {
+    interactionStates.delete(userId);
+    console.log(`✅ [STATE] 待機状態クリア: ${userId}`);
+  }
 }
 
 // === Typing Indicator 管理関数 ===
@@ -139,7 +158,7 @@ function createClassicButtons() {
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.8');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.9');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
@@ -222,20 +241,11 @@ async function handleMessage(message, client) {
       });
     }
 
-    // === 5. ボタン操作待機中のユーザーチェック ===
+    // === 5. ✨ v15.5.9 修正: 待機状態チェック（状態タイプを取得） ===
     console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
     const interactionStates = global.interactionStates || new Map();
-    const isWaiting = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${isWaiting ? '待機中 ⏳' : '待機なし ✅'}`);
-
-    if (isWaiting) {
-      console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
-      stopTypingIndicator(typingInterval);
-      await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
-      return;
-    }
-
-    console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
+    const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
+    console.log(`🔍 [CHECK-1] 結果: ${waitingType ? `待機中 (${waitingType}) ⏳` : '待機なし ✅'}`);
 
     // === 6. require文のテスト（services/パス対応版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
@@ -246,6 +256,7 @@ async function handleMessage(message, client) {
       console.log('✅ [REQUIRE] 読み込み成功');
       console.log(`📦 [REQUIRE] RAGSystemの型: ${typeof RAGSystem}`);
       console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponseの型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
+      console.log(`📦 [REQUIRE] generateMissionResponseの型: ${typeof RAGSystem?.generateMissionResponse}`);
     } catch (requireError) {
       console.error('❌ [REQUIRE] エラー発生:', requireError);
       console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
@@ -267,23 +278,45 @@ async function handleMessage(message, client) {
       console.log('✅ [CHECK-3] 通過 - ボタンハンドラー登録済み');
     }
 
-    // === 8. RAGシステム呼び出し ===
+    // === 8. ✨ v15.5.9 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（v15.5.8）');
+    console.log('🧠 [AI] 応答生成開始（v15.5.9）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
+    console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
 
-    let botReply;
+    let botReply, response;
     try {
-      console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
-      
-      const response = await RAGSystem.generateKnowledgeOnlyResponse(
-        questionText,
-        imageUrls
-      );
+      // ✨ 待機状態に応じて適切なRAGメソッドを呼び出し ✨
+      if (waitingType && waitingType.includes('mission')) {
+        // ミッション提出処理
+        console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
+        console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
+        
+        response = await RAGSystem.generateMissionResponse(
+          waitingType,
+          questionText,
+          imageUrls
+        );
+        
+        // 待機状態をクリア
+        clearWaitingQuestion(message.author.id, interactionStates);
+        console.log('✅ [AI] ミッション応答生成完了 & 待機状態クリア');
+        
+      } else {
+        // 通常の質問応答
+        console.log('💬 [AI] 通常の質問応答処理');
+        console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
+        
+        response = await RAGSystem.generateKnowledgeOnlyResponse(
+          questionText,
+          imageUrls
+        );
+        
+        console.log('✅ [AI] 通常応答生成完了');
+      }
 
-      console.log('✅ [RAG] 応答生成完了');
       console.log(`📊 [RAG] 応答長: ${response?.length || 0}文字`);
 
       // ✨ Typing Indicator 停止 ✨
@@ -358,7 +391,7 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.8');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.9');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
@@ -379,7 +412,7 @@ async function handleMessage(message, client) {
 // === メンション処理メイン関数（Q&A記録版） ===
 async function handleMessageWithQALogging(message, client, qaLoggerService) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.8（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.9（Q&A記録版）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
@@ -462,20 +495,11 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       });
     }
 
-    // === 5. ボタン操作待機中のユーザーチェック ===
+    // === 5. ✨ v15.5.9 修正: 待機状態チェック（状態タイプを取得） ===
     console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
     const interactionStates = global.interactionStates || new Map();
-    const isWaiting = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${isWaiting ? '待機中 ⏳' : '待機なし ✅'}`);
-
-    if (isWaiting) {
-      console.log('⏳ ボタン操作待機中のユーザー → 処理スキップ');
-      stopTypingIndicator(typingInterval);
-      await message.reply('現在、ボタン操作の入力待ちです。先に操作を完了してください。');
-      return;
-    }
-
-    console.log('✅ [CHECK-1] 通過 - ユーザーは待機状態ではありません');
+    const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
+    console.log(`🔍 [CHECK-1] 結果: ${waitingType ? `待機中 (${waitingType}) ⏳` : '待機なし ✅'}`);
 
     // === 6. require文のテスト（services/パス対応版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
@@ -487,6 +511,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       
       console.log(`📦 [REQUIRE] RAGSystem型: ${typeof RAGSystem}`);
       console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponse型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
+      console.log(`📦 [REQUIRE] generateMissionResponse型: ${typeof RAGSystem?.generateMissionResponse}`);
       
     } catch (requireError) {
       console.error('❌ [REQUIRE] エラー発生:', requireError);
@@ -498,23 +523,45 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     console.log('✅ [CHECK-2] 通過 - require成功');
 
-    // === 7. RAGシステム呼び出し ===
+    // === 7. ✨ v15.5.9 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 知識ベース限定応答生成開始（Q&A記録版 v15.5.8）');
+    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.9）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
+    console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
 
     let botReply, responseText;
     try {
-      console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
-      
-      responseText = await RAGSystem.generateKnowledgeOnlyResponse(
-        questionText,
-        imageUrls
-      );
+      // ✨ 待機状態に応じて適切なRAGメソッドを呼び出し ✨
+      if (waitingType && waitingType.includes('mission')) {
+        // ミッション提出処理
+        console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
+        console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
+        
+        responseText = await RAGSystem.generateMissionResponse(
+          waitingType,
+          questionText,
+          imageUrls
+        );
+        
+        // 待機状態をクリア
+        clearWaitingQuestion(message.author.id, interactionStates);
+        console.log('✅ [AI] ミッション応答生成完了 & 待機状態クリア');
+        
+      } else {
+        // 通常の質問応答
+        console.log('💬 [AI] 通常の質問応答処理');
+        console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
+        
+        responseText = await RAGSystem.generateKnowledgeOnlyResponse(
+          questionText,
+          imageUrls
+        );
+        
+        console.log('✅ [AI] 通常応答生成完了');
+      }
 
-      console.log('✅ [RAG] 応答生成完了');
       console.log(`📊 [RAG] 応答長: ${responseText?.length || 0}文字`);
 
       // ✨ Typing Indicator 停止 ✨
@@ -570,7 +617,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           answer: responseText,
           hasImage: imageUrls.length > 0,
           channelId: message.channel.id,
-          messageId: message.id
+          messageId: message.id,
+          missionType: waitingType || null // ✨ ミッションタイプを記録
         });
         console.log('✅ [QA-LOG] 記録完了');
       } else {
@@ -612,7 +660,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.8');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.9');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
