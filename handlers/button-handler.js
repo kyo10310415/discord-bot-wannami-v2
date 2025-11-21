@@ -1,11 +1,17 @@
-// handlers/button-handler.js - ボタンクリック処理ハンドラー v2.1.1 (画像URL対応)
+// handlers/button-handler.js - ボタンクリック処理ハンドラー v2.2.0（global.interactionStates統合版）
 
 const logger = require('../utils/logger');
 const { createDiscordResponse } = require('../utils/verification');
 const { BUTTON_IDS, AI_TARGET_BUTTONS } = require('../utils/constants');
 
-// アクティブな質問待ち状態を管理
-const activeQuestionWaits = new Map();
+// ✨ v2.2.0: global.interactionStatesを使用（mention-handlerと統合）
+// const activeQuestionWaits = new Map(); ← 削除
+function getInteractionStates() {
+  if (!global.interactionStates) {
+    global.interactionStates = new Map();
+  }
+  return global.interactionStates;
+}
 
 // 各ボタンの応答内容定義
 const BUTTON_RESPONSES = {
@@ -172,12 +178,16 @@ function generateQuestionPrompt(buttonResponse, buttonId, user) {
   return content;
 }
 
-// 質問待ち状態を登録
+// ✨ v2.2.0: 質問待ち状態を登録（global.interactionStates使用）
 function registerQuestionWait(userId, buttonId, channelId) {
+  const interactionStates = getInteractionStates();
+  
   // 既存の待ち状態があればクリア
-  if (activeQuestionWaits.has(userId)) {
-    const existingWait = activeQuestionWaits.get(userId);
-    clearTimeout(existingWait.timeout);
+  if (interactionStates.has(userId)) {
+    const existingWait = interactionStates.get(userId);
+    if (existingWait.timeout) {
+      clearTimeout(existingWait.timeout);
+    }
     logger.discord(`既存の質問待ち状態をクリア: ${userId}`);
   }
   
@@ -186,24 +196,37 @@ function registerQuestionWait(userId, buttonId, channelId) {
     handleQuestionTimeout(userId, buttonId);
   }, 3 * 60 * 1000); // 3分
   
-  // 待ち状態を登録
-  activeQuestionWaits.set(userId, {
-    buttonId,
-    channelId,
-    timeout,
+  // ✨ 修正: mention-handlerと互換性のある形式で保存
+  interactionStates.set(userId, {
+    waitingForQuestion: true,       // ← mention-handlerが確認する項目
+    stateType: buttonId,             // ← 'mission_submission' などが入る
+    buttonId: buttonId,              // 後方互換性のため保持
+    channelId: channelId,
+    timeout: timeout,
     startTime: Date.now()
   });
   
   logger.ai(`質問待ち状態登録: ${userId} - ${buttonId}`);
+  
+  // ✨ デバッグログ追加
+  logger.info(`🔍 [DEBUG] 保存された状態: ${JSON.stringify({
+    userId,
+    waitingForQuestion: true,
+    stateType: buttonId,
+    buttonId,
+    channelId,
+    startTime: Date.now()
+  }, null, 2)}`);
 }
 
 // 質問タイムアウト処理
 function handleQuestionTimeout(userId, buttonId) {
-  const waitInfo = activeQuestionWaits.get(userId);
+  const interactionStates = getInteractionStates();
+  const waitInfo = interactionStates.get(userId);
   if (!waitInfo) return;
   
   // 待ち状態をクリア
-  activeQuestionWaits.delete(userId);
+  interactionStates.delete(userId);
   
   const buttonResponse = BUTTON_RESPONSES[buttonId];
   logger.warn(`質問待ちタイムアウト: ${userId} - ${buttonId}`);
@@ -214,7 +237,8 @@ function handleQuestionTimeout(userId, buttonId) {
 
 // 質問受信時の処理（mention-handlerから呼び出される）
 async function handleQuestionResponse(userId, userQuery, context = {}) {
-  const waitInfo = activeQuestionWaits.get(userId);
+  const interactionStates = getInteractionStates();
+  const waitInfo = interactionStates.get(userId);
   
   if (!waitInfo) {
     // 質問待ち状態でない場合は通常の知識ベース回答
@@ -223,16 +247,19 @@ async function handleQuestionResponse(userId, userQuery, context = {}) {
   
   try {
     // 質問待ち状態をクリア
-    clearTimeout(waitInfo.timeout);
-    activeQuestionWaits.delete(userId);
+    if (waitInfo.timeout) {
+      clearTimeout(waitInfo.timeout);
+    }
+    interactionStates.delete(userId);
     
-    const { buttonId } = waitInfo;
-    const buttonResponse = BUTTON_RESPONSES[buttonId];
+    const { buttonId, stateType } = waitInfo;
+    const actualButtonId = buttonId || stateType; // 後方互換性
+    const buttonResponse = BUTTON_RESPONSES[actualButtonId];
     
-    logger.ai(`🧠 [AI] 質問応答処理開始: ${userId} - ${buttonId}`);
+    logger.ai(`🧠 [AI] 質問応答処理開始: ${userId} - ${actualButtonId}`);
     
     // AI応答生成
-    const aiResponse = await generateAIButtonResponse(buttonResponse, buttonId, userQuery, context);
+    const aiResponse = await generateAIButtonResponse(buttonResponse, actualButtonId, userQuery, context);
     
     return aiResponse;
     
@@ -345,15 +372,19 @@ async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, con
 
 // 質問待ち状態の確認
 function isUserWaitingForQuestion(userId) {
-  return activeQuestionWaits.has(userId);
+  const interactionStates = getInteractionStates();
+  return interactionStates.has(userId);
 }
 
 // 質問待ち状態のクリア（必要時）
 function clearQuestionWait(userId) {
-  const waitInfo = activeQuestionWaits.get(userId);
+  const interactionStates = getInteractionStates();
+  const waitInfo = interactionStates.get(userId);
   if (waitInfo) {
-    clearTimeout(waitInfo.timeout);
-    activeQuestionWaits.delete(userId);
+    if (waitInfo.timeout) {
+      clearTimeout(waitInfo.timeout);
+    }
+    interactionStates.delete(userId);
     logger.discord(`質問待ち状態手動クリア: ${userId}`);
   }
 }
@@ -388,11 +419,12 @@ async function handleAITargetButton(buttonId, interaction, client) {
 
 // ボタンの統計情報取得
 function getButtonStats() {
+  const interactionStates = getInteractionStates();
   return {
     availableButtons: Object.keys(BUTTON_RESPONSES).length,
     aiTargetButtons: AI_TARGET_BUTTONS.size,
     buttonIds: Object.keys(BUTTON_RESPONSES),
-    activeQuestionWaits: activeQuestionWaits.size
+    activeQuestionWaits: interactionStates.size
   };
 }
 
@@ -402,6 +434,7 @@ async function handleButtonClickGateway(interaction, client) {
     const buttonId = interaction.customId;
     const user = interaction.user;
     
+    logger.discord(`💬 インタラクション受信: ${buttonId} by ${user?.username}`);
     logger.discord(`Gatewayボタンクリック: ${buttonId} by ${user?.username}`);
 
     // ボタン応答の取得
@@ -448,7 +481,7 @@ async function handleButtonClickGateway(interaction, client) {
       }
     };
 
-    logger.success(`${buttonResponse.title} Gateway応答送信完了`);
+    logger.success(`✅ ${buttonResponse.title} Gateway応答送信完了`);
     return response;
 
   } catch (error) {
