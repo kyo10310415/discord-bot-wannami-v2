@@ -1,5 +1,9 @@
 /**
- * メンション処理ハンドラー v15.5.9（ミッション提出バグ修正版）
+ * メンション処理ハンドラー v15.5.10（ミッション提出完全修正版）
+ * 
+ * 【v15.5.10 変更点】
+ * - generateMissionResponse()の引数順序を修正（questionTextを第1引数に）
+ * - デバッグログを追加してRAG呼び出しの引数を確認
  * 
  * 【v15.5.9 変更点】
  * - isUserWaitingForQuestion()が状態タイプを返すように修正
@@ -158,7 +162,7 @@ function createClassicButtons() {
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.9');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.10');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
@@ -278,9 +282,9 @@ async function handleMessage(message, client) {
       console.log('✅ [CHECK-3] 通過 - ボタンハンドラー登録済み');
     }
 
-    // === 8. ✨ v15.5.9 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
+    // === 8. ✨ v15.5.10 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（v15.5.9）');
+    console.log('🧠 [AI] 応答生成開始（v15.5.10）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -293,11 +297,17 @@ async function handleMessage(message, client) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
         console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
+        console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
+        console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
+        // ✅ v15.5.10 修正: 第1引数に questionText を渡す
         response = await RAGSystem.generateMissionResponse(
-          waitingType,
-          questionText,
-          imageUrls
+          questionText,     // ← ユーザーの質問内容
+          imageUrls,        // ← 画像URL配列
+          {
+            missionType: waitingType,
+            buttonContext: waitingType
+          }
         );
         
         // 待機状態をクリア
@@ -391,7 +401,7 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.9');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.10');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
@@ -412,7 +422,7 @@ async function handleMessage(message, client) {
 // === メンション処理メイン関数（Q&A記録版） ===
 async function handleMessageWithQALogging(message, client, qaLoggerService) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.9（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.10（Q&A記録版）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
@@ -523,9 +533,9 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     console.log('✅ [CHECK-2] 通過 - require成功');
 
-    // === 7. ✨ v15.5.9 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
+    // === 7. ✨ v15.5.10 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.9）');
+    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.10）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -538,11 +548,17 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
         console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
+        console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
+        console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
+        // ✅ v15.5.10 修正: 第1引数に questionText を渡す
         responseText = await RAGSystem.generateMissionResponse(
-          waitingType,
-          questionText,
-          imageUrls
+          questionText,     // ← ユーザーの質問内容
+          imageUrls,        // ← 画像URL配列
+          {
+            missionType: waitingType,
+            buttonContext: waitingType
+          }
         );
         
         // 待機状態をクリア
@@ -660,7 +676,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.9');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.10');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
