@@ -475,3 +475,20 @@ process.on('uncaughtException', (error) => {
 
 // サーバー起動実行
 startServer();
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🚨 緊急用：メッセージ一括削除機能（一時的）
+// 使用後は必ずこのセクションを削除すること
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+try {
+  const cleanupScript = require('./cleanup-bot-messages');
+  cleanupScript(client);
+  logger.success('🗑️ メッセージ一括削除機能を有効化');
+} catch (error) {
+  logger.warn('⚠️ 削除スクリプト読み込みエラー:', error.message);
+}
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// サーバー起動実行
+startServer();
+
