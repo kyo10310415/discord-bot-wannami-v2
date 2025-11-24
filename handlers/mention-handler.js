@@ -1,5 +1,10 @@
 /**
- * メンション処理ハンドラー v15.5.10（ミッション提出完全修正版）
+ * メンション処理ハンドラー v15.5.11（無限ループ対策版）
+ * 
+ * 【v15.5.11 変更点】🚨 重要
+ * - 無限ループ対策: Botメッセージ検出チェックを最優先で追加
+ * - message.author.bot チェックを両関数の冒頭に実装
+ * - システムメッセージ・Webhookメッセージの除外も追加
  * 
  * 【v15.5.10 変更点】
  * - generateMissionResponse()の引数順序を修正（questionTextを第1引数に）
@@ -10,11 +15,6 @@
  * - ミッション提出時にgenerateMissionResponse()を呼び出すように修正
  * - ログ出力を改善
  * 
- * 【v15.5.8 変更点】
- * - 以前のボタンスタイル（丸みのある青いボタン）に復元
- * - ボタン配置を2行に変更
- * - 絵文字なしのシンプルなデザイン
- * 
  * 【機能】
  * 1. メンション検索: ボット宛のメンションを検出
  * 2. 画像URL抽出: 添付画像・埋め込み画像を自動検出
@@ -22,6 +22,7 @@
  * 4. Q&A記録: 質問と回答をスプレッドシートに自動保存
  * 5. Typing Indicator: 「わなみさんが入力中...」表示
  * 6. 空メンション対応: 質問なしでもボタン表示
+ * 7. 無限ループ対策: Botメッセージを自動的に無視
  */
 
 const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
@@ -77,7 +78,7 @@ function extractImageUrls(message) {
   return uniqueUrls;
 }
 
-// === ✨ v15.5.9 修正: ユーザー状態チェック関数（状態タイプを返す） ===
+// === ユーザー状態チェック関数（状態タイプを返す） ===
 function isUserWaitingForQuestion(userId, interactionStates) {
   if (!interactionStates || !interactionStates.has(userId)) {
     return null; // 待機状態なし
@@ -92,7 +93,7 @@ function isUserWaitingForQuestion(userId, interactionStates) {
   return null;
 }
 
-// === ✨ v15.5.9 追加: 待機状態クリア関数 ===
+// === 待機状態クリア関数 ===
 function clearWaitingQuestion(userId, interactionStates) {
   if (interactionStates && interactionStates.has(userId)) {
     interactionStates.delete(userId);
@@ -162,15 +163,43 @@ function createClassicButtons() {
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.10');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.11');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
 
   try {
+    // =====================================
+    // 🛡️ 【最優先】無限ループ対策
+    // =====================================
+    
+    // 1. Botメッセージを完全に無視
+    if (message.author.bot) {
+      console.log('🤖 [LOOP PREVENTION] Botメッセージ検出 → スキップ');
+      return;
+    }
+    
+    // 2. システムメッセージを無視
+    if (message.system) {
+      console.log('⚙️ [LOOP PREVENTION] システムメッセージ検出 → スキップ');
+      return;
+    }
+    
+    // 3. Webhookメッセージを無視
+    if (message.webhookId) {
+      console.log('🔗 [LOOP PREVENTION] Webhookメッセージ検出 → スキップ');
+      return;
+    }
+    
+    // 4. 自分自身のIDを再確認（二重チェック）
+    if (message.author.id === client.user.id) {
+      console.log('⚠️ [LOOP PREVENTION] 自分自身のメッセージ検出 → スキップ');
+      return;
+    }
+
     // === 1. メンション検出 ===
     const botMentioned = message.mentions.has(client.user.id);
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id})`);
+    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
     console.log(`📝 メッセージ内容: "${message.content}"`);
     console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
 
@@ -199,7 +228,7 @@ async function handleMessage(message, client) {
 
     console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
 
-    // ✨ === v15.5.8: 空メンション時の特別処理（クラシックスタイル） === ✨
+    // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
       console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
       
@@ -230,7 +259,7 @@ async function handleMessage(message, client) {
 
     console.log('✅ コンテンツ抽出成功 → AI回答処理へ');
 
-    // ✨ === Typing Indicator 開始 === ✨
+    // === Typing Indicator 開始 ===
     typingInterval = startTypingIndicator(message.channel);
 
     // === 4. 画像URL抽出 ===
@@ -245,7 +274,7 @@ async function handleMessage(message, client) {
       });
     }
 
-    // === 5. ✨ v15.5.9 修正: 待機状態チェック（状態タイプを取得） ===
+    // === 5. 待機状態チェック（状態タイプを取得） ===
     console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
     const interactionStates = global.interactionStates || new Map();
     const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
@@ -282,9 +311,9 @@ async function handleMessage(message, client) {
       console.log('✅ [CHECK-3] 通過 - ボタンハンドラー登録済み');
     }
 
-    // === 8. ✨ v15.5.10 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
+    // === 8. RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（v15.5.10）');
+    console.log('🧠 [AI] 応答生成開始（v15.5.11）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -292,7 +321,7 @@ async function handleMessage(message, client) {
 
     let botReply, response;
     try {
-      // ✨ 待機状態に応じて適切なRAGメソッドを呼び出し ✨
+      // 待機状態に応じて適切なRAGメソッドを呼び出し
       if (waitingType && waitingType.includes('mission')) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
@@ -300,7 +329,6 @@ async function handleMessage(message, client) {
         console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
         console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
-        // ✅ v15.5.10 修正: 第1引数に questionText を渡す
         response = await RAGSystem.generateMissionResponse(
           questionText,     // ← ユーザーの質問内容
           imageUrls,        // ← 画像URL配列
@@ -329,7 +357,7 @@ async function handleMessage(message, client) {
 
       console.log(`📊 [RAG] 応答長: ${response?.length || 0}文字`);
 
-      // ✨ Typing Indicator 停止 ✨
+      // Typing Indicator 停止
       stopTypingIndicator(typingInterval);
       typingInterval = null;
 
@@ -401,7 +429,7 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.10');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.11');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
@@ -422,15 +450,43 @@ async function handleMessage(message, client) {
 // === メンション処理メイン関数（Q&A記録版） ===
 async function handleMessageWithQALogging(message, client, qaLoggerService) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.10（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.11（Q&A記録版）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
 
   try {
+    // =====================================
+    // 🛡️ 【最優先】無限ループ対策
+    // =====================================
+    
+    // 1. Botメッセージを完全に無視
+    if (message.author.bot) {
+      console.log('🤖 [LOOP PREVENTION] Botメッセージ検出 → スキップ');
+      return;
+    }
+    
+    // 2. システムメッセージを無視
+    if (message.system) {
+      console.log('⚙️ [LOOP PREVENTION] システムメッセージ検出 → スキップ');
+      return;
+    }
+    
+    // 3. Webhookメッセージを無視
+    if (message.webhookId) {
+      console.log('🔗 [LOOP PREVENTION] Webhookメッセージ検出 → スキップ');
+      return;
+    }
+    
+    // 4. 自分自身のIDを再確認（二重チェック）
+    if (message.author.id === client.user.id) {
+      console.log('⚠️ [LOOP PREVENTION] 自分自身のメッセージ検出 → スキップ');
+      return;
+    }
+
     // === 1. メンション検出 ===
     const botMentioned = message.mentions.has(client.user.id);
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id})`);
+    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
     console.log(`📝 メッセージ内容: "${message.content}"`);
     console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
 
@@ -459,7 +515,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
 
-    // ✨ === v15.5.8: 空メンション時の特別処理（クラシックスタイル） === ✨
+    // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
       console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
       
@@ -490,7 +546,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     console.log('✅ コンテンツ抽出成功 → AI回答処理へ');
 
-    // ✨ === Typing Indicator 開始 === ✨
+    // === Typing Indicator 開始 ===
     typingInterval = startTypingIndicator(message.channel);
 
     // === 4. 画像URL抽出 ===
@@ -505,7 +561,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       });
     }
 
-    // === 5. ✨ v15.5.9 修正: 待機状態チェック（状態タイプを取得） ===
+    // === 5. 待機状態チェック（状態タイプを取得） ===
     console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
     const interactionStates = global.interactionStates || new Map();
     const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
@@ -533,9 +589,9 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     console.log('✅ [CHECK-2] 通過 - require成功');
 
-    // === 7. ✨ v15.5.10 修正: RAGシステム呼び出し（待機状態に応じて分岐） ===
+    // === 7. RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.10）');
+    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.11）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -543,7 +599,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     let botReply, responseText;
     try {
-      // ✨ 待機状態に応じて適切なRAGメソッドを呼び出し ✨
+      // 待機状態に応じて適切なRAGメソッドを呼び出し
       if (waitingType && waitingType.includes('mission')) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
@@ -551,7 +607,6 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
         console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
-        // ✅ v15.5.10 修正: 第1引数に questionText を渡す
         responseText = await RAGSystem.generateMissionResponse(
           questionText,     // ← ユーザーの質問内容
           imageUrls,        // ← 画像URL配列
@@ -580,7 +635,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
       console.log(`📊 [RAG] 応答長: ${responseText?.length || 0}文字`);
 
-      // ✨ Typing Indicator 停止 ✨
+      // Typing Indicator 停止
       stopTypingIndicator(typingInterval);
       typingInterval = null;
 
@@ -634,7 +689,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           hasImage: imageUrls.length > 0,
           channelId: message.channel.id,
           messageId: message.id,
-          missionType: waitingType || null // ✨ ミッションタイプを記録
+          missionType: waitingType || null // ミッションタイプを記録
         });
         console.log('✅ [QA-LOG] 記録完了');
       } else {
@@ -676,7 +731,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.10');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.11');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
