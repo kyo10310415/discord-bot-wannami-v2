@@ -1,16 +1,71 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.10.1
-// Version: 2.10.1
-// 更新日: 2025-11-21
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.11.0
+// Version: 2.11.0
+// 更新日: 2025-11-25
 // 変更内容: 
-// - v2.10.0ベース
-// - システムプロンプトに教育的文脈と安全性の説明を追加
-// - OpenAIコンテンツポリシー対応の改善
+// - わなみさんの性格設定を追加（23歳新人マネージャー、おっちょこちょい、熱意と情熱）
+// - 挨拶自動応答機能を追加（こんにちは、よろしく等に元気よく応答）
+// - システムプロンプトにキャラクター設定を統合
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
 const { generateAIResponse } = require('./openai-service');
 const { LIMITS } = require('../utils/constants');
 const { urlContentLoader } = require('./url-content-loader');
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🎭 わなみさんのキャラクター設定（共通）
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const WANAMI_CHARACTER = `━━━━━━━━━━━━━━━━━━━━━━━━━━
+🎭 わなみさんのキャラクター設定
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+【基本情報】
+• 名前: わなみさん
+• 年齢: 23歳
+• 役割: VTuber育成スクールの新人マネージャー（講師アシスタント）
+• 種別: AIチャットボット
+
+【性格・特徴】
+✨ **熱意と情熱**: VTuber育成に対する真剣な思い、生徒の成長を心から応援
+💪 **頑張り屋**: 困難にも前向きに取り組む、諦めない姿勢
+😅 **おっちょこちょい**: 時々ドジをする、失敗も素直に認める親しみやすさ
+🌟 **新人らしさ**: 完璧じゃないけど一生懸命、生徒と一緒に成長する姿勢
+
+【話し方の特徴】
+• 明るく元気な口調（「です・ます」調）
+• 適度な絵文字使用（✨💡🎯など）
+• 親しみやすい表現
+• 時々「えっと...」「あ、そうだ！」など自然な言い回し
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 👋 挨拶パターン検出と自動応答
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const GREETING_PATTERNS = [
+  { pattern: /^(こんにちは|こんにちわ|今日は)[\s!！]*$/i, response: '🌟 **こんにちは！わなみです！**\n\n今日も元気にサポートさせていただきます✨\n何かお手伝いできることがあれば、気軽に聞いてくださいね！💪' },
+  { pattern: /^(おはよう|おはようございます|ohayo)[\s!！]*$/i, response: '☀️ **おはようございます！わなみです！**\n\n今日も一日頑張りましょう✨\nVTuber活動のこと、何でもサポートしますよ！🎯' },
+  { pattern: /^(こんばんは|こんばんわ|今晩は)[\s!！]*$/i, response: '🌙 **こんばんは！わなみです！**\n\n今日もお疲れさまです✨\n夜でも全力でサポートしますので、何でも聞いてくださいね！💡' },
+  { pattern: /^(よろしく|よろしくお願いします|宜しく)[\s!！]*$/i, response: '🤝 **よろしくお願いします！わなみです！**\n\nVTuber育成スクールの新人マネージャーとして、全力でサポートさせていただきます✨\n一緒に頑張りましょう！💪' },
+  { pattern: /^(ありがとう|ありがとうございます|感謝|thx|thanks)[\s!！]*$/i, response: '😊 **どういたしまして！**\n\nお役に立てて嬉しいです✨\n他にも何かあれば、いつでも声をかけてくださいね！💡' },
+  { pattern: /^(おつかれ|お疲れ様|お疲れさま|おつ)[\s!！]*$/i, response: '🎉 **お疲れさまです！**\n\n今日も頑張りましたね✨\nゆっくり休んで、また明日も一緒に頑張りましょう！🌟' },
+  { pattern: /^(はじめまして|初めまして)[\s!！]*$/i, response: '👋 **はじめまして！わなみです！**\n\nVTuber育成スクールの新人マネージャーとして、みなさんをサポートしています✨\nおっちょこちょいな一面もありますが（笑）、熱意と情熱だけは誰にも負けません！💪\n\nよろしくお願いします！一緒に素敵なVTuberを目指しましょう🎯' }
+];
+
+function detectGreeting(userQuery) {
+  const trimmedQuery = userQuery.trim();
+  
+  for (const { pattern, response } of GREETING_PATTERNS) {
+    if (pattern.test(trimmedQuery)) {
+      logger.info(`👋 挨拶検出: "${trimmedQuery}" → パターンマッチ`);
+      return response;
+    }
+  }
+  
+  return null;
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 class RAGSystem {
   constructor() {
@@ -180,7 +235,7 @@ class RAGSystem {
         });
       }
 
-      const systemPrompt = `あなたは「わなみさん」という名前のVTuber育成スクールのアシスタントです。
+      const systemPrompt = `${WANAMI_CHARACTER}
 
 【重要な役割】
 - VTuber活動を目指す生徒をサポート
@@ -263,7 +318,7 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
         });
       }
 
-      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールのアシスタントです。
+      const systemPrompt = `${WANAMI_CHARACTER}
 
 ${knowledgeContext}
 ${visionContext}
@@ -293,13 +348,13 @@ ${visionContext}
    */
   async generateMissionResponse(userQuery, imageUrls = [], context = {}) {
     try {
-      logger.ai('📝 ===== ミッション提出専用処理開始 (v2.10.1) =====');
+      logger.ai('📝 ===== ミッション提出専用処理開始 (v2.11.0) =====');
       logger.info('📝 ユーザー入力:', userQuery);
       logger.info(`🖼️ 画像URL受信: ${imageUrls.length}件`);
 
       await this.waitForInitialization();
 
-      // 🆕 Step 1: URL検出と内容取得（url-content-loader使用）
+      // Step 1: URL検出と内容取得（url-content-loader使用）
       const urlContents = await urlContentLoader.extractAndFetchUrls(userQuery);
       
       if (urlContents.length > 0) {
@@ -439,7 +494,7 @@ ${visionContext}
         });
       }
 
-      // 🆕 Step 7: URL資料を評価基準に追加
+      // Step 7: URL資料を評価基準に追加
       if (urlContents.length > 0) {
         const urlContext = urlContentLoader.formatUrlContentsForContext(urlContents);
         missionContext += urlContext;
@@ -453,8 +508,10 @@ ${visionContext}
         logger.info('🖼️ 画像情報をシステムプロンプトに追加');
       }
 
-      // ✨ Step 9: システムプロンプト構築（教育的文脈強化版）
-      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師で、ミッション提出を評価します。
+      // Step 9: システムプロンプト構築（教育的文脈強化版 + キャラクター設定）
+      const systemPrompt = `${WANAMI_CHARACTER}
+
+あなたはVTuber育成スクールの講師として、ミッション提出を評価します。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎓 重要な教育的文脈
@@ -558,13 +615,13 @@ ${userQuery}
       const isPassed = this._detectPassFailStatus(aiResponse);
       logger.info(`🎯 判定結果: ${isPassed ? '合格' : '不合格または要改善'}`);
       
-      // 🆕 URL取得情報をログに記録
+      // URL取得情報をログに記録
       if (urlContents.length > 0) {
         const stats = urlContentLoader.getStats(urlContents);
         logger.info(`📊 URL資料最終統計: 成功${stats.success}/${stats.total}件、総文字数${stats.totalChars}文字`);
       }
       
-      logger.info('📝 ===== ミッション評価処理完了 (v2.10.1) =====\n');
+      logger.info('📝 ===== ミッション評価処理完了 (v2.11.0) =====\n');
 
       return aiResponse;
 
@@ -592,10 +649,17 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✨ v2.8.0: 厳格な知識ベース限定応答（プロンプト簡潔化版）
+  // ✨ v2.11.0: 厳格な知識ベース限定応答（挨拶検出機能追加版）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（v2.10.1）');
+      logger.ai('知識ベース限定応答生成開始（v2.11.0）');
+
+      // ✨ v2.11.0: 挨拶検出（最優先）
+      const greetingResponse = detectGreeting(userQuery);
+      if (greetingResponse) {
+        logger.info('✅ 挨拶パターン検出 → 挨拶応答を返します');
+        return greetingResponse;
+      }
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
@@ -605,10 +669,10 @@ ${userQuery}
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
 
-      // ✨ v2.8.0: 検索結果0件の場合は即座にリターン
+      // 検索結果0件の場合は即座にリターン
       if (knowledgeResults.length === 0) {
         logger.warn('⚠️ 知識ベースに情報なし → 即座に「情報なし」メッセージを返す');
-        return `🤖 **わなみさんです！**
+        return `🤖 **わなみです！**
 
 申し訳ございません。「${userQuery}」に関する情報が知識ベースに見つかりませんでした。
 
@@ -628,7 +692,7 @@ ${userQuery}
 📚 *知識ベースに情報がありませんでした*`;
       }
 
-      // ✨ v2.9.2: 参照資料を明確にマークアップ
+      // 参照資料を明確にマークアップ
       let knowledgeContext = '=' + '='.repeat(59) + '\n';
       knowledgeContext += '📚 参照資料（これだけを使って回答してください）\n';
       knowledgeContext += '=' + '='.repeat(59) + '\n\n';
@@ -646,7 +710,7 @@ ${userQuery}
       knowledgeContext += '以上が参照資料です。この内容だけを使って回答してください。\n';
       knowledgeContext += '=' + '='.repeat(59) + '\n';
 
-      // ✨ v2.9.2: Few-shot 例を追加したプロンプト
+      // Few-shot 例を追加したプロンプト
       const fewShotExample = `━━━━━━━━━━━━━━━━━━━━━━━━━━
 📖 回答の良い例・悪い例
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -664,7 +728,7 @@ ${userQuery}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
-      const systemPrompt = `あなたは「わなみさん」というVTuber育成スクールの講師です。
+      const systemPrompt = `${WANAMI_CHARACTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
 🚨 絶対に守るべき3つのルール 🚨
@@ -718,13 +782,13 @@ ${userQuery}
         context,
         { 
           maxTokens: 3000,
-          temperature: 0.3  // ✨ v2.9.2: 創造性を抑えて厳格に
+          temperature: 0.3
         }
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了（v2.10.1）');
+      logger.info('✅ 知識ベース限定応答生成完了（v2.11.0）');
       
-      // ✨ v2.8.0: フッター追加
+      // フッター追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
       
       return aiResponse + footer;
@@ -745,8 +809,10 @@ ${userQuery}
       initializing: this.isInitializing,
       maxContextTokens: this.maxContextTokens,
       service: 'RAG System',
-      version: '2.10.1',  // 🆕 バージョン更新
-      urlLoader: urlContentLoader.getStatus()  // 🆕 URL Loaderの状態追加
+      version: '2.11.0',  // 🆕 バージョン更新
+      characterSettings: 'わなみさん（23歳、新人マネージャー、おっちょこちょい、熱意と情熱）',
+      greetingPatterns: GREETING_PATTERNS.length,
+      urlLoader: urlContentLoader.getStatus()
     };
   }
 }
