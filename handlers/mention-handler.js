@@ -1,5 +1,9 @@
 /**
- * メンション処理ハンドラー v15.5.11（無限ループ対策版）
+ * メンション処理ハンドラー v15.5.12（無限ループ対策版 + @everyone除外）
+ * 
+ * 【v15.5.12 変更点】🚨 新規追加
+ * - @everyone / @here メンション除外機能を追加
+ * - message.mentions.everyoneチェックを実装
  * 
  * 【v15.5.11 変更点】🚨 重要
  * - 無限ループ対策: Botメッセージ検出チェックを最優先で追加
@@ -23,6 +27,7 @@
  * 5. Typing Indicator: 「わなみさんが入力中...」表示
  * 6. 空メンション対応: 質問なしでもボタン表示
  * 7. 無限ループ対策: Botメッセージを自動的に無視
+ * 8. @everyone/@here除外: 全体メンションには反応しない
  */
 
 const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
@@ -163,14 +168,14 @@ function createClassicButtons() {
 // === メンション処理メイン関数（既存） ===
 async function handleMessage(message, client) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.11');
+  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.12');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
 
   try {
     // =====================================
-    // 🛡️ 【最優先】無限ループ対策
+    // 🛡️ 【最優先】無限ループ対策 + @everyone除外
     // =====================================
     
     // 1. Botメッセージを完全に無視
@@ -194,6 +199,13 @@ async function handleMessage(message, client) {
     // 4. 自分自身のIDを再確認（二重チェック）
     if (message.author.id === client.user.id) {
       console.log('⚠️ [LOOP PREVENTION] 自分自身のメッセージ検出 → スキップ');
+      return;
+    }
+
+    // 5. @everyone / @here メンションを除外
+    if (message.mentions.everyone) {
+      console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
+      console.log(`   送信者: ${message.author.username} (ID: ${message.author.id})`);
       return;
     }
 
@@ -313,7 +325,7 @@ async function handleMessage(message, client) {
 
     // === 8. RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（v15.5.11）');
+    console.log('🧠 [AI] 応答生成開始（v15.5.12）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -429,7 +441,7 @@ async function handleMessage(message, client) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.11');
+    console.log('✅ [MENTION] メンション処理完了 v15.5.12');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
@@ -450,14 +462,14 @@ async function handleMessage(message, client) {
 // === メンション処理メイン関数（Q&A記録版） ===
 async function handleMessageWithQALogging(message, client, qaLoggerService) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.11（Q&A記録版）');
+  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.12（Q&A記録版 + @everyone除外）');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   let typingInterval = null;
 
   try {
     // =====================================
-    // 🛡️ 【最優先】無限ループ対策
+    // 🛡️ 【最優先】無限ループ対策 + @everyone除外
     // =====================================
     
     // 1. Botメッセージを完全に無視
@@ -481,6 +493,13 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     // 4. 自分自身のIDを再確認（二重チェック）
     if (message.author.id === client.user.id) {
       console.log('⚠️ [LOOP PREVENTION] 自分自身のメッセージ検出 → スキップ');
+      return;
+    }
+
+    // 5. @everyone / @here メンションを除外
+    if (message.mentions.everyone) {
+      console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
+      console.log(`   送信者: ${message.author.username} (ID: ${message.author.id})`);
       return;
     }
 
@@ -591,7 +610,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
     // === 7. RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.11）');
+    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.12）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log(`📝 質問: "${questionText}"`);
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
@@ -699,6 +718,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       console.error('⚠️ [QA-LOG] 記録失敗（処理は続行）:', logError);
     }
 
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
     // === 10. ボタン追加 ===
     const hasButtonHandler = typeof global.handleButtonInteraction === 'function';
     if (botReply && hasButtonHandler) {
@@ -731,7 +752,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.11');
+    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.12');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
