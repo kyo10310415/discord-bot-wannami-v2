@@ -135,20 +135,13 @@ client.once('ready', async () => {
 // メンション対応（AI知識ベース統合 + Q&A記録）
 client.on('messageCreate', async (message) => {
   try {
-    // ボットへのメンションがある場合のみ処理
-    if (message.mentions.has(client.user)) {
-      // メンション文字列を除去してユーザーの質問を抽出
-      const userQuestion = message.content
-        .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
-        .trim();
-
-      // Q&A記録対応版のハンドラーを呼び出し
-      await mentionHandler.handleMessageWithQALogging(
-        message,
-        userQuestion,
-        qaLoggerService
-      );
-    }
+    // Q&A記録対応版のハンドラーを呼び出し
+    // ハンドラー内でメンション判定、質問抽出、無限ループ対策を実施
+    await mentionHandler.handleMessageWithQALogging(
+      message,
+      client,
+      qaLoggerService
+    );
   } catch (error) {
     logger.errorDetail('メッセージ処理エラー:', error);
   }
