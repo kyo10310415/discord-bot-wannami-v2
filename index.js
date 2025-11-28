@@ -14,7 +14,7 @@ const buttonHandler = require('./handlers/button-handler');
 const { initializeServices } = require('./services/google-apis');
 const knowledgeBase = require('./services/knowledge-base');
 const { initializeRAG } = require('./services/rag-system');
-const { qaLoggerService } = require('./services/qa-logger'); // ✅ 追加
+const { qaLoggerService } = require('./services/qa-logger');
 
 const app = express();
 
@@ -108,7 +108,7 @@ client.once('ready', async () => {
     await initializeRAG();
     logger.success('✅ RAGシステム初期化完了');
     
-    // ✅ 追加: Q&A記録サービス初期化
+    // Q&A記録サービス初期化
     if (env.QA_SPREADSHEET_ID) {
       try {
         await qaLoggerService.initialize(env.QA_SPREADSHEET_ID);
@@ -135,8 +135,20 @@ client.once('ready', async () => {
 // メンション対応（AI知識ベース統合 + Q&A記録）
 client.on('messageCreate', async (message) => {
   try {
-    // ✅ 修正: Q&A記録対応版
-    await mentionHandler.handleMessageWithQALogging(message, client, qaLoggerService);
+    // ボットへのメンションがある場合のみ処理
+    if (message.mentions.has(client.user)) {
+      // メンション文字列を除去してユーザーの質問を抽出
+      const userQuestion = message.content
+        .replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '')
+        .trim();
+
+      // Q&A記録対応版のハンドラーを呼び出し
+      await mentionHandler.handleMessageWithQALogging(
+        message,
+        userQuestion,
+        qaLoggerService
+      );
+    }
   } catch (error) {
     logger.errorDetail('メッセージ処理エラー:', error);
   }
@@ -239,7 +251,7 @@ app.post('/api/knowledge-base/refresh', async (req, res) => {
   }
 });
 
-// ✅ 追加: Q&A記録統計エンドポイント
+// Q&A記録統計エンドポイント
 app.get('/api/qa-log/stats', async (req, res) => {
   try {
     const stats = await qaLoggerService.getStats();
@@ -344,7 +356,7 @@ app.get('/', (req, res) => {
         '✅ モジュール化アーキテクチャ',
         '✅ Bot User ID検証機能',
         '✅ デバッグログシステム',
-        '✅ Q&A記録機能（Googleスプレッドシート連携）', // ✅ 追加
+        '✅ Q&A記録機能（Googleスプレッドシート連携）',
         '🚀 完全機能版'
       ],
       performance: {
@@ -356,7 +368,7 @@ app.get('/', (req, res) => {
         bot_id_check_endpoint: '/api/bot/user-id',
         knowledge_base_status: '/api/knowledge-base/status',
         knowledge_base_refresh: 'POST /api/knowledge-base/refresh',
-        qa_log_stats: '/api/qa-log/stats' // ✅ 追加
+        qa_log_stats: '/api/qa-log/stats'
       }
     });
   } catch (error) {
@@ -417,7 +429,7 @@ async function startServer() {
       logger.info(`   GET  /api/bot/user-id - Bot User ID確認`);
       logger.info(`   GET  /api/knowledge-base/status - 知識ベース状態`);
       logger.info(`   POST /api/knowledge-base/refresh - 知識ベース更新`);
-      logger.info(`   GET  /api/qa-log/stats - Q&A記録統計`); // ✅ 追加
+      logger.info(`   GET  /api/qa-log/stats - Q&A記録統計`);
       logger.info(`   POST /interactions - Discord Interactions`);
       logger.info('');
     });
@@ -488,4 +500,3 @@ try {
 
 // サーバー起動実行
 startServer();
-
