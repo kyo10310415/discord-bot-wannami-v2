@@ -1,791 +1,271 @@
 /**
- * メンション処理ハンドラー v15.5.13（Q&A記録修正版）
- * 
- * 【v15.5.13 変更点】🚨 重要
- * - Q&A記録のデータフィールドを修正（channelName, guildName, response追加）
- * - デバッグログを追加してスプレッドシート書き込み問題を解決
- * 
- * 【v15.5.12 変更点】
- * - @everyone / @here メンション除外機能を追加
- * - message.mentions.everyoneチェックを実装
- * 
- * 【v15.5.11 変更点】🚨 重要
- * - 無限ループ対策: Botメッセージ検出チェックを最優先で追加
- * - message.author.bot チェックを両関数の冒頭に実装
- * - システムメッセージ・Webhookメッセージの除外も追加
+ * Q&A記録サービス v15.5.3
  * 
  * 【機能】
- * 1. メンション検索: ボット宛のメンションを検出
- * 2. 画像URL抽出: 添付画像・埋め込み画像を自動検出
- * 3. 知識ベース検索: RAGシステムで関連情報を取得
- * 4. Q&A記録: 質問と回答をスプレッドシートに自動保存
- * 5. Typing Indicator: 「わなみさんが入力中...」表示
- * 6. 空メンション対応: 質問なしでもボタン表示
- * 7. 無限ループ対策: Botメッセージを自動的に無視
- * 8. @everyone/@here除外: 全体メンションには反応しない
+ * - ユーザーの質問と回答をGoogleスプレッドシートに自動記録
+ * - タイムスタンプ、ユーザー情報、チャンネル情報を記録
+ * - 処理時間・回答長・質問タイプなどの統計情報を記録
+ * 
+ * 【v15.5.3 変更点】
+ * - channelName, guildName, response, responseLength, processingTime, questionType フィールドを追加
+ * - initialize メソッドを追加（index.jsからの初期化対応）
+ * - エラーハンドリング強化
  */
 
-const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+const { google } = require('googleapis');
+const logger = require('../utils/logger');
 
-// === 画像URL抽出関数（インライン実装） ===
-function extractImageUrls(message) {
-  const imageUrls = [];
-  const imageExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.webp'];
-
-  console.log('🖼️ [IMAGE] 画像URL抽出開始');
-  console.log(`📎 添付ファイル数: ${message.attachments.size}`);
-  console.log(`🎨 埋め込み数: ${message.embeds.length}`);
-
-  // 1. 添付ファイルから画像を抽出
-  message.attachments.forEach(attachment => {
-    const url = attachment.url || attachment.proxyURL;
-    if (url) {
-      const isImage = imageExtensions.some(ext => url.toLowerCase().includes(ext));
-      console.log(`📎 添付: ${url.substring(0, 80)}... (画像: ${isImage})`);
-      if (isImage) {
-        imageUrls.push(url);
-        console.log(`✅ 画像追加: ${url}`);
-      }
-    }
-  });
-
-  // 2. 埋め込みから画像を抽出
-  message.embeds.forEach((embed, index) => {
-    console.log(`🎨 埋め込み[${index}]タイプ: ${embed.data?.type || 'unknown'}`);
-    
-    if (embed.image?.url) {
-      console.log(`🖼️ embed.image.url発見: ${embed.image.url}`);
-      imageUrls.push(embed.image.url);
-    }
-    if (embed.thumbnail?.url) {
-      console.log(`🖼️ embed.thumbnail.url発見: ${embed.thumbnail.url}`);
-      imageUrls.push(embed.thumbnail.url);
-    }
-    if (embed.data?.image?.url) {
-      console.log(`🖼️ embed.data.image.url発見: ${embed.data.image.url}`);
-      imageUrls.push(embed.data.image.url);
-    }
-    if (embed.data?.thumbnail?.url) {
-      console.log(`🖼️ embed.data.thumbnail.url発見: ${embed.data.thumbnail.url}`);
-      imageUrls.push(embed.data.thumbnail.url);
-    }
-  });
-
-  // 3. 重複削除
-  const uniqueUrls = [...new Set(imageUrls)];
-  console.log(`✅ 抽出完了: ${uniqueUrls.length}件の画像`);
-  
-  return uniqueUrls;
-}
-
-// === ユーザー状態チェック関数（状態タイプを返す） ===
-function isUserWaitingForQuestion(userId, interactionStates) {
-  if (!interactionStates || !interactionStates.has(userId)) {
-    return null; // 待機状態なし
+class QALoggerService {
+  constructor() {
+    this.sheets = null;
+    this.spreadsheetId = null;
+    this.isInitialized = false;
   }
-  const state = interactionStates.get(userId);
-  
-  // waitingForQuestionがtrueの場合、stateTypeを返す
-  if (state && state.waitingForQuestion === true) {
-    return state.stateType || null; // 例: 'mission_submission'
-  }
-  
-  return null;
-}
 
-// === 待機状態クリア関数 ===
-function clearWaitingQuestion(userId, interactionStates) {
-  if (interactionStates && interactionStates.has(userId)) {
-    interactionStates.delete(userId);
-    console.log(`✅ [STATE] 待機状態クリア: ${userId}`);
-  }
-}
+  /**
+   * 初期化メソッド
+   * @param {string} spreadsheetId - GoogleスプレッドシートのID
+   */
+  async initialize(spreadsheetId) {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📝 [QA-LOGGER] Q&A記録サービス初期化開始 v15.5.3');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-// === Typing Indicator 管理関数 ===
-function startTypingIndicator(channel) {
-  console.log('⌨️ [TYPING] Typing Indicator 開始');
-  
-  // 初回送信
-  channel.sendTyping().catch(err => {
-    console.error('⚠️ [TYPING] 送信エラー:', err.message);
-  });
-  
-  // 15秒ごとに自動更新（Discordの仕様：10秒で消えるため）
-  const typingInterval = setInterval(() => {
-    channel.sendTyping().catch(err => {
-      console.error('⚠️ [TYPING] 更新エラー:', err.message);
-    });
-  }, 8000); // 8秒ごとに更新（余裕を持たせる）
-  
-  return typingInterval;
-}
-
-function stopTypingIndicator(typingInterval) {
-  if (typingInterval) {
-    clearInterval(typingInterval);
-    console.log('⌨️ [TYPING] Typing Indicator 停止');
-  }
-}
-
-// === 以前のスタイルのボタンセットを作成する関数 ===
-function createClassicButtons() {
-  // 1行目: 主要な相談ボタン（3つ）
-  const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('payment_consultation')
-      .setLabel('①お支払い相談')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('private_consultation')
-      .setLabel('②プライベート相談')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('lesson_question')
-      .setLabel('③レッスン質問')
-      .setStyle(ButtonStyle.Primary)
-  );
-
-  // 2行目: その他のボタン（2つ）
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('sns_consultation')
-      .setLabel('④SNS運用相談')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('mission_submission')
-      .setLabel('⑤ミッション提出')
-      .setStyle(ButtonStyle.Primary)
-  );
-
-  return [row1, row2];
-}
-
-// === メンション処理メイン関数（既存） ===
-async function handleMessage(message, client) {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION] メンションハンドラー起動 v15.5.13');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  let typingInterval = null;
-
-  try {
-    // =====================================
-    // 🛡️ 【最優先】無限ループ対策 + @everyone除外
-    // =====================================
-    
-    // 1. Botメッセージを完全に無視
-    if (message.author.bot) {
-      console.log('🤖 [LOOP PREVENTION] Botメッセージ検出 → スキップ');
-      return;
-    }
-    
-    // 2. システムメッセージを無視
-    if (message.system) {
-      console.log('⚙️ [LOOP PREVENTION] システムメッセージ検出 → スキップ');
-      return;
-    }
-    
-    // 3. Webhookメッセージを無視
-    if (message.webhookId) {
-      console.log('🔗 [LOOP PREVENTION] Webhookメッセージ検出 → スキップ');
-      return;
-    }
-    
-    // 4. 自分自身のIDを再確認（二重チェック）
-    if (message.author.id === client.user.id) {
-      console.log('⚠️ [LOOP PREVENTION] 自分自身のメッセージ検出 → スキップ');
-      return;
+    if (!spreadsheetId) {
+      throw new Error('スプレッドシートIDが指定されていません');
     }
 
-    // 5. @everyone / @here メンションを除外
-    if (message.mentions.everyone) {
-      console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
-      console.log(`   送信者: ${message.author.username} (ID: ${message.author.id})`);
-      return;
-    }
+    this.spreadsheetId = spreadsheetId;
+    console.log(`📊 [QA-LOGGER] スプレッドシートID: ${spreadsheetId.substring(0, 20)}...`);
 
-    // === 1. メンション検出 ===
-    const botMentioned = message.mentions.has(client.user.id);
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
-    console.log(`📝 メッセージ内容: "${message.content}"`);
-    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
-
-    if (!botMentioned) {
-      console.log('❌ ボットへのメンションなし → 処理スキップ');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      return;
-    }
-
-    console.log('✅ メンション検出成功 → 処理続行');
-
-    // === 2. 権限チェック ===
-    const botMember = message.guild?.members.cache.get(client.user.id);
-    if (botMember && !message.channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
-      console.warn('⚠️ 送信権限なし');
-      return;
-    }
-
-    // === 3. コンテンツ抽出 ===
-    const botMention = `<@${client.user.id}>`;
-    const botMentionNick = `<@!${client.user.id}>`;
-    let questionText = message.content
-      .replace(new RegExp(botMention, 'g'), '')
-      .replace(new RegExp(botMentionNick, 'g'), '')
-      .trim();
-
-    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
-
-    // === 空メンション時の特別処理（クラシックスタイル） ===
-    if (!questionText) {
-      console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
-      
-      const welcomeMessage = `🤖 **わなみさんです！**
-
-どのようなご相談でしょうか？下のボタンから選択してください✨
-
-📘 **知識ベース限定回答システム**
-• @わなみさん【質問】で知識ベースから正確な回答
-• VTuber活動に特化した専門情報のみ回答
-
-📖 **専門サポートメニュー**
-下のボタンから選択して、より詳しいサポートを受けられます！`;
-
-      try {
-        const buttons = createClassicButtons();
-        const botReply = await message.reply({
-          content: welcomeMessage,
-          components: buttons
-        });
-        console.log('✅ 空メンション応答送信完了（クラシックボタン付き）');
-      } catch (error) {
-        console.error('❌ 空メンション応答送信失敗:', error);
-      }
-      
-      return; // ここで処理終了
-    }
-
-    console.log('✅ コンテンツ抽出成功 → AI回答処理へ');
-
-    // === Typing Indicator 開始 ===
-    typingInterval = startTypingIndicator(message.channel);
-
-    // === 4. 画像URL抽出 ===
-    console.log('🖼️ [IMAGE] 画像URL抽出開始');
-    const imageUrls = extractImageUrls(message);
-    
-    console.log(`🖼️ 画像添付: ${imageUrls.length > 0 ? `${imageUrls.length}件` : 'なし'}`);
-    if (imageUrls.length > 0) {
-      console.log('📸 検出された画像URL:');
-      imageUrls.forEach((url, i) => {
-        console.log(`  ${i + 1}. ${url}`);
+    try {
+      // Google Sheets API認証
+      const auth = new google.auth.GoogleAuth({
+        credentials: {
+          type: 'service_account',
+          project_id: process.env.GOOGLE_PROJECT_ID,
+          private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+          private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+          client_email: process.env.GOOGLE_CLIENT_EMAIL,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+          token_uri: 'https://oauth2.googleapis.com/token',
+          auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+          client_x509_cert_url: process.env.GOOGLE_CLIENT_CERT_URL
+        },
+        scopes: ['https://www.googleapis.com/auth/spreadsheets']
       });
-    }
 
-    // === 5. 待機状態チェック（状態タイプを取得） ===
-    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
-    const interactionStates = global.interactionStates || new Map();
-    const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${waitingType ? `待機中 (${waitingType}) ⏳` : '待機なし ✅'}`);
+      this.sheets = google.sheets({ version: 'v4', auth });
+      console.log('✅ [QA-LOGGER] Google Sheets API認証成功');
 
-    // === 6. require文のテスト（services/パス対応版） ===
-    console.log('🔍 [CHECK-2] require文テスト開始');
-    let RAGSystem;
-    try {
-      console.log('📦 [REQUIRE] ../services/rag-system を読み込み中...');
-      RAGSystem = require('../services/rag-system');
-      console.log('✅ [REQUIRE] 読み込み成功');
-      console.log(`📦 [REQUIRE] RAGSystemの型: ${typeof RAGSystem}`);
-      console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponseの型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
-      console.log(`📦 [REQUIRE] generateMissionResponseの型: ${typeof RAGSystem?.generateMissionResponse}`);
-    } catch (requireError) {
-      console.error('❌ [REQUIRE] エラー発生:', requireError);
-      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
-      stopTypingIndicator(typingInterval);
-      await message.reply('システムエラー: RAGシステムの読み込みに失敗しました。');
-      return;
-    }
-
-    console.log('✅ [CHECK-2] 通過 - require成功');
-
-    // === 7. hasButtonHandler チェック ===
-    console.log('🔍 [CHECK-3] hasButtonHandler チェック開始');
-    const hasButtonHandler = typeof global.handleButtonInteraction === 'function';
-    console.log(`🔍 [CHECK-3] 結果: ${hasButtonHandler ? '登録済み ✅' : '未登録 ❌'}`);
-
-    if (!hasButtonHandler) {
-      console.warn('⚠️ ボタンハンドラーが未登録');
-    } else {
-      console.log('✅ [CHECK-3] 通過 - ボタンハンドラー登録済み');
-    }
-
-    // === 8. RAGシステム呼び出し（待機状態に応じて分岐） ===
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（v15.5.13）');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📝 質問: "${questionText}"`);
-    console.log(`🖼️ 画像: ${imageUrls.length}件`);
-    console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
-
-    let botReply, response;
-    try {
-      // 待機状態に応じて適切なRAGメソッドを呼び出し
-      if (waitingType && waitingType.includes('mission')) {
-        // ミッション提出処理
-        console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
-        console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
-        console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
-        console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
-        
-        response = await RAGSystem.generateMissionResponse(
-          questionText,     // ← ユーザーの質問内容
-          imageUrls,        // ← 画像URL配列
-          {
-            missionType: waitingType,
-            buttonContext: waitingType
-          }
-        );
-        
-        // 待機状態をクリア
-        clearWaitingQuestion(message.author.id, interactionStates);
-        console.log('✅ [AI] ミッション応答生成完了 & 待機状態クリア');
-        
-      } else {
-        // 通常の質問応答
-        console.log('💬 [AI] 通常の質問応答処理');
-        console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
-        
-        response = await RAGSystem.generateKnowledgeOnlyResponse(
-          questionText,
-          imageUrls
-        );
-        
-        console.log('✅ [AI] 通常応答生成完了');
-      }
-
-      console.log(`📊 [RAG] 応答長: ${response?.length || 0}文字`);
-
-      // Typing Indicator 停止
-      stopTypingIndicator(typingInterval);
-      typingInterval = null;
-
-      if (!response || response.trim().length === 0) {
-        throw new Error('RAGシステムから空の応答が返されました');
-      }
-
-      // === 9. Discord送信 ===
-      console.log('📤 [DISCORD] メッセージ送信準備');
-      
-      if (response.length <= 2000) {
-        console.log('📤 [DISCORD] 単一メッセージとして送信');
-        botReply = await message.reply(response);
-      } else {
-        console.log('📤 [DISCORD] 分割送信（2000文字超過）');
-        const chunks = response.match(/[\s\S]{1,2000}/g) || [];
-        console.log(`📤 [DISCORD] 分割数: ${chunks.length}`);
-        
-        for (let i = 0; i < chunks.length; i++) {
-          console.log(`📤 [DISCORD] チャンク${i + 1}/${chunks.length} 送信中...`);
-          if (i === 0) {
-            botReply = await message.reply(chunks[i]);
-          } else {
-            await message.channel.send(chunks[i]);
-          }
-        }
-      }
-
-      console.log('✅ [DISCORD] 送信完了');
-
-    } catch (ragError) {
-      console.error('❌ [RAG] エラー発生:', ragError);
-      console.error('❌ [RAG] スタックトレース:', ragError.stack);
-      stopTypingIndicator(typingInterval);
-      await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
-      return;
-    }
-
-    // === 10. ボタン追加 ===
-    if (botReply && hasButtonHandler) {
-      console.log('🎮 [BUTTON] ボタン追加処理開始');
-      try {
-        const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('button_3')
-            .setLabel('③ 画像生成')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎨'),
-          new ButtonBuilder()
-            .setCustomId('button_4')
-            .setLabel('④ もっと詳しく')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📚'),
-          new ButtonBuilder()
-            .setCustomId('button_5')
-            .setLabel('⑤ 別の質問')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('💬')
-        );
-
-        await botReply.edit({ components: [buttons] });
-        console.log('✅ [BUTTON] ボタン追加完了');
-
-      } catch (buttonError) {
-        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
-      }
-    } else {
-      console.log('⚠️ [BUTTON] スキップ（botReplyなし or ハンドラー未登録）');
-    }
-
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION] メンション処理完了 v15.5.13');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  } catch (error) {
-    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
-    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
-    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
-    
-    stopTypingIndicator(typingInterval);
-    
-    try {
-      await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
-    } catch (replyError) {
-      console.error('❌ 返信送信にも失敗:', replyError);
-    }
-  }
-}
-
-// === メンション処理メイン関数（Q&A記録版） ===
-async function handleMessageWithQALogging(message, client, qaLoggerService) {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('🔔 [MENTION+LOG] メンションハンドラー起動 v15.5.13（Q&A記録版 + @everyone除外）');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  let typingInterval = null;
-  const startTime = Date.now(); // ✅ 処理時間計測開始
-
-  try {
-    // =====================================
-    // 🛡️ 【最優先】無限ループ対策 + @everyone除外
-    // =====================================
-    
-    // 1. Botメッセージを完全に無視
-    if (message.author.bot) {
-      console.log('🤖 [LOOP PREVENTION] Botメッセージ検出 → スキップ');
-      return;
-    }
-    
-    // 2. システムメッセージを無視
-    if (message.system) {
-      console.log('⚙️ [LOOP PREVENTION] システムメッセージ検出 → スキップ');
-      return;
-    }
-    
-    // 3. Webhookメッセージを無視
-    if (message.webhookId) {
-      console.log('🔗 [LOOP PREVENTION] Webhookメッセージ検出 → スキップ');
-      return;
-    }
-    
-    // 4. 自分自身のIDを再確認（二重チェック）
-    if (message.author.id === client.user.id) {
-      console.log('⚠️ [LOOP PREVENTION] 自分自身のメッセージ検出 → スキップ');
-      return;
-    }
-
-    // 5. @everyone / @here メンションを除外
-    if (message.mentions.everyone) {
-      console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
-      console.log(`   送信者: ${message.author.username} (ID: ${message.author.id})`);
-      return;
-    }
-
-    // === 1. メンション検出 ===
-    const botMentioned = message.mentions.has(client.user.id);
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
-    console.log(`📝 メッセージ内容: "${message.content}"`);
-    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
-
-    if (!botMentioned) {
-      console.log('❌ ボットへのメンションなし → 処理スキップ');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      return;
-    }
-
-    console.log('✅ メンション検出成功 → 処理続行');
-
-    // === 2. 権限チェック ===
-    const botMember = message.guild?.members.cache.get(client.user.id);
-    if (botMember && !message.channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
-      console.warn('⚠️ 送信権限なし');
-      return;
-    }
-
-    // === 3. コンテンツ抽出 ===
-    const botMention = `<@${client.user.id}>`;
-    const botMentionNick = `<@!${client.user.id}>`;
-    let questionText = message.content
-      .replace(new RegExp(botMention, 'g'), '')
-      .replace(new RegExp(botMentionNick, 'g'), '')
-      .trim();
-
-    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
-
-    // === 空メンション時の特別処理（クラシックスタイル） ===
-    if (!questionText) {
-      console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
-      
-      const welcomeMessage = `🤖 **わなみさんです！**
-
-どのようなご相談でしょうか？下のボタンから選択してください✨
-
-📘 **知識ベース限定回答システム**
-• @わなみさん【質問】で知識ベースから正確な回答
-• VTuber活動に特化した専門情報のみ回答
-
-📖 **専門サポートメニュー**
-下のボタンから選択して、より詳しいサポートを受けられます！`;
-
-      try {
-        const buttons = createClassicButtons();
-        const botReply = await message.reply({
-          content: welcomeMessage,
-          components: buttons
-        });
-        console.log('✅ 空メンション応答送信完了（クラシックボタン付き）');
-      } catch (error) {
-        console.error('❌ 空メンション応答送信失敗:', error);
-      }
-      
-      return; // ここで処理終了
-    }
-
-    console.log('✅ コンテンツ抽出成功 → AI回答処理へ');
-
-    // === Typing Indicator 開始 ===
-    typingInterval = startTypingIndicator(message.channel);
-
-    // === 4. 画像URL抽出 ===
-    console.log('🖼️ [IMAGE] 画像URL抽出開始');
-    const imageUrls = extractImageUrls(message);
-    
-    console.log(`🖼️ 画像添付: ${imageUrls.length > 0 ? `${imageUrls.length}件` : 'なし'}`);
-    if (imageUrls.length > 0) {
-      console.log('📸 検出された画像URL:');
-      imageUrls.forEach((url, i) => {
-        console.log(`  ${i + 1}. ${url}`);
+      // スプレッドシートへのアクセステスト
+      await this.sheets.spreadsheets.get({
+        spreadsheetId: this.spreadsheetId
       });
-    }
+      console.log('✅ [QA-LOGGER] スプレッドシートアクセス確認完了');
 
-    // === 5. 待機状態チェック（状態タイプを取得） ===
-    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
-    const interactionStates = global.interactionStates || new Map();
-    const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${waitingType ? `待機中 (${waitingType}) ⏳` : '待機なし ✅'}`);
+      // ヘッダー行の確認と作成
+      await this.ensureHeaders();
 
-    // === 6. require文のテスト（services/パス対応版） ===
-    console.log('🔍 [CHECK-2] require文テスト開始');
-    let RAGSystem;
-    try {
-      console.log('📦 [REQUIRE] ../services/rag-system を読み込み中...');
-      RAGSystem = require('../services/rag-system');
-      console.log('✅ [REQUIRE] rag-system 読み込み成功');
+      this.isInitialized = true;
+      console.log('✅ [QA-LOGGER] 初期化完了');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       
-      console.log(`📦 [REQUIRE] RAGSystem型: ${typeof RAGSystem}`);
-      console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponse型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
-      console.log(`📦 [REQUIRE] generateMissionResponse型: ${typeof RAGSystem?.generateMissionResponse}`);
-      
-    } catch (requireError) {
-      console.error('❌ [REQUIRE] エラー発生:', requireError);
-      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
-      stopTypingIndicator(typingInterval);
-      await message.reply('システムエラー: モジュールの読み込みに失敗しました。');
-      return;
-    }
+      return true;
 
-    console.log('✅ [CHECK-2] 通過 - require成功');
-
-    // === 7. RAGシステム呼び出し（待機状態に応じて分岐） ===
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.13）');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📝 質問: "${questionText}"`);
-    console.log(`🖼️ 画像: ${imageUrls.length}件`);
-    console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
-
-    let botReply, responseText;
-    try {
-      // 待機状態に応じて適切なRAGメソッドを呼び出し
-      if (waitingType && waitingType.includes('mission')) {
-        // ミッション提出処理
-        console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
-        console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
-        console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
-        console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
-        
-        responseText = await RAGSystem.generateMissionResponse(
-          questionText,     // ← ユーザーの質問内容
-          imageUrls,        // ← 画像URL配列
-          {
-            missionType: waitingType,
-            buttonContext: waitingType
-          }
-        );
-        
-        // 待機状態をクリア
-        clearWaitingQuestion(message.author.id, interactionStates);
-        console.log('✅ [AI] ミッション応答生成完了 & 待機状態クリア');
-        
-      } else {
-        // 通常の質問応答
-        console.log('💬 [AI] 通常の質問応答処理');
-        console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
-        
-        responseText = await RAGSystem.generateKnowledgeOnlyResponse(
-          questionText,
-          imageUrls
-        );
-        
-        console.log('✅ [AI] 通常応答生成完了');
-      }
-
-      console.log(`📊 [RAG] 応答長: ${responseText?.length || 0}文字`);
-
-      // Typing Indicator 停止
-      stopTypingIndicator(typingInterval);
-      typingInterval = null;
-
-      if (!responseText || responseText.trim().length === 0) {
-        throw new Error('RAGシステムから空の応答が返されました');
-      }
-
-      // === 8. Discord送信 ===
-      console.log('📤 [DISCORD] メッセージ送信準備');
-      
-      if (responseText.length <= 2000) {
-        console.log('📤 [DISCORD] 単一メッセージとして送信');
-        botReply = await message.reply(responseText);
-      } else {
-        console.log('📤 [DISCORD] 分割送信（2000文字超過）');
-        const chunks = responseText.match(/[\s\S]{1,2000}/g) || [];
-        console.log(`📤 [DISCORD] 分割数: ${chunks.length}`);
-        
-        for (let i = 0; i < chunks.length; i++) {
-          console.log(`📤 [DISCORD] チャンク${i + 1}/${chunks.length} 送信中...`);
-          if (i === 0) {
-            botReply = await message.reply(chunks[i]);
-          } else {
-            await message.channel.send(chunks[i]);
-          }
-        }
-      }
-
-      console.log('✅ [DISCORD] 送信完了');
-
-    } catch (ragError) {
-      console.error('❌ [RAG] エラー発生:', ragError);
-      console.error('❌ [RAG] スタックトレース:', ragError.stack);
-      stopTypingIndicator(typingInterval);
-      await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
-      return;
-    }
-
-    // ✅ 処理時間計測終了
-    const processingTime = Date.now() - startTime;
-
-    // === 9. Q&A記録 ===
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📝 [QA-LOG] Q&A記録開始');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    try {
-      if (qaLoggerService && typeof qaLoggerService.logQA === 'function') {
-        // ✅ 修正: フィールド名を正しく設定
-        const qaData = {
-          userId: message.author.id,
-          username: message.author.tag,
-          channelName: message.channel.name || 'DM', // ✅ 追加
-          channelId: message.channel.id,
-          guildName: message.guild?.name || 'DM', // ✅ 追加
-          question: questionText,
-          response: responseText, // ✅ "answer" から "response" に修正
-          responseLength: responseText.length, // ✅ 追加
-          processingTime: processingTime, // ✅ 追加
-          questionType: waitingType || '通常質問', // ✅ 追加
-          hasImage: imageUrls.length > 0,
-          messageId: message.id
-        };
-        
-        console.log('📊 [DEBUG] Q&A記録データ:', {
-          username: qaData.username,
-          channelName: qaData.channelName,
-          guildName: qaData.guildName,
-          questionLength: qaData.question.length,
-          responseLength: qaData.responseLength,
-          processingTime: qaData.processingTime
-        });
-        
-        await qaLoggerService.logQA(qaData);
-        console.log('✅ [QA-LOG] 記録完了');
-      } else {
-        console.log('⚠️ [QA-LOG] スキップ（qaLoggerService未初期化）');
-      }
-    } catch (logError) {
-      console.error('⚠️ [QA-LOG] 記録失敗（処理は続行）:', logError);
-    }
-
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    // === 10. ボタン追加 ===
-    const hasButtonHandler = typeof global.handleButtonInteraction === 'function';
-    if (botReply && hasButtonHandler) {
-      console.log('🎮 [BUTTON] ボタン追加処理開始');
-      try {
-        const buttons = new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId('button_3')
-            .setLabel('③ 画像生成')
-            .setStyle(ButtonStyle.Primary)
-            .setEmoji('🎨'),
-          new ButtonBuilder()
-            .setCustomId('button_4')
-            .setLabel('④ もっと詳しく')
-            .setStyle(ButtonStyle.Secondary)
-            .setEmoji('📚'),
-          new ButtonBuilder()
-            .setCustomId('button_5')
-            .setLabel('⑤ 別の質問')
-            .setStyle(ButtonStyle.Success)
-            .setEmoji('💬')
-        );
-
-        await botReply.edit({ components: [buttons] });
-        console.log('✅ [BUTTON] ボタン追加完了');
-
-      } catch (buttonError) {
-        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
-      }
-    }
-
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('✅ [MENTION+LOG] メンション処理完了 v15.5.13');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-  } catch (error) {
-    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
-    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
-    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
-    
-    stopTypingIndicator(typingInterval);
-    
-    try {
-      await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
-    } catch (replyError) {
-      console.error('❌ 返信送信にも失敗:', replyError);
+    } catch (error) {
+      console.error('❌ [QA-LOGGER] 初期化失敗:', error.message);
+      throw error;
     }
   }
+
+  /**
+   * ヘッダー行の確認と作成
+   */
+  async ensureHeaders() {
+    try {
+      const sheetName = 'Q&A記録'; // デフォルトシート名
+      
+      // 既存データを確認
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A1:N1`
+      });
+
+      if (!response.data.values || response.data.values.length === 0) {
+        // ヘッダー行が存在しない場合は作成
+        console.log('📝 [QA-LOGGER] ヘッダー行を作成中...');
+        
+        const headers = [
+          'タイムスタンプ',       // A列
+          'ユーザーID',          // B列
+          'ユーザー名',          // C列
+          'チャンネル名',        // D列 (新規)
+          'チャンネルID',        // E列
+          'サーバー名',          // F列 (新規)
+          '質問内容',            // G列
+          '回答内容',            // H列 (新規)
+          '回答文字数',          // I列 (新規)
+          '処理時間(ms)',        // J列 (新規)
+          '質問タイプ',          // K列 (新規)
+          '画像添付',            // L列
+          'メッセージID'         // M列
+        ];
+
+        await this.sheets.spreadsheets.values.update({
+          spreadsheetId: this.spreadsheetId,
+          range: `${sheetName}!A1:M1`,
+          valueInputOption: 'RAW',
+          resource: { values: [headers] }
+        });
+
+        console.log('✅ [QA-LOGGER] ヘッダー行作成完了');
+      } else {
+        console.log('✅ [QA-LOGGER] ヘッダー行確認完了');
+      }
+    } catch (error) {
+      console.warn('⚠️ [QA-LOGGER] ヘッダー確認/作成失敗（記録は続行）:', error.message);
+    }
+  }
+
+  /**
+   * Q&A記録メソッド
+   * @param {Object} qaData - Q&Aデータ
+   */
+  async logQA(qaData) {
+    if (!this.isInitialized) {
+      console.warn('⚠️ [QA-LOGGER] 未初期化のため記録をスキップ');
+      return false;
+    }
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📝 [QA-LOGGER] Q&A記録処理開始');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    try {
+      const {
+        userId,
+        username,
+        channelName,      // ✅ 新規
+        channelId,
+        guildName,        // ✅ 新規
+        question,
+        response,         // ✅ 新規（従来の"answer"から変更）
+        responseLength,   // ✅ 新規
+        processingTime,   // ✅ 新規
+        questionType,     // ✅ 新規
+        hasImage,
+        messageId
+      } = qaData;
+
+      // デバッグログ
+      console.log('📊 [DEBUG] 記録データ:');
+      console.log(`  ユーザー: ${username} (${userId})`);
+      console.log(`  チャンネル: ${channelName} (${channelId})`);
+      console.log(`  サーバー: ${guildName}`);
+      console.log(`  質問長: ${question?.length || 0}文字`);
+      console.log(`  回答長: ${responseLength || response?.length || 0}文字`);
+      console.log(`  処理時間: ${processingTime || 'N/A'}ms`);
+      console.log(`  質問タイプ: ${questionType || '通常質問'}`);
+      console.log(`  画像添付: ${hasImage ? 'あり' : 'なし'}`);
+
+      // スプレッドシートに書き込むデータ
+      const row = [
+        new Date().toISOString(),                    // A: タイムスタンプ
+        userId || '',                                // B: ユーザーID
+        username || '',                              // C: ユーザー名
+        channelName || 'DM',                         // D: チャンネル名 ✅
+        channelId || '',                             // E: チャンネルID
+        guildName || 'DM',                           // F: サーバー名 ✅
+        question || '',                              // G: 質問内容
+        response || '',                              // H: 回答内容 ✅
+        responseLength || (response?.length || 0),   // I: 回答文字数 ✅
+        processingTime || 0,                         // J: 処理時間(ms) ✅
+        questionType || '通常質問',                  // K: 質問タイプ ✅
+        hasImage ? 'あり' : 'なし',                  // L: 画像添付
+        messageId || ''                              // M: メッセージID
+      ];
+
+      // スプレッドシートに追記
+      const sheetName = 'Q&A記録';
+      await this.sheets.spreadsheets.values.append({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A:M`,
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        resource: { values: [row] }
+      });
+
+      console.log('✅ [QA-LOGGER] スプレッドシート書き込み成功');
+      console.log(`📊 記録ID: ${messageId}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+      return true;
+
+    } catch (error) {
+      console.error('❌ [QA-LOGGER] 記録失敗:', error.message);
+      console.error('❌ [QA-LOGGER] スタックトレース:', error.stack);
+      
+      // エラーでも処理は継続（Bot動作に影響を与えない）
+      return false;
+    }
+  }
+
+  /**
+   * 統計情報取得メソッド
+   */
+  async getStats() {
+    if (!this.isInitialized) {
+      return {
+        initialized: false,
+        message: 'Q&A記録サービスが初期化されていません'
+      };
+    }
+
+    try {
+      const sheetName = 'Q&A記録';
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A:M`
+      });
+
+      const rows = response.data.values || [];
+      const dataRows = rows.slice(1); // ヘッダー行を除く
+
+      return {
+        initialized: true,
+        total_records: dataRows.length,
+        spreadsheet_id: this.spreadsheetId,
+        last_updated: new Date().toISOString(),
+        headers: rows[0] || []
+      };
+
+    } catch (error) {
+      console.error('❌ [QA-LOGGER] 統計取得失敗:', error.message);
+      return {
+        initialized: true,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * ステータス取得メソッド
+   */
+  getStatus() {
+    return {
+      initialized: this.isInitialized,
+      spreadsheet_id: this.spreadsheetId ? '設定済み' : '未設定',
+      sheets_api: this.sheets ? '接続済み' : '未接続'
+    };
+  }
 }
+
+// シングルトンインスタンスをエクスポート
+const qaLoggerService = new QALoggerService();
 
 module.exports = { 
-  handleMessage,
-  handleMessageWithQALogging 
+  qaLoggerService,
+  QALoggerService 
 };
