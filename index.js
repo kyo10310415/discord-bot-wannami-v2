@@ -358,17 +358,6 @@ app.post('/api/webhook/send-weekly', async (req, res) => {
   }
 });
 
-// 日次チェックタスク手動実行（テスト用）
-app.post('/api/webhook/daily-check', async (req, res) => {
-  try {
-    const result = await weeklySchedulerService.executeDailyCheckManually();
-    res.json(result);
-  } catch (error) {
-    logger.errorDetail('日次チェックタスクエラー:', error);
-    res.status(500).json({ error: 'サービスエラー', message: error.message });
-  }
-});
-
 // スケジューラーステータス
 app.get('/api/scheduler/status', (req, res) => {
   try {
@@ -483,7 +472,6 @@ app.get('/', (req, res) => {
         '✅ Q&A記録機能（Googleスプレッドシート連携）',
         '🆕 Q&A自動生成機能（30個サンプル）',
         '🆕 毎週火曜日18時 Discord Webhook自動送信',
-        '🆕 毎日深夜2時 Q&Aサンプル自動補充',
         '🚀 完全機能版 + 自動化'
       ],
       performance: {
@@ -502,7 +490,6 @@ app.get('/', (req, res) => {
         qa_automation_run: 'POST /api/qa-automation/run',
         qa_automation_full_set: 'POST /api/qa-automation/generate-full-set',
         webhook_send_weekly: 'POST /api/webhook/send-weekly',
-        webhook_daily_check: 'POST /api/webhook/daily-check',
         scheduler_status: '/api/scheduler/status'
       }
     });
@@ -571,7 +558,6 @@ async function startServer() {
       logger.info(`   POST /api/qa-automation/run - Q&A自動補充実行`);
       logger.info(`   POST /api/qa-automation/generate-full-set - フルセット生成（30個）`);
       logger.info(`   POST /api/webhook/send-weekly - 週次送信テスト`);
-      logger.info(`   POST /api/webhook/daily-check - 日次チェックテスト`);
       logger.info(`   GET  /api/scheduler/status - スケジューラー状態`);
       logger.info(`   POST /interactions - Discord Interactions`);
       logger.info('');

@@ -1,21 +1,18 @@
 /**
- * 週次スケジューラーサービス v1.0.0
+ * 週次スケジューラーサービス v1.1.0
  * 
  * 【機能】
  * - 毎週火曜日18時（日本時間）にDiscord Webhook送信
- * - Q&Aサンプルの自動生成（30個未満の場合）
  * - node-cronを使用したスケジュール実行
  */
 
 const cron = require('node-cron');
 const logger = require('../utils/logger');
-const { qaAutomationService } = require('./qa-automation');
 const { discordWebhookService } = require('./discord-webhook');
 
 class WeeklySchedulerService {
   constructor() {
     this.weeklyTask = null;
-    this.dailyCheckTask = null;
     this.isRunning = false;
   }
 
@@ -24,7 +21,7 @@ class WeeklySchedulerService {
    */
   start() {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('⏰ [SCHEDULER] 週次スケジューラー開始 v1.0.0');
+    console.log('⏰ [SCHEDULER] 週次スケジューラー開始 v1.1.0');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     try {
@@ -49,29 +46,10 @@ class WeeklySchedulerService {
       console.log(`   Cron式: ${TUESDAY_18_JST} (UTC)`);
       console.log(`   日本時間: 毎週火曜日 18:00`);
 
-      // 毎日深夜2時（UTC 17時 = JST 2:00）にQ&Aサンプルチェック
-      const DAILY_CHECK = '0 17 * * *'; // 毎日 UTC 17:00 (JST 2:00)
-      
-      this.dailyCheckTask = cron.schedule(DAILY_CHECK, async () => {
-        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('🔍 [SCHEDULER] 毎日のQ&Aサンプルチェック実行');
-        console.log(`   実行時刻: ${new Date().toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}`);
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-        await this.runDailyCheck();
-      }, {
-        timezone: 'UTC'
-      });
-
-      console.log('✅ [SCHEDULER] 毎日深夜2時（JST）のチェックタスク登録完了');
-      console.log(`   Cron式: ${DAILY_CHECK} (UTC)`);
-      console.log(`   日本時間: 毎日 2:00`);
-
       this.isRunning = true;
       
       console.log('\n📊 [SCHEDULER] 登録済みタスク一覧:');
       console.log('   1. 毎週火曜日 18:00 (JST) - Discord Webhook送信');
-      console.log('   2. 毎日 2:00 (JST) - Q&Aサンプル自動補充チェック');
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
       return true;
@@ -109,35 +87,6 @@ class WeeklySchedulerService {
   }
 
   /**
-   * 毎日のQ&Aサンプルチェックタスク
-   */
-  async runDailyCheck() {
-    try {
-      console.log('🔍 [SCHEDULER] 日次チェック: Q&Aサンプル自動補充');
-
-      // Q&Aサンプル自動生成（30個未満の場合のみ）
-      const result = await qaAutomationService.runGenerationTask();
-
-      if (result.success && result.generated > 0) {
-        console.log(`✅ [SCHEDULER] 日次チェック完了: ${result.generated}個生成`);
-        console.log(`   現在の件数: ${result.currentCount}/${result.targetCount}`);
-      } else if (result.success && result.generated === 0) {
-        console.log('✅ [SCHEDULER] 日次チェック完了: サンプル充足済み');
-      } else {
-        console.error('❌ [SCHEDULER] 日次チェック失敗:', result.error);
-      }
-
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-
-      return result;
-
-    } catch (error) {
-      console.error('❌ [SCHEDULER] 日次チェック実行エラー:', error.message);
-      console.error(error.stack);
-    }
-  }
-
-  /**
    * 手動実行：週次タスク（テスト用）
    */
   async executeWeeklyTaskManually() {
@@ -146,17 +95,6 @@ class WeeklySchedulerService {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     return await this.runWeeklyTask();
-  }
-
-  /**
-   * 手動実行：日次チェックタスク（テスト用）
-   */
-  async executeDailyCheckManually() {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🚀 [SCHEDULER] 手動実行: 日次チェック（テスト）');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
-    return await this.runDailyCheck();
   }
 
   /**
@@ -170,11 +108,6 @@ class WeeklySchedulerService {
       console.log('✅ [SCHEDULER] 週次タスク停止');
     }
 
-    if (this.dailyCheckTask) {
-      this.dailyCheckTask.stop();
-      console.log('✅ [SCHEDULER] 日次チェックタスク停止');
-    }
-
     this.isRunning = false;
     console.log('✅ [SCHEDULER] スケジューラー停止完了');
   }
@@ -186,10 +119,8 @@ class WeeklySchedulerService {
     return {
       isRunning: this.isRunning,
       weeklyTask: this.weeklyTask ? '稼働中' : '停止',
-      dailyCheckTask: this.dailyCheckTask ? '稼働中' : '停止',
       schedule: {
-        weekly: '毎週火曜日 18:00 (JST)',
-        daily: '毎日 2:00 (JST)'
+        weekly: '毎週火曜日 18:00 (JST)'
       }
     };
   }
