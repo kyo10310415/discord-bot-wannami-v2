@@ -1,0 +1,62 @@
+{
+  "name": "discord-bot-wannami-v2",
+  "version": "16.0.0",
+  "description": "VTuber育成スクール用Discord自動応答チャットボット - Q&A自動生成・週次配信機能付き完全版",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "message-bot": "node discord-message-bot.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "knowledge:update": "node -e \"require('./services/knowledge-scheduler').knowledgeScheduler.performManualUpdate()\"",
+    "knowledge:status": "node -e \"console.log(JSON.stringify(require('./services/knowledge-scheduler').knowledgeScheduler.getStatus(), null, 2))\"",
+    "qa:generate-one": "node -e \"require('./services/qa-generator').qaGeneratorService.initialize().then(() => require('./services/qa-generator').qaGeneratorService.generateAndSaveOne())\"",
+    "qa:generate-full": "node -e \"require('./services/qa-generator').qaGeneratorService.initialize().then(() => require('./services/qa-automation').qaAutomationService.generateFullSet())\"",
+    "qa:count": "node -e \"require('./services/qa-generator').qaGeneratorService.initialize().then(() => require('./services/qa-generator').qaGeneratorService.getSampleCount().then(count => console.log('Q&Aサンプル数:', count)))\""
+  },
+  "engines": {
+    "node": "18.x"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "openai": "^4.56.0",
+    "googleapis": "^128.0.0",
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
+    "pdf-parse": "^1.1.1",
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.1",
+    "winston": "^3.13.0",
+    "uuid": "^10.0.0",
+    "html-to-text": "^9.0.5",
+    "tweetnacl": "^1.0.3",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  },
+  "keywords": [
+    "discord-bot",
+    "vtuber",
+    "ai-chatbot",
+    "education",
+    "rag-system",
+    "knowledge-base",
+    "auto-update",
+    "scheduler",
+    "qa-automation",
+    "webhook"
+  ],
+  "author": "VTuber育成スクール",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kyo10310415/discord-bot-wannami-v2.git"
+  },
+  "homepage": "https://github.com/kyo10310415/discord-bot-wannami-v2#readme",
+  "bugs": {
+    "url": "https://github.com/kyo10310415/discord-bot-wannami-v2/issues"
+  }
+}
