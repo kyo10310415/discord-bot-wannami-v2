@@ -108,38 +108,107 @@ class QAGeneratorService {
   }
 
   /**
-   * 知識ベースからランダムなトピックを選択
+   * 知識ベーススプレッドシートからトピックを取得
    */
-  getRandomTopic() {
-    const topics = [
-      'VTuber名の決め方',
-      'キャラクター設定の作り方',
-      'デザインの基本',
-      'Xの使い方',
-      '初ポストの書き方',
-      '日常ポストの作り方',
-      'ポストの型と手法',
-      '文章の書き方の基本',
-      '配信のコツ',
-      'サムネイルの作り方',
-      'コントローラブルKPI',
-      '3Hの考え方',
-      'レッスンのミッション',
-      '基本利用規約',
-      '休会・退会について',
-      'お支払いについて',
-      'サービス保障',
-      'PROプラン',
-      'スペシャルイベント',
-      'AIイラスト提供',
-      '画像編集ソフト',
-      'フォントのインストール',
-      'Xアカウント凍結対応',
-      'DMやリプライへの対応',
-      'VQ診断'
-    ];
+  async getTopicsFromKnowledgeBase() {
+    try {
+      const spreadsheetId = process.env.KNOWLEDGE_BASE_SPREADSHEET_ID;
+      
+      // A列（タイトル）とG列（キーワード）を取得
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'A:G'
+      });
 
-    return topics[Math.floor(Math.random() * topics.length)];
+      const rows = response.data.values || [];
+      const topics = [];
+
+      // ヘッダー行をスキップ（2行目から）
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i];
+        const title = row[0]; // A列：タイトル
+        const keywords = row[6]; // G列：キーワード
+
+        if (title || keywords) {
+          topics.push({
+            title: title || '',
+            keywords: keywords || ''
+          });
+        }
+      }
+
+      console.log(`✅ [QA-GENERATOR] 知識ベースから${topics.length}件のトピック取得`);
+      return topics;
+
+    } catch (error) {
+      console.error('❌ [QA-GENERATOR] トピック取得エラー:', error.message);
+      // エラー時はフォールバック用の固定トピックを返す
+      return this.getFallbackTopics();
+    }
+  }
+
+  /**
+   * フォールバック用の固定トピック（知識ベース読み込み失敗時）
+   */
+  getFallbackTopics() {
+    return [
+      { title: 'Xの型の使い方', keywords: 'X, ポスト, 型, 手法' },
+      { title: 'YouTubeアナリティクス', keywords: 'YouTube, アナリティクス, 分析' },
+      { title: 'サムネイルの作り方', keywords: 'サムネイル, 画像, デザイン' }
+    ];
+  }
+
+  /**
+   * 苦戦しやすいトピックを優先的に選択
+   */
+  async getRandomTopic() {
+    try {
+      // 知識ベースからトピックを取得
+      const allTopics = await this.getTopicsFromKnowledgeBase();
+
+      // 苦戦しやすいキーワード（優先度高）
+      const difficultKeywords = [
+        'X', 'ポスト', '型', '手法', 'YouTube', 'アナリティクス', 
+        '分析', 'KPI', 'インプレッション', 'エンゲージメント', 
+        'リーチ', 'サムネイル', 'アルゴリズム', 'SEO', '投稿時間',
+        'タグ', 'ハッシュタグ', '配信設定', 'OBS', '音声',
+        'マイク', 'キャプチャ', 'エンコード', 'ビットレート',
+        'アーカイブ', 'クリップ', 'ショート動画', 'ミッション',
+        'レッスン', '合格基準', '提出', '添削', 'フィードバック'
+      ];
+
+      // 苦戦しやすいトピックをフィルタリング
+      const difficultTopics = allTopics.filter(topic => {
+        const text = `${topic.title} ${topic.keywords}`.toLowerCase();
+        return difficultKeywords.some(keyword => 
+          text.includes(keyword.toLowerCase())
+        );
+      });
+
+      // 苦戦しやすいトピックがあれば80%の確率で優先選択
+      let selectedTopic;
+      if (difficultTopics.length > 0 && Math.random() < 0.8) {
+        selectedTopic = difficultTopics[Math.floor(Math.random() * difficultTopics.length)];
+        console.log(`🎯 [QA-GENERATOR] 苦戦しやすいトピックを選択`);
+      } else {
+        selectedTopic = allTopics[Math.floor(Math.random() * allTopics.length)];
+        console.log(`📚 [QA-GENERATOR] 通常トピックを選択`);
+      }
+
+      // タイトルとキーワードを組み合わせて返す
+      const topicText = selectedTopic.keywords 
+        ? `${selectedTopic.title}（${selectedTopic.keywords}）`
+        : selectedTopic.title;
+
+      return topicText;
+
+    } catch (error) {
+      console.error('❌ [QA-GENERATOR] トピック選択エラー:', error.message);
+      // エラー時はフォールバックトピックから選択
+      const fallbackTopics = this.getFallbackTopics();
+      const selected = fallbackTopics[Math.floor(Math.random() * fallbackTopics.length)];
+      return `${selected.title}（${selected.keywords}）`;
+    }
   }
 
   /**
