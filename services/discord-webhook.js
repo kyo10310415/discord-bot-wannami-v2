@@ -378,6 +378,62 @@ ${answer}`;
   }
 
   /**
+   * テスト送信（特定のWebhookに1件送信）
+   */
+  async sendTestMessage(webhookUrl, discordId = null) {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🧪 [WEBHOOK] テスト送信開始');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    try {
+      // 未使用のQ&Aサンプルをランダム選択
+      const sample = await this.getRandomUnusedSample();
+      
+      if (!sample) {
+        console.error('❌ [WEBHOOK] 送信するサンプルがありません');
+        return { success: false, message: 'サンプルなし' };
+      }
+
+      console.log(`📝 テスト送信サンプル:`);
+      console.log(`   質問: ${sample.question}`);
+      console.log(`   回答: ${sample.answer.substring(0, 100)}...`);
+      console.log(`   Discord ID: ${discordId || 'なし'}`);
+
+      // Webhookに送信
+      const success = await this.sendWebhookMessage(
+        webhookUrl,
+        sample.question,
+        sample.answer,
+        discordId
+      );
+
+      if (success) {
+        console.log('✅ [WEBHOOK] テスト送信成功');
+        
+        // 使用済みフラグを更新
+        await this.markAsUsed(sample.rowIndex);
+        
+        return {
+          success: true,
+          message: 'テスト送信成功',
+          question: sample.question,
+          sampleUsed: sample.rowIndex
+        };
+      } else {
+        console.error('❌ [WEBHOOK] テスト送信失敗');
+        return { success: false, message: 'テスト送信失敗' };
+      }
+
+    } catch (error) {
+      console.error('❌ [WEBHOOK] テスト送信エラー:', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
    * スリープ関数
    */
   sleep(ms) {

@@ -369,6 +369,23 @@ app.post('/api/webhook/send-weekly', async (req, res) => {
   }
 });
 
+// テスト用: 特定のWebhookに1件送信
+app.post('/api/webhook/send-test', async (req, res) => {
+  try {
+    const { webhookUrl, discordId } = req.body;
+    
+    if (!webhookUrl) {
+      return res.status(400).json({ error: 'webhookUrl は必須です' });
+    }
+
+    const result = await discordWebhookService.sendTestMessage(webhookUrl, discordId);
+    res.json(result);
+  } catch (error) {
+    logger.errorDetail('テスト送信エラー:', error);
+    res.status(500).json({ error: 'サービスエラー', message: error.message });
+  }
+});
+
 // スケジューラーステータス
 app.get('/api/scheduler/status', (req, res) => {
   try {
