@@ -69,7 +69,7 @@ class DiscordWebhookService {
     try {
       const sheetName = '❶RAW_生徒様情報';
       
-      // D列（会員ステータス）とI列（お役立ち_WH）を取得
+      // D列（会員ステータス）、G列（Discord ID）、I列（お役立ち_WH）を取得
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.studentSpreadsheetId,
         range: `${sheetName}!D:I`
@@ -88,12 +88,14 @@ class DiscordWebhookService {
       for (let i = 1; i < rows.length; i++) {
         const row = rows[i];
         const status = row[0]; // D列（インデックス0）
+        const discordId = row[3]; // G列（インデックス3）
         const webhookUrl = row[5]; // I列（インデックス5）
 
         // 会員ステータスが「アクティブ」でWebhook URLが存在する場合のみ追加
         if (status === 'アクティブ' && webhookUrl && webhookUrl.startsWith('http')) {
           webhooks.push({
             url: webhookUrl,
+            discordId: discordId || null, // Discord ID（存在する場合）
             rowIndex: i + 1 // 行番号（1始まり）
           });
         }
@@ -243,10 +245,13 @@ class DiscordWebhookService {
   /**
    * Discord Webhookメッセージを送信
    */
-  async sendWebhookMessage(webhookUrl, question, answer) {
+  async sendWebhookMessage(webhookUrl, question, answer, discordId = null) {
     try {
+      // メンション部分（Discord IDがある場合）
+      const mention = discordId ? `<@${discordId}>\n` : '';
+      
       // Discordメッセージフォーマット
-      const content = `# 【わなみさん】の使い方についてお知らせ☆
+      const content = `${mention}# 【わなみさん】の使い方についてお知らせ☆
 
 生徒のみなさん、お疲れ様です！ 新人マネージャーの「わなみ」です！
 今日は「わなみさん」システムを使う事でどんな課題が解決できるかご紹介します！
@@ -319,12 +324,13 @@ ${answer}`;
       for (let i = 0; i < webhooks.length; i++) {
         const webhook = webhooks[i];
         
-        console.log(`[${i + 1}/${webhooks.length}] 送信中...`);
+        console.log(`[${i + 1}/${webhooks.length}] 送信中... (Discord ID: ${webhook.discordId || 'なし'})`);
         
         const success = await this.sendWebhookMessage(
           webhook.url,
           sample.question,
-          sample.answer
+          sample.answer,
+          webhook.discordId // Discord IDを渡す
         );
 
         if (success) {
