@@ -386,6 +386,17 @@ app.post('/api/webhook/send-test', async (req, res) => {
   }
 });
 
+// Webhook送信サービスのステータス確認
+app.get('/api/webhook/status', (req, res) => {
+  try {
+    const status = discordWebhookService.getStatus();
+    res.json(status);
+  } catch (error) {
+    logger.errorDetail('Webhookサービス状態取得エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
 // スケジューラーステータス
 app.get('/api/scheduler/status', (req, res) => {
   try {
