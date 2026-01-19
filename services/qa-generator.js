@@ -147,7 +147,9 @@ class QAGeneratorService {
    */
   async generateQuestion(topic) {
     try {
-      const prompt = `あなたはVTuber育成スクールの生徒です。以下のトピックについて、具体的で実践的な質問を1つ生成してください。
+      const systemPrompt = 'あなたは質問生成アシスタントです。VTuber育成スクールの生徒が実際に質問しそうな内容を生成してください。';
+      
+      const userQuery = `以下のトピックについて、具体的で実践的な質問を1つ生成してください。
 
 トピック: ${topic}
 
@@ -159,13 +161,15 @@ class QAGeneratorService {
 
 質問のみを出力してください。`;
 
-      const response = await generateAIResponse([
-        { role: 'system', content: '質問生成アシスタント' },
-        { role: 'user', content: prompt }
-      ], {
-        temperature: 0.8,
-        max_tokens: 200
-      });
+      const response = await generateAIResponse(
+        systemPrompt,
+        userQuery,
+        [],  // images (空配列)
+        {    // context
+          temperature: 0.8,
+          max_tokens: 200
+        }
+      );
 
       const question = response.trim();
       console.log(`✅ [QA-GENERATOR] 質問生成完了: "${question}"`);
