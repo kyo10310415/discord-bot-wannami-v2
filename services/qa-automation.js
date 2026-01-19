@@ -132,7 +132,11 @@ class QAAutomationService {
   async generateFullSet() {
     if (this.isRunning) {
       console.log('⚠️ [QA-AUTOMATION] 既に実行中のタスクがあります');
-      return;
+      return {
+        success: false,
+        error: '既に実行中のタスクがあります',
+        message: 'タスクが既に実行中です。完了するまでお待ちください。'
+      };
     }
 
     this.isRunning = true;

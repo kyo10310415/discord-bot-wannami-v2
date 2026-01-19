@@ -339,8 +339,19 @@ app.post('/api/qa-automation/run', async (req, res) => {
 // フルセット生成（30個強制生成・初回セットアップ用）
 app.post('/api/qa-automation/generate-full-set', async (req, res) => {
   try {
-    const result = await qaAutomationService.generateFullSet();
-    res.json(result);
+    // すぐにレスポンスを返す（バックグラウンドで実行）
+    res.json({
+      message: 'フルセット生成タスクを開始しました',
+      target: 30,
+      note: 'バックグラウンドで処理が進行しています。進捗は /api/qa-generator/count で確認できます。',
+      timestamp: new Date().toISOString()
+    });
+
+    // バックグラウンドで実行
+    qaAutomationService.generateFullSet().catch(error => {
+      logger.errorDetail('バックグラウンドフルセット生成エラー:', error);
+    });
+
   } catch (error) {
     logger.errorDetail('フルセット生成エラー:', error);
     res.status(500).json({ error: 'サービスエラー', message: error.message });
