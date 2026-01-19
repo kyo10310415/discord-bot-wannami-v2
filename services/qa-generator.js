@@ -220,6 +220,9 @@ class QAGeneratorService {
       const spreadsheetId = process.env.KNOWLEDGE_BASE_SPREADSHEET_ID;
       const sheetName = '回答サンプル';
 
+      console.log(`📝 [QA-GENERATOR] 保存開始 - SpreadsheetID: ${spreadsheetId}`);
+      console.log(`📝 [QA-GENERATOR] シート名: ${sheetName}`);
+
       const row = [
         new Date().toISOString(),  // A: タイムスタンプ
         question,                  // B: 質問
@@ -227,7 +230,9 @@ class QAGeneratorService {
         'FALSE'                    // D: 使用済みフラグ（初期値FALSE）
       ];
 
-      await this.sheets.spreadsheets.values.append({
+      console.log(`📝 [QA-GENERATOR] 保存データ準備完了 - 質問: ${question.substring(0, 50)}...`);
+
+      const result = await this.sheets.spreadsheets.values.append({
         spreadsheetId: spreadsheetId,
         range: `${sheetName}!A:D`,
         valueInputOption: 'RAW',
@@ -236,10 +241,12 @@ class QAGeneratorService {
       });
 
       console.log('✅ [QA-GENERATOR] Q&Aペア保存完了');
+      console.log(`📊 [QA-GENERATOR] 保存結果: ${JSON.stringify(result.data)}`);
       return true;
 
     } catch (error) {
       console.error('❌ [QA-GENERATOR] Q&Aペア保存エラー:', error.message);
+      console.error('❌ [QA-GENERATOR] エラー詳細:', error);
       throw error;
     }
   }
