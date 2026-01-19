@@ -195,13 +195,16 @@ class QAGeneratorService {
         channelName: 'サンプル生成'
       });
 
-      if (!result.answer) {
+      // resultが文字列の場合と、オブジェクトの場合の両方に対応
+      const answer = typeof result === 'string' ? result : result.answer;
+
+      if (!answer || answer.length === 0) {
         throw new Error('回答生成に失敗しました');
       }
 
-      console.log(`✅ [QA-GENERATOR] 回答生成完了 (${result.answer.length}文字)`);
+      console.log(`✅ [QA-GENERATOR] 回答生成完了 (${answer.length}文字)`);
       
-      return result.answer;
+      return answer;
 
     } catch (error) {
       console.error('❌ [QA-GENERATOR] 回答生成エラー:', error.message);
