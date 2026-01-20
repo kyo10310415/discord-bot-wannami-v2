@@ -18,21 +18,23 @@
     "node": "18.x"
   },
   "dependencies": {
-    "discord.js": "^14.15.3",
-    "openai": "^4.56.0",
-    "googleapis": "^128.0.0",
     "axios": "^1.6.8",
     "cheerio": "^1.0.0-rc.12",
-    "pdf-parse": "^1.1.1",
-    "node-fetch": "^3.3.2",
+    "cookie-parser": "^1.4.7",
+    "discord.js": "^14.15.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "multer": "^1.4.5-lts.1",
-    "winston": "^3.13.0",
-    "uuid": "^10.0.0",
+    "googleapis": "^128.0.0",
     "html-to-text": "^9.0.5",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^3.0.3",
+    "node-fetch": "^3.3.2",
+    "openai": "^4.56.0",
+    "pdf-parse": "^1.1.1",
     "tweetnacl": "^1.0.3",
-    "node-cron": "^3.0.3"
+    "uuid": "^10.0.0",
+    "winston": "^3.13.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"

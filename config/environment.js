@@ -26,6 +26,15 @@ class Environment {
     return process.env.DISCORD_APPLICATION_ID;
   }
 
+  // SSO Authentication設定
+  get JWT_SECRET() {
+    return process.env.JWT_SECRET || 'wannav-secret-key-change-in-production';
+  }
+
+  get DASHBOARD_URL() {
+    return process.env.DASHBOARD_URL || 'https://wannav-main.onrender.com';
+  }
+
   // Google Sheets設定 - スプレッドシートID
   get KNOWLEDGE_SPREADSHEET_ID() {
     return process.env.KNOWLEDGE_SPREADSHEET_ID;

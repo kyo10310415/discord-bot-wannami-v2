@@ -2,8 +2,12 @@
 // Version: 16.0.0 - Q&A自動生成・週次送信機能追加版
 
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionType } = require('discord.js');
 const crypto = require('crypto');
+
+// SSO Authentication
+const ssoAuthMiddleware = require('./middleware/sso-auth-middleware');
 
 // 設定とサービスのインポート
 const env = require('./config/environment');
@@ -40,6 +44,16 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
+app.use(cookieParser());
+
+// SSO Authentication (must be before routes, except /interactions for Discord)
+app.use((req, res, next) => {
+  // Skip SSO auth for Discord interaction endpoint
+  if (req.path === '/interactions') {
+    return next();
+  }
+  ssoAuthMiddleware(req, res, next);
+});
 
 // Discord署名検証関数
 function verifySignature(req) {
