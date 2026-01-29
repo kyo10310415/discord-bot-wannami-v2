@@ -1,8 +1,9 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
-// Version: 16.0.1 - Discord接続タイムアウト修正版
+// Version: 16.1.0 - Slack通知機能追加版
 // Hotfix: Discord login timeout でも落とさず再試行（Render のデプロイループ停止）
 // Hotfix2: DISCORD状態ログの多重 setInterval を抑止 + リトライ間隔の整合（5分開始/最大30分）
 // Hotfix3: タイムアウトを60秒に延長 + 認証エラー判定強化（Renderネットワーク遅延対策）
+// Feature: Slack通知機能（Discord接続エラー時に自動通知）
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
@@ -28,6 +29,9 @@ const { qaGeneratorService } = require('./services/qa-generator');
 const { qaAutomationService } = require('./services/qa-automation');
 const { discordWebhookService } = require('./services/discord-webhook');
 const { weeklySchedulerService } = require('./services/weekly-scheduler');
+
+// 新機能: Slack通知サービス
+const { slackNotifier } = require('./services/slack-notifier');
 
 const app = express();
 
@@ -487,6 +491,36 @@ app.get('/api/scheduler/status', (req, res) => {
 });
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 🆕 Slack通知機能 エンドポイント
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+// Slack通知サービスのステータス確認
+app.get('/api/slack/status', (req, res) => {
+  try {
+    const status = slackNotifier.getStatus();
+    res.json(status);
+  } catch (error) {
+    logger.errorDetail('Slack通知サービス状態取得エラー:', error);
+    res.status(500).json({ error: 'サービスエラー' });
+  }
+});
+
+// テスト通知送信
+app.post('/api/slack/test', async (req, res) => {
+  try {
+    await slackNotifier.sendCustomNotification(
+      '🧪 テスト通知',
+      'Slack通知機能は正常に動作しています。',
+      '#36a64f'
+    );
+    res.json({ success: true, message: 'テスト通知を送信しました' });
+  } catch (error) {
+    logger.errorDetail('Slackテスト通知エラー:', error);
+    res.status(500).json({ error: 'サービスエラー', message: error.message });
+  }
+});
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // Bot User ID 確認エンドポイント
 app.get('/api/bot/user-id', (req, res) => {
@@ -539,7 +573,8 @@ app.get('/', (req, res) => {
         qa_generator: qaGeneratorService.getStatus(),
         qa_automation: qaAutomationService.getStatus(),
         discord_webhook: discordWebhookService.getStatus(),
-        weekly_scheduler: weeklySchedulerService.getStatus()
+        weekly_scheduler: weeklySchedulerService.getStatus(),
+        slack_notifier: slackNotifier.getStatus()
       };
     } catch (serviceError) {
       logger.warn('サービス状態取得エラー:', serviceError.message);
@@ -607,7 +642,9 @@ app.get('/', (req, res) => {
         qa_automation_run: 'POST /api/qa-automation/run',
         qa_automation_full_set: 'POST /api/qa-automation/generate-full-set',
         webhook_send_weekly: 'POST /api/webhook/send-weekly',
-        scheduler_status: '/api/scheduler/status'
+        scheduler_status: '/api/scheduler/status',
+        slack_status: '/api/slack/status',
+        slack_test: 'POST /api/slack/test'
       }
     });
   } catch (error) {
@@ -719,17 +756,27 @@ async function startServer() {
       } catch (gatewayError) {
         const errorStatus = gatewayError?.response?.status;
         const errorMsg = gatewayError?.message || '';
+        const errorCode = gatewayError?.code;
         
         logger.error('❌ [DISCORD] Gateway URL取得失敗（REST API接続エラー）:');
         console.log(JSON.stringify({
           message: errorMsg,
-          code: gatewayError?.code,
+          code: errorCode,
           status: errorStatus,
           statusText: gatewayError?.response?.statusText,
           data: typeof gatewayError?.response?.data === 'string' ? 
                 gatewayError?.response?.data.substring(0, 500) : 
                 gatewayError?.response?.data
         }, null, 2));
+        
+        // ✅ Slack通知を送信
+        await slackNotifier.notifyDiscordConnectionError({
+          message: errorMsg,
+          code: errorCode,
+          status: errorStatus,
+          statusText: gatewayError?.response?.statusText,
+          wsStatus: client.ws.status
+        });
         
         // ✅ 429エラー（レート制限・BAN）の特別処理
         if (errorStatus === 429 || errorMsg.includes('rate limit') || errorMsg.includes('1015')) {
@@ -759,6 +806,9 @@ async function startServer() {
         await Promise.race([loginPromise, timeoutPromise]);
         logger.success('✅ Discord Bot接続完了');
 
+        // ✅ Slack通知（接続成功）
+        await slackNotifier.notifyDiscordConnectionSuccess();
+
         // ✅ 成功したらリトライ間隔を 5分に戻す（再度の1015踏みを避ける）
         discordRetryMs = 300_000;
       } catch (loginError) {
@@ -778,6 +828,13 @@ async function startServer() {
           wsUrl: client.ws.gateway || 'unknown',
           stack: errorStack
         }, null, 2));
+
+        // ✅ Slack通知（client.loginエラー）
+        await slackNotifier.notifyDiscordConnectionError({
+          message: errorMsg,
+          code: errorCode,
+          wsStatus: client.ws.status
+        });
 
         // ✅ 認証エラー判定（トークンが無効な場合は即座に停止）
         const isAuthError = errorMsg.includes('TOKEN_INVALID') || 
