@@ -607,6 +607,9 @@ async function startServer() {
     // ✅ 先にExpressを起動してPORTを開ける（Render対策）
     app.listen(env.PORT, '0.0.0.0', () => {
       logger.success(`✅ 🌐 Expressサーバー起動: ポート ${env.PORT}`);
+      setInterval(() => {
+  logger.info(`ℹ️ [DISCORD] isReady=${client.isReady()} wsStatus=${client.ws.status} ping=${client.ws.ping}`);
+}, 15000);
       logger.info(`   ✅ Health check: GET /healthz`);
       logger.info('');
       logger.info('📊 利用可能なエンドポイント:');
