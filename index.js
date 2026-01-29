@@ -699,6 +699,40 @@ async function startServer() {
       logger.info(`ℹ️ [DISCORD] token length: ${token.length}`);
       logger.info(`ℹ️ [DISCORD] 接続前状態: wsStatus=${client.ws.status} ping=${client.ws.ping}`);
 
+      try {
+        // ✅ 先にREST APIでGateway URLを取得（接続診断）
+        logger.info('🔍 [DISCORD] Gateway URL取得を試行...');
+        const axios = require('axios');
+        const gatewayResponse = await axios.get('https://discord.com/api/v10/gateway/bot', {
+          headers: {
+            'Authorization': `Bot ${token}`
+          },
+          timeout: 10000
+        });
+        
+        const gatewayUrl = gatewayResponse.data?.url;
+        const sessionStartLimit = gatewayResponse.data?.session_start_limit;
+        
+        logger.success(`✅ [DISCORD] Gateway URL取得成功: ${gatewayUrl}`);
+        logger.info(`ℹ️ [DISCORD] セッション制限: ${JSON.stringify(sessionStartLimit)}`);
+        
+      } catch (gatewayError) {
+        logger.error('❌ [DISCORD] Gateway URL取得失敗（REST API接続エラー）:');
+        console.log(JSON.stringify({
+          message: gatewayError?.message,
+          code: gatewayError?.code,
+          status: gatewayError?.response?.status,
+          statusText: gatewayError?.response?.statusText,
+          data: gatewayError?.response?.data
+        }, null, 2));
+        
+        // REST API接続失敗の場合は再試行
+        logger.warn(`⚠️ [DISCORD] 次の再試行まで ${Math.round(discordRetryMs / 1000)} 秒待機`);
+        setTimeout(tryDiscordLogin, discordRetryMs);
+        discordRetryMs = Math.min(Math.floor(discordRetryMs * 1.5), discordMaxRetryMs);
+        return;
+      }
+
       // ✅ HOTFIX: Renderのネットワーク初期化遅延対策で60秒に延長
       const loginPromise = client.login(token);
       const timeoutPromise = new Promise((_, reject) =>
