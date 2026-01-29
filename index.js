@@ -47,6 +47,10 @@ client.on('ready', () => {
   }
 });
 
+client.on('error', (e) => {
+  logger.errorDetail('❌ [DISCORD] client error:', e);
+});
+
 client.on('shardError', (e) => {
   logger.errorDetail('❌ [DISCORD] shardError:', e);
 });
@@ -54,6 +58,13 @@ client.on('shardError', (e) => {
 client.on('invalidated', () => {
   logger.error('❌ [DISCORD] session invalidated');
 });
+
+// ✅ 追加: shard/gateway 詳細ログ（原因確定用）
+client.on('debug', (m) => logger.info(`🐛 [DISCORD DEBUG] ${m}`));
+client.on('shardReady', (id) => logger.success(`✅ [DISCORD] shardReady: ${id}`));
+client.on('shardDisconnect', (event, id) => logger.warn(`⚠️ [DISCORD] shardDisconnect: ${id} code=${event?.code}`));
+client.on('shardReconnecting', (id) => logger.info(`🔄 [DISCORD] shardReconnecting: ${id}`));
+client.on('rateLimit', (info) => logger.warn(`⏱️ [DISCORD] rateLimit: ${JSON.stringify(info)}`));
 
 // JSONパース用ミドルウェア
 app.use(express.json({
@@ -585,10 +596,6 @@ app.use((error, req, res, next) => {
 });
 
 // Discord Client エラーハンドリング
-client.on('error', (error) => {
-  logger.errorDetail('Discord Client エラー:', error);
-});
-
 client.on('warn', (warning) => {
   logger.warn('Discord Client 警告:', warning);
 });
@@ -604,12 +611,9 @@ client.on('reconnecting', () => {
 // サーバー起動
 async function startServer() {
   try {
-    // ✅ 先にExpressを起動してPORTを開ける（Render対策）
+    // ✅ Render対策: 先にExpressを起動してPORTを開ける
     app.listen(env.PORT, '0.0.0.0', () => {
       logger.success(`✅ 🌐 Expressサーバー起動: ポート ${env.PORT}`);
-      setInterval(() => {
-  logger.info(`ℹ️ [DISCORD] isReady=${client.isReady()} wsStatus=${client.ws.status} ping=${client.ws.ping}`);
-}, 15000);
       logger.info(`   ✅ Health check: GET /healthz`);
       logger.info('');
       logger.info('📊 利用可能なエンドポイント:');
@@ -629,6 +633,15 @@ async function startServer() {
       logger.info('');
     });
 
+    // ✅ 追加: Discord接続状態を定期ログ（原因切り分け用）
+    setInterval(() => {
+      try {
+        logger.info(`ℹ️ [DISCORD] isReady=${client.isReady()} wsStatus=${client.ws.status} ping=${client.ws.ping}`);
+      } catch (e) {
+        console.log('ℹ️ [DISCORD] status log failed');
+      }
+    }, 15000);
+
     // 環境変数チェック
     if (!env.DISCORD_BOT_TOKEN) {
       throw new Error('DISCORD_BOT_TOKEN環境変数が設定されていません');
@@ -642,9 +655,14 @@ async function startServer() {
     logger.info('🔄 Discord Bot接続開始...');
     logger.info(`ℹ️ [DISCORD] token length: ${token.length}`);
 
-    // ✅ loginをtry/catchで原因を必ず表示
+    // ✅ 追加: loginに30秒タイムアウトを付与（ハングを確実に可視化）
+    const loginPromise = client.login(token);
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Discord login timeout (30s)')), 30000)
+    );
+
     try {
-      await client.login(token);
+      await Promise.race([loginPromise, timeoutPromise]);
       logger.success('✅ Discord Bot接続完了');
     } catch (loginError) {
       logger.errorDetail('❌ [DISCORD] client.login 失敗:', loginError);
