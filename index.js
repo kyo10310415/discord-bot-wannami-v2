@@ -63,9 +63,23 @@ client.on('invalidated', () => {
 });
 
 // ✅ 追加: shard/gateway 詳細ログ（原因確定用）
-client.on('debug', (m) => logger.info(`🐛 [DISCORD DEBUG] ${m}`));
+client.on('debug', (m) => {
+  // Gateway接続関連のログのみ出力（ノイズ削減）
+  if (m.includes('Preparing to connect') || 
+      m.includes('Identifying') || 
+      m.includes('Waiting for') ||
+      m.includes('Gateway') ||
+      m.includes('Session Limit') ||
+      m.includes('READY') ||
+      m.includes('error') ||
+      m.includes('close')) {
+    logger.info(`🐛 [DISCORD DEBUG] ${m}`);
+  }
+});
 client.on('shardReady', (id) => logger.success(`✅ [DISCORD] shardReady: ${id}`));
-client.on('shardDisconnect', (event, id) => logger.warn(`⚠️ [DISCORD] shardDisconnect: ${id} code=${event?.code}`));
+client.on('shardDisconnect', (event, id) => {
+  logger.warn(`⚠️ [DISCORD] shardDisconnect: ${id} code=${event?.code} reason=${event?.reason}`);
+});
 client.on('shardReconnecting', (id) => logger.info(`🔄 [DISCORD] shardReconnecting: ${id}`));
 client.on('rateLimit', (info) => logger.warn(`⏱️ [DISCORD] rateLimit: ${JSON.stringify(info)}`));
 
@@ -683,20 +697,44 @@ async function startServer() {
         // ✅ 成功したらリトライ間隔を 5分に戻す（再度の1015踏みを避ける）
         discordRetryMs = 300_000;
       } catch (loginError) {
-        // ✅ 認証エラー判定（トークンが無効な場合は即座に停止）
+        // ✅ 詳細なエラー情報をログ出力
         const errorMsg = String(loginError?.message || '');
+        const errorCode = loginError?.code;
+        const errorName = loginError?.name;
+        
+        logger.errorDetail('❌ [DISCORD] client.login 失敗:', {
+          message: errorMsg,
+          code: errorCode,
+          name: errorName,
+          wsStatus: client.ws.status,
+          wsUrl: client.ws.gateway || 'unknown'
+        });
+
+        // ✅ 認証エラー判定（トークンが無効な場合は即座に停止）
         const isAuthError = errorMsg.includes('TOKEN_INVALID') || 
                             errorMsg.includes('Incorrect login') ||
-                            errorMsg.includes('401');
+                            errorMsg.includes('401') ||
+                            errorCode === 'TOKEN_INVALID';
         
         if (isAuthError) {
-          logger.errorDetail('❌ [DISCORD] 認証エラー検出 - トークンが無効です。再試行を停止します:', loginError);
+          logger.error('❌ [DISCORD] 認証エラー検出 - トークンが無効です。再試行を停止します');
           logger.error('🔴 DISCORD_BOT_TOKENを確認してください');
           return; // 再試行せずに停止
         }
 
+        // ✅ レート制限・ブロック検出
+        const isRateLimited = errorMsg.includes('rate limit') ||
+                              errorMsg.includes('1015') ||
+                              errorMsg.includes('cloudflare') ||
+                              errorCode === 'RATE_LIMIT';
+        
+        if (isRateLimited) {
+          logger.error('❌ [DISCORD] レート制限またはIPブロック検出');
+          logger.warn('⚠️ Discord側で接続をブロックしている可能性があります');
+          logger.warn('⚠️ 数時間待ってから再試行してください');
+        }
+
         // ✅ ネットワークエラーやタイムアウトは再試行
-        logger.errorDetail('❌ [DISCORD] client.login 失敗（プロセスは継続・再試行します）:', loginError);
         logger.warn(`⚠️ [DISCORD] 次の再試行まで ${Math.round(discordRetryMs / 1000)} 秒待機`);
 
         setTimeout(tryDiscordLogin, discordRetryMs);
