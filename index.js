@@ -1,5 +1,6 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
 // Version: 16.0.0 - Q&A自動生成・週次送信機能追加版
+// Hotfix: Discord login timeout でも落とさず再試行（Render のデプロイループ停止）
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
@@ -98,14 +99,14 @@ function verifySignature(req) {
 
   const signature = req.headers['x-signature-ed25519'];
   const timestamp = req.headers['x-signature-timestamp'];
-  
+
   if (!signature || !timestamp) {
     logger.error('必要なヘッダーが見つかりません');
     return false;
   }
 
   const body = req.rawBody || '';
-  
+
   try {
     const isValid = crypto.verify(
       'ed25519',
@@ -113,7 +114,7 @@ function verifySignature(req) {
       Buffer.from(publicKey, 'hex'),
       Buffer.from(signature, 'hex')
     );
-    
+
     logger.info('署名検証結果:', isValid);
     return isValid;
   } catch (error) {
@@ -126,15 +127,15 @@ function verifySignature(req) {
 client.once('ready', async () => {
   logger.startup('Discord Bot for わなみさん', '15.5.0', env.PORT);
   logger.info(`🔗 サーバー数: ${client.guilds.cache.size}`);
-  
+
   // Bot User IDの確認と検証
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   logger.info('🆔 Bot User ID 確認');
   logger.info(`  実際のBot User ID: ${client.user.id}`);
-  
+
   const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
   logger.info(`  設定されたBOT_USER_ID: ${configuredBotId}`);
-  
+
   if (client.user.id === configuredBotId) {
     logger.success('  ✅ Bot User IDが正しく設定されています');
   } else {
@@ -144,23 +145,23 @@ client.once('ready', async () => {
     logger.error('     → 環境変数のBOT_USER_IDを修正してください');
   }
   logger.info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  
+
   try {
     // 各種サービス初期化
     logger.info('🔄 サービス初期化開始...');
-    
+
     // Google APIs初期化
     await initializeServices();
     logger.success('✅ Google APIs初期化完了');
-    
+
     // 知識ベース初期化
     await knowledgeBase.initialize();
     logger.success('✅ 知識ベース初期化完了');
-    
+
     // RAGシステム初期化
     await initializeRAG();
     logger.success('✅ RAGシステム初期化完了');
-    
+
     // Q&A記録サービス初期化
     if (env.QA_SPREADSHEET_ID) {
       try {
@@ -173,7 +174,7 @@ client.once('ready', async () => {
     } else {
       logger.warn('⚠️ QA_SPREADSHEET_IDが設定されていません。Q&A記録機能は無効です。');
     }
-    
+
     // Q&A自動生成サービス初期化
     try {
       await qaGeneratorService.initialize();
@@ -182,7 +183,7 @@ client.once('ready', async () => {
       logger.error('❌ Q&A自動生成サービス初期化失敗:', error.message);
       logger.warn('⚠️ Q&A自動生成機能は無効です');
     }
-    
+
     // Discord Webhook送信サービス初期化
     try {
       await discordWebhookService.initialize();
@@ -191,7 +192,7 @@ client.once('ready', async () => {
       logger.error('❌ Discord Webhook送信サービス初期化失敗:', error.message);
       logger.warn('⚠️ Webhook送信機能は無効です');
     }
-    
+
     // 週次スケジューラー開始
     try {
       weeklySchedulerService.start();
@@ -200,14 +201,14 @@ client.once('ready', async () => {
       logger.error('❌ 週次スケジューラー開始失敗:', error.message);
       logger.warn('⚠️ 定期実行機能は無効です');
     }
-    
+
     logger.success('🎉 全サービス初期化完了！');
-    
+
   } catch (error) {
     logger.errorDetail('❌ サービス初期化失敗:', error);
     logger.warn('⚠️ 一部機能が制限される可能性があります');
   }
-  
+
   // ステータス設定
   client.user.setActivity('VTuber育成スクールサポート 🎥✨', { type: 'WATCHING' });
 });
@@ -233,9 +234,9 @@ client.on('interactionCreate', async (interaction) => {
     // MESSAGE_COMPONENTタイプの判定
     if (interaction.isMessageComponent()) {
       logger.discord(`インタラクション受信: ${interaction.customId} by ${interaction.user.username}`);
-      
+
       const response = await buttonHandler.handleButtonClickGateway(interaction, client);
-      
+
       // Gateway経由の場合は直接reply
       if (response && response.data) {
         await interaction.reply({
@@ -246,7 +247,7 @@ client.on('interactionCreate', async (interaction) => {
     }
   } catch (error) {
     logger.errorDetail('インタラクション処理エラー:', error);
-    
+
     // エラーレスポンス
     try {
       if (!interaction.replied && !interaction.deferred) {
@@ -264,7 +265,7 @@ client.on('interactionCreate', async (interaction) => {
 // Discord Interactions エンドポイント
 app.post('/interactions', async (req, res) => {
   logger.discord('Discord Interaction受信');
-  
+
   // 署名検証
   if (!verifySignature(req)) {
     logger.security('署名検証失敗');
@@ -420,7 +421,7 @@ app.post('/api/webhook/send-weekly', async (req, res) => {
 app.post('/api/webhook/send-test', async (req, res) => {
   try {
     const { webhookUrl, discordId } = req.body;
-    
+
     if (!webhookUrl) {
       return res.status(400).json({ error: 'webhookUrl は必須です' });
     }
@@ -463,14 +464,14 @@ app.get('/api/bot/user-id', (req, res) => {
     const actualId = client.user?.id || 'Bot未接続';
     const configuredId = process.env.BOT_USER_ID || '1420328163497607199';
     const isMatch = actualId === configuredId;
-    
+
     res.json({
       actual_bot_user_id: actualId,
       configured_bot_user_id: configuredId,
       is_match: isMatch,
       status: isMatch ? '✅ 正常' : '❌ 不一致',
-      recommendation: isMatch ? 
-        'Bot User IDは正しく設定されています' : 
+      recommendation: isMatch ?
+        'Bot User IDは正しく設定されています' :
         `環境変数 BOT_USER_ID を ${actualId} に変更してください`,
       timestamp: new Date().toISOString()
     });
@@ -484,18 +485,18 @@ app.get('/api/bot/user-id', (req, res) => {
 app.get('/', (req, res) => {
   try {
     const status = env.getStatus();
-    
+
     const actualBotId = client.user?.id || 'Not connected';
     const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
     const botIdMatch = actualBotId === configuredBotId;
-    
+
     // 各サービスの状態取得
     let servicesStatus = {};
     try {
       const { googleAPIsService } = require('./services/google-apis');
       const { openAIService } = require('./services/openai-service');
       const { ragSystem } = require('./services/rag-system');
-      
+
       servicesStatus = {
         google_apis: googleAPIsService.getStatus(),
         openai: openAIService.getStatus(),
@@ -513,7 +514,7 @@ app.get('/', (req, res) => {
     } catch (serviceError) {
       logger.warn('サービス状態取得エラー:', serviceError.message);
     }
-    
+
     res.json({
       status: 'Discord Bot for わなみさん - Running (Full Version + QA Automation)',
       version: '16.0.0',
@@ -581,7 +582,7 @@ app.get('/', (req, res) => {
     });
   } catch (error) {
     logger.errorDetail('ヘルスチェックエラー:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       status: 'Error',
       error: error.message,
       timestamp: new Date().toISOString()
@@ -610,6 +611,10 @@ client.on('reconnecting', () => {
 
 // サーバー起動
 async function startServer() {
+  // ✅ Discord login 失敗でも落とさないための再試行設定
+  let discordRetryMs = 60_000; // 60秒
+  const discordMaxRetryMs = 15 * 60_000; // 最大15分
+
   try {
     // ✅ Render対策: 先にExpressを起動してPORTを開ける
     app.listen(env.PORT, '0.0.0.0', () => {
@@ -642,7 +647,7 @@ async function startServer() {
       }
     }, 15000);
 
-    // 環境変数チェック
+    // 環境変数チェック（ここはアプリとして致命的なので落としてOK）
     if (!env.DISCORD_BOT_TOKEN) {
       throw new Error('DISCORD_BOT_TOKEN環境変数が設定されていません');
     }
@@ -650,39 +655,54 @@ async function startServer() {
       throw new Error('DISCORD_PUBLIC_KEY環境変数が設定されていません');
     }
 
-    // ✅ trimで末尾改行混入を除去
-    const token = String(env.DISCORD_BOT_TOKEN).trim();
-    logger.info('🔄 Discord Bot接続開始...');
-    logger.info(`ℹ️ [DISCORD] token length: ${token.length}`);
+    // ✅ Discord login を「落とさず再試行」する
+    const tryDiscordLogin = async () => {
+      // ✅ trimで末尾改行混入を除去
+      const token = String(env.DISCORD_BOT_TOKEN || '').trim();
 
-    // ✅ 追加: loginに30秒タイムアウトを付与（ハングを確実に可視化）
-    const loginPromise = client.login(token);
-    const timeoutPromise = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error('Discord login timeout (30s)')), 30000)
-    );
+      logger.info('🔄 Discord Bot接続開始...');
+      logger.info(`ℹ️ [DISCORD] token length: ${token.length}`);
 
-    try {
-      await Promise.race([loginPromise, timeoutPromise]);
-      logger.success('✅ Discord Bot接続完了');
-    } catch (loginError) {
-      logger.errorDetail('❌ [DISCORD] client.login 失敗:', loginError);
-      throw loginError;
-    }
-    
+      // ✅ loginに30秒タイムアウトを付与（ハングを確実に可視化）
+      const loginPromise = client.login(token);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Discord login timeout (30s)')), 30000)
+      );
+
+      try {
+        await Promise.race([loginPromise, timeoutPromise]);
+        logger.success('✅ Discord Bot接続完了');
+
+        // ✅ 成功したらリトライ間隔を戻す
+        discordRetryMs = 60_000;
+      } catch (loginError) {
+        // ✅ 最重要：ここで throw しない（＝プロセスを落とさない）
+        logger.errorDetail('❌ [DISCORD] client.login 失敗（プロセスは継続・再試行します）:', loginError);
+        logger.warn(`⚠️ [DISCORD] 次の再試行まで ${Math.round(discordRetryMs / 1000)} 秒待機`);
+
+        setTimeout(tryDiscordLogin, discordRetryMs);
+        discordRetryMs = Math.min(Math.floor(discordRetryMs * 1.5), discordMaxRetryMs);
+      }
+    };
+
+    // 初回試行
+    tryDiscordLogin();
+
   } catch (error) {
-    logger.errorDetail('サーバー起動エラー:', error);
-    process.exit(1);
+    // ✅ 最重要：落とさない（Renderの再起動ループを止める）
+    logger.errorDetail('サーバー起動エラー（プロセスは継続します）:', error);
+    // process.exit(1);
   }
 }
 
 // プロセス終了時の処理
 process.on('SIGTERM', async () => {
   logger.shutdown('Discord Bot for わなみさん', 'SIGTERM受信');
-  
+
   try {
     // 週次スケジューラー停止
     weeklySchedulerService.stop();
-    
+
     // 知識ベース自動更新停止
     if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
       knowledgeBase.knowledgeBaseService.stop();
@@ -690,7 +710,7 @@ process.on('SIGTERM', async () => {
   } catch (error) {
     logger.warn('サービス停止エラー:', error.message);
   }
-  
+
   if (client.isReady()) {
     await client.destroy();
   }
@@ -699,11 +719,11 @@ process.on('SIGTERM', async () => {
 
 process.on('SIGINT', async () => {
   logger.shutdown('Discord Bot for わなみさん', 'SIGINT受信');
-  
+
   try {
     // 週次スケジューラー停止
     weeklySchedulerService.stop();
-    
+
     // 知識ベース自動更新停止
     if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
       knowledgeBase.knowledgeBaseService.stop();
@@ -711,7 +731,7 @@ process.on('SIGINT', async () => {
   } catch (error) {
     logger.warn('サービス停止エラー:', error.message);
   }
-  
+
   if (client.isReady()) {
     await client.destroy();
   }
