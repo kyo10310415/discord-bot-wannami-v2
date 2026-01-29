@@ -38,6 +38,23 @@ const client = new Client({
   ]
 });
 
+// ✅ 追加: Discord接続のデバッグログ（原因特定用）
+client.on('ready', () => {
+  try {
+    logger.success(`✅ [DISCORD] ready fired: ${client.user?.tag || 'unknown'} (${client.user?.id || 'unknown'})`);
+  } catch (e) {
+    console.log('✅ [DISCORD] ready fired');
+  }
+});
+
+client.on('shardError', (e) => {
+  logger.errorDetail('❌ [DISCORD] shardError:', e);
+});
+
+client.on('invalidated', () => {
+  logger.error('❌ [DISCORD] session invalidated');
+});
+
 // JSONパース用ミドルウェア
 app.use(express.json({
   verify: (req, res, buf) => {
@@ -46,18 +63,14 @@ app.use(express.json({
 }));
 app.use(cookieParser());
 
-/**
- * ✅ Render Web Service向け：超軽量ヘルスチェック
- * - SSO認証も不要
- * - Discord接続やGoogle初期化が詰まっても、まずPORTを開ける
- */
+// ✅ 追加: Render向け超軽量ヘルスチェック（SSO不要）
 app.get('/healthz', (req, res) => {
   res.status(200).send('ok');
 });
 
-// SSO Authentication (must be before routes, except /interactions and /healthz)
+// SSO Authentication (must be before routes, except /interactions for Discord)
 app.use((req, res, next) => {
-  // Skip SSO auth for Discord interaction endpoint + health check endpoint
+  // Skip SSO auth for Discord interaction endpoint
   if (req.path === '/interactions' || req.path === '/healthz') {
     return next();
   }
@@ -191,6 +204,8 @@ client.once('ready', async () => {
 // メンション対応（AI知識ベース統合 + Q&A記録）
 client.on('messageCreate', async (message) => {
   try {
+    // Q&A記録対応版のハンドラーを呼び出し
+    // ハンドラー内でメンション判定、質問抽出、無限ループ対策を実施
     await mentionHandler.handleMessageWithQALogging(
       message,
       client,
@@ -204,11 +219,13 @@ client.on('messageCreate', async (message) => {
 // ボタンインタラクション対応（Gateway経由）
 client.on('interactionCreate', async (interaction) => {
   try {
+    // MESSAGE_COMPONENTタイプの判定
     if (interaction.isMessageComponent()) {
       logger.discord(`インタラクション受信: ${interaction.customId} by ${interaction.user.username}`);
       
       const response = await buttonHandler.handleButtonClickGateway(interaction, client);
       
+      // Gateway経由の場合は直接reply
       if (response && response.data) {
         await interaction.reply({
           content: response.data.content,
@@ -219,6 +236,7 @@ client.on('interactionCreate', async (interaction) => {
   } catch (error) {
     logger.errorDetail('インタラクション処理エラー:', error);
     
+    // エラーレスポンス
     try {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({
@@ -236,6 +254,7 @@ client.on('interactionCreate', async (interaction) => {
 app.post('/interactions', async (req, res) => {
   logger.discord('Discord Interaction受信');
   
+  // 署名検証
   if (!verifySignature(req)) {
     logger.security('署名検証失敗');
     return res.status(401).send('署名が無効です');
@@ -244,21 +263,25 @@ app.post('/interactions', async (req, res) => {
   const interaction = req.body;
 
   try {
+    // PING応答
     if (interaction.type === 1) {
       logger.info('PING受信 - PONG応答');
       return res.json({ type: 1 });
     }
 
+    // APPLICATION_COMMAND
     if (interaction.type === 2) {
       const response = await discordHandler.handleSlashCommand(interaction);
       return res.json(response);
     }
 
+    // MESSAGE_COMPONENT - ボタンクリック（AI統合対応）
     if (interaction.type === 3) {
       const response = await buttonHandler.handleButtonClick(interaction, client);
       return res.json(response);
     }
 
+    // その他のInteraction
     logger.warn('未対応のInteractionタイプ:', interaction.type);
     return res.status(400).json({ error: '未対応のInteractionです' });
 
@@ -305,6 +328,7 @@ app.get('/api/qa-log/stats', async (req, res) => {
 // 🆕 Q&A自動生成・週次送信機能 エンドポイント
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// Q&A自動生成サービスステータス
 app.get('/api/qa-generator/status', (req, res) => {
   try {
     const status = qaGeneratorService.getStatus();
@@ -315,6 +339,7 @@ app.get('/api/qa-generator/status', (req, res) => {
   }
 });
 
+// Q&Aサンプル件数取得
 app.get('/api/qa-generator/count', async (req, res) => {
   try {
     const count = await qaGeneratorService.getSampleCount();
@@ -325,6 +350,7 @@ app.get('/api/qa-generator/count', async (req, res) => {
   }
 });
 
+// Q&Aペア手動生成（テスト用）
 app.post('/api/qa-generator/generate-one', async (req, res) => {
   try {
     const result = await qaGeneratorService.generateAndSaveOne();
@@ -335,6 +361,7 @@ app.post('/api/qa-generator/generate-one', async (req, res) => {
   }
 });
 
+// Q&A自動化タスク実行（30個未満の場合に補充）
 app.post('/api/qa-automation/run', async (req, res) => {
   try {
     const result = await qaAutomationService.runGenerationTask();
@@ -345,8 +372,10 @@ app.post('/api/qa-automation/run', async (req, res) => {
   }
 });
 
+// フルセット生成（30個強制生成・初回セットアップ用）
 app.post('/api/qa-automation/generate-full-set', async (req, res) => {
   try {
+    // すぐにレスポンスを返す（バックグラウンドで実行）
     res.json({
       message: 'フルセット生成タスクを開始しました',
       target: 30,
@@ -354,6 +383,7 @@ app.post('/api/qa-automation/generate-full-set', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
+    // バックグラウンドで実行
     qaAutomationService.generateFullSet().catch(error => {
       logger.errorDetail('バックグラウンドフルセット生成エラー:', error);
     });
@@ -364,6 +394,7 @@ app.post('/api/qa-automation/generate-full-set', async (req, res) => {
   }
 });
 
+// 週次送信タスク手動実行（テスト用）
 app.post('/api/webhook/send-weekly', async (req, res) => {
   try {
     const result = await weeklySchedulerService.executeWeeklyTaskManually();
@@ -374,6 +405,7 @@ app.post('/api/webhook/send-weekly', async (req, res) => {
   }
 });
 
+// テスト用: 特定のWebhookに1件送信
 app.post('/api/webhook/send-test', async (req, res) => {
   try {
     const { webhookUrl, discordId } = req.body;
@@ -390,6 +422,7 @@ app.post('/api/webhook/send-test', async (req, res) => {
   }
 });
 
+// Webhook送信サービスのステータス確認
 app.get('/api/webhook/status', (req, res) => {
   try {
     const status = discordWebhookService.getStatus();
@@ -400,6 +433,7 @@ app.get('/api/webhook/status', (req, res) => {
   }
 });
 
+// スケジューラーステータス
 app.get('/api/scheduler/status', (req, res) => {
   try {
     const status = weeklySchedulerService.getStatus();
@@ -409,6 +443,8 @@ app.get('/api/scheduler/status', (req, res) => {
     res.status(500).json({ error: 'サービスエラー' });
   }
 });
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // Bot User ID 確認エンドポイント
 app.get('/api/bot/user-id', (req, res) => {
@@ -442,6 +478,7 @@ app.get('/', (req, res) => {
     const configuredBotId = process.env.BOT_USER_ID || '1420328163497607199';
     const botIdMatch = actualBotId === configuredBotId;
     
+    // 各サービスの状態取得
     let servicesStatus = {};
     try {
       const { googleAPIsService } = require('./services/google-apis');
@@ -489,7 +526,47 @@ app.get('/', (req, res) => {
         }
       },
       environment_vars: status,
-      services: servicesStatus
+      services: servicesStatus,
+      features: [
+        '✅ Discord Gateway接続',
+        '✅ Discord Interactions API',
+        '✅ @わなみさんメンション対応（AI統合）',
+        '✅ /soudanスラッシュコマンド',
+        '✅ AI知識ベース統合（スプレッドシートA-G列対応）',
+        '✅ 画像検出・抽出・Vision解析機能',
+        '✅ RAGシステム（OpenAI統合）',
+        '✅ Notion/WEBサイト読み込み',
+        '✅ 文書内画像抽出・AI解析',
+        '✅ ロールメンション対応',
+        '✅ 知識ベース限定回答システム',
+        '✅ 回答不能システム',
+        '✅ ミッション特別処理',
+        '✅ モジュール化アーキテクチャ',
+        '✅ Bot User ID検証機能',
+        '✅ デバッグログシステム',
+        '✅ Q&A記録機能（Googleスプレッドシート連携）',
+        '🆕 Q&A自動生成機能（30個サンプル）',
+        '🆕 毎週火曜日18時 Discord Webhook自動送信',
+        '🚀 完全機能版 + 自動化'
+      ],
+      performance: {
+        memory_usage: Math.round(process.memoryUsage().rss / 1024 / 1024) + 'MB',
+        cpu_usage: process.cpuUsage(),
+        node_version: process.version
+      },
+      debug: {
+        bot_id_check_endpoint: '/api/bot/user-id',
+        knowledge_base_status: '/api/knowledge-base/status',
+        knowledge_base_refresh: 'POST /api/knowledge-base/refresh',
+        qa_log_stats: '/api/qa-log/stats',
+        qa_generator_status: '/api/qa-generator/status',
+        qa_generator_count: '/api/qa-generator/count',
+        qa_generator_generate_one: 'POST /api/qa-generator/generate-one',
+        qa_automation_run: 'POST /api/qa-automation/run',
+        qa_automation_full_set: 'POST /api/qa-automation/generate-full-set',
+        webhook_send_weekly: 'POST /api/webhook/send-weekly',
+        scheduler_status: '/api/scheduler/status'
+      }
     });
   } catch (error) {
     logger.errorDetail('ヘルスチェックエラー:', error);
@@ -529,11 +606,22 @@ async function startServer() {
   try {
     // ✅ 先にExpressを起動してPORTを開ける（Render対策）
     app.listen(env.PORT, '0.0.0.0', () => {
-      logger.success(`🌐 Expressサーバー起動: ポート ${env.PORT}`);
+      logger.success(`✅ 🌐 Expressサーバー起動: ポート ${env.PORT}`);
       logger.info(`   ✅ Health check: GET /healthz`);
       logger.info('');
-      logger.info('📊 利用可能なエンドポイント（一部）:');
-      logger.info(`   GET  / - ヘルスチェック（完全版）`);
+      logger.info('📊 利用可能なエンドポイント:');
+      logger.info(`   GET  / - ヘルスチェック`);
+      logger.info(`   GET  /api/bot/user-id - Bot User ID確認`);
+      logger.info(`   GET  /api/knowledge-base/status - 知識ベース状態`);
+      logger.info(`   POST /api/knowledge-base/refresh - 知識ベース更新`);
+      logger.info(`   GET  /api/qa-log/stats - Q&A記録統計`);
+      logger.info(`   GET  /api/qa-generator/status - Q&A生成サービス状態`);
+      logger.info(`   GET  /api/qa-generator/count - Q&Aサンプル件数`);
+      logger.info(`   POST /api/qa-generator/generate-one - Q&Aペア生成（テスト）`);
+      logger.info(`   POST /api/qa-automation/run - Q&A自動補充実行`);
+      logger.info(`   POST /api/qa-automation/generate-full-set - フルセット生成（30個）`);
+      logger.info(`   POST /api/webhook/send-weekly - 週次送信テスト`);
+      logger.info(`   GET  /api/scheduler/status - スケジューラー状態`);
       logger.info(`   POST /interactions - Discord Interactions`);
       logger.info('');
     });
@@ -546,10 +634,19 @@ async function startServer() {
       throw new Error('DISCORD_PUBLIC_KEY環境変数が設定されていません');
     }
 
-    // Discord Bot接続（PORTは既に開いているので、ここで詰まってもデプロイは進む）
+    // ✅ trimで末尾改行混入を除去
+    const token = String(env.DISCORD_BOT_TOKEN).trim();
     logger.info('🔄 Discord Bot接続開始...');
-    await client.login(env.DISCORD_BOT_TOKEN);
-    logger.success('✅ Discord Bot接続完了');
+    logger.info(`ℹ️ [DISCORD] token length: ${token.length}`);
+
+    // ✅ loginをtry/catchで原因を必ず表示
+    try {
+      await client.login(token);
+      logger.success('✅ Discord Bot接続完了');
+    } catch (loginError) {
+      logger.errorDetail('❌ [DISCORD] client.login 失敗:', loginError);
+      throw loginError;
+    }
     
   } catch (error) {
     logger.errorDetail('サーバー起動エラー:', error);
@@ -562,8 +659,10 @@ process.on('SIGTERM', async () => {
   logger.shutdown('Discord Bot for わなみさん', 'SIGTERM受信');
   
   try {
+    // 週次スケジューラー停止
     weeklySchedulerService.stop();
     
+    // 知識ベース自動更新停止
     if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
       knowledgeBase.knowledgeBaseService.stop();
     }
@@ -581,8 +680,10 @@ process.on('SIGINT', async () => {
   logger.shutdown('Discord Bot for わなみさん', 'SIGINT受信');
   
   try {
+    // 週次スケジューラー停止
     weeklySchedulerService.stop();
     
+    // 知識ベース自動更新停止
     if (knowledgeBase.knowledgeBaseService && typeof knowledgeBase.knowledgeBaseService.stop === 'function') {
       knowledgeBase.knowledgeBaseService.stop();
     }
