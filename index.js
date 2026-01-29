@@ -1,7 +1,8 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
-// Version: 16.0.0 - Q&A自動生成・週次送信機能追加版
+// Version: 16.0.1 - Discord接続タイムアウト修正版
 // Hotfix: Discord login timeout でも落とさず再試行（Render のデプロイループ停止）
 // Hotfix2: DISCORD状態ログの多重 setInterval を抑止 + リトライ間隔の整合（5分開始/最大30分）
+// Hotfix3: タイムアウトを60秒に延長 + 認証エラー判定強化（Renderネットワーク遅延対策）
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
@@ -669,10 +670,10 @@ async function startServer() {
       logger.info('🔄 Discord Bot接続開始...');
       logger.info(`ℹ️ [DISCORD] token length: ${token.length}`);
 
-      // ✅ loginに30秒タイムアウトを付与（ハングを確実に可視化）
+      // ✅ HOTFIX: Renderのネットワーク初期化遅延対策で60秒に延長
       const loginPromise = client.login(token);
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Discord login timeout (30s)')), 30000)
+        setTimeout(() => reject(new Error('Discord login timeout (60s)')), 60000)
       );
 
       try {
@@ -682,7 +683,19 @@ async function startServer() {
         // ✅ 成功したらリトライ間隔を 5分に戻す（再度の1015踏みを避ける）
         discordRetryMs = 300_000;
       } catch (loginError) {
-        // ✅ 最重要：ここで throw しない（＝プロセスを落とさない）
+        // ✅ 認証エラー判定（トークンが無効な場合は即座に停止）
+        const errorMsg = String(loginError?.message || '');
+        const isAuthError = errorMsg.includes('TOKEN_INVALID') || 
+                            errorMsg.includes('Incorrect login') ||
+                            errorMsg.includes('401');
+        
+        if (isAuthError) {
+          logger.errorDetail('❌ [DISCORD] 認証エラー検出 - トークンが無効です。再試行を停止します:', loginError);
+          logger.error('🔴 DISCORD_BOT_TOKENを確認してください');
+          return; // 再試行せずに停止
+        }
+
+        // ✅ ネットワークエラーやタイムアウトは再試行
         logger.errorDetail('❌ [DISCORD] client.login 失敗（プロセスは継続・再試行します）:', loginError);
         logger.warn(`⚠️ [DISCORD] 次の再試行まで ${Math.round(discordRetryMs / 1000)} 秒待機`);
 
