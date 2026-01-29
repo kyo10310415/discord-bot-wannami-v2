@@ -701,14 +701,18 @@ async function startServer() {
         const errorMsg = String(loginError?.message || '');
         const errorCode = loginError?.code;
         const errorName = loginError?.name;
+        const errorStack = loginError?.stack;
         
-        logger.errorDetail('❌ [DISCORD] client.login 失敗:', {
+        // JSON形式で出力
+        logger.error('❌ [DISCORD] client.login 失敗:');
+        console.log(JSON.stringify({
           message: errorMsg,
           code: errorCode,
           name: errorName,
           wsStatus: client.ws.status,
-          wsUrl: client.ws.gateway || 'unknown'
-        });
+          wsUrl: client.ws.gateway || 'unknown',
+          stack: errorStack
+        }, null, 2));
 
         // ✅ 認証エラー判定（トークンが無効な場合は即座に停止）
         const isAuthError = errorMsg.includes('TOKEN_INVALID') || 
