@@ -612,8 +612,8 @@ client.on('reconnecting', () => {
 // サーバー起動
 async function startServer() {
   // ✅ Discord login 失敗でも落とさないための再試行設定
-  let discordRetryMs = 60_000; // 60秒
-  const discordMaxRetryMs = 15 * 60_000; // 最大15分
+  let discordRetryMs = 300_000; // 60秒
+  const discordMaxRetryMs = 30 * 60_000; // 最大15分
 
   try {
     // ✅ Render対策: 先にExpressを起動してPORTを開ける
