@@ -642,9 +642,9 @@ client.on('reconnecting', () => {
 // サーバー起動
 async function startServer() {
   // ✅ Discord login 失敗でも落とさないための再試行設定
-  // 初期: 5分 / 最大: 30分（Cloudflare 1015 等で弾かれている間に叩き過ぎない）
-  let discordRetryMs = 300_000;        // 5分
-  const discordMaxRetryMs = 30 * 60_000; // 最大30分
+  // Cloudflare 1015エラー対策: 初期30分 / 最大2時間（BAN解除まで待機）
+  let discordRetryMs = 30 * 60_000;      // 30分
+  const discordMaxRetryMs = 120 * 60_000; // 最大2時間
 
   try {
     // ✅ Render対策: 先にExpressを起動してPORTを開ける
@@ -717,17 +717,33 @@ async function startServer() {
         logger.info(`ℹ️ [DISCORD] セッション制限: ${JSON.stringify(sessionStartLimit)}`);
         
       } catch (gatewayError) {
+        const errorStatus = gatewayError?.response?.status;
+        const errorMsg = gatewayError?.message || '';
+        
         logger.error('❌ [DISCORD] Gateway URL取得失敗（REST API接続エラー）:');
         console.log(JSON.stringify({
-          message: gatewayError?.message,
+          message: errorMsg,
           code: gatewayError?.code,
-          status: gatewayError?.response?.status,
+          status: errorStatus,
           statusText: gatewayError?.response?.statusText,
-          data: gatewayError?.response?.data
+          data: typeof gatewayError?.response?.data === 'string' ? 
+                gatewayError?.response?.data.substring(0, 500) : 
+                gatewayError?.response?.data
         }, null, 2));
         
+        // ✅ 429エラー（レート制限・BAN）の特別処理
+        if (errorStatus === 429 || errorMsg.includes('rate limit') || errorMsg.includes('1015')) {
+          logger.error('🚨 [DISCORD] Cloudflare レート制限検出（Error 1015）');
+          logger.error('🔴 RenderのIPアドレスがDiscordによって一時的にBANされています');
+          logger.warn('⏳ 推奨: 2〜6時間待ってから再デプロイしてください');
+          logger.warn('💡 または: 新しいRenderサービスを作成して別IPを取得してください');
+          
+          // BAN中は再試行間隔を最大値に設定
+          discordRetryMs = discordMaxRetryMs;
+        }
+        
         // REST API接続失敗の場合は再試行
-        logger.warn(`⚠️ [DISCORD] 次の再試行まで ${Math.round(discordRetryMs / 1000)} 秒待機`);
+        logger.warn(`⚠️ [DISCORD] 次の再試行まで ${Math.round(discordRetryMs / 60000)} 分待機`);
         setTimeout(tryDiscordLogin, discordRetryMs);
         discordRetryMs = Math.min(Math.floor(discordRetryMs * 1.5), discordMaxRetryMs);
         return;
