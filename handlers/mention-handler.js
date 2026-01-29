@@ -239,7 +239,7 @@ async function handleMessage(message, client) {
     // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
       console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
-      
+
       const welcomeMessage = `🤖 **わなみさんです！**
 
 どのようなご相談でしょうか？下のボタンから選択してください✨
@@ -251,17 +251,46 @@ async function handleMessage(message, client) {
 📖 **専門サポートメニュー**
 下のボタンから選択して、より詳しいサポートを受けられます！`;
 
+      // ✅ ここから「失敗ログ＋保険送信」を追加
+      const buttons = createClassicButtons();
+      console.log(`🔘 [EMPTY-MENTION] components rows = ${Array.isArray(buttons) ? buttons.length : 'not-array'}`);
+
       try {
-        const buttons = createClassicButtons();
         const botReply = await message.reply({
           content: welcomeMessage,
-          components: buttons
+          components: buttons,
+          allowedMentions: { repliedUser: false }
         });
-        console.log('✅ 空メンション応答送信完了（クラシックボタン付き）');
+        console.log(`✅ [EMPTY-MENTION] 空メンション応答送信完了 messageId=${botReply?.id || 'unknown'}`);
       } catch (error) {
-        console.error('❌ 空メンション応答送信失敗:', error);
+        console.error('❌ [EMPTY-MENTION] 空メンション応答送信失敗:', error);
+        console.error('❌ [EMPTY-MENTION] details:', {
+          name: error?.name,
+          message: error?.message,
+          code: error?.code,
+          status: error?.status,
+          rawError: error?.rawError
+        });
+
+        // 🔥 保険：ボタン無しでも送る（ここすら出ないなら「送信自体が死んでる」）
+        try {
+          const fallback = await message.channel.send({
+            content: '⚠️ ボタン付きメッセージの送信に失敗しました。まずはテキストで質問を送ってください。'
+          });
+          console.log(`✅ [EMPTY-MENTION] フォールバック送信成功 messageId=${fallback?.id || 'unknown'}`);
+        } catch (e2) {
+          console.error('❌ [EMPTY-MENTION] フォールバック送信も失敗:', e2);
+          console.error('❌ [EMPTY-MENTION] fallback details:', {
+            name: e2?.name,
+            message: e2?.message,
+            code: e2?.code,
+            status: e2?.status,
+            rawError: e2?.rawError
+          });
+        }
       }
-      
+      // ✅ 追加ここまで
+
       return; // ここで処理終了
     }
 
@@ -534,7 +563,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
       console.log('✨ 質問内容が空 → クラシックスタイルのボタンを表示');
-      
+
       const welcomeMessage = `🤖 **わなみさんです！**
 
 どのようなご相談でしょうか？下のボタンから選択してください✨
@@ -546,17 +575,46 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 📖 **専門サポートメニュー**
 下のボタンから選択して、より詳しいサポートを受けられます！`;
 
+      // ✅ ここから「失敗ログ＋保険送信」を追加
+      const buttons = createClassicButtons();
+      console.log(`🔘 [EMPTY-MENTION] components rows = ${Array.isArray(buttons) ? buttons.length : 'not-array'}`);
+
       try {
-        const buttons = createClassicButtons();
         const botReply = await message.reply({
           content: welcomeMessage,
-          components: buttons
+          components: buttons,
+          allowedMentions: { repliedUser: false }
         });
-        console.log('✅ 空メンション応答送信完了（クラシックボタン付き）');
+        console.log(`✅ [EMPTY-MENTION] 空メンション応答送信完了 messageId=${botReply?.id || 'unknown'}`);
       } catch (error) {
-        console.error('❌ 空メンション応答送信失敗:', error);
+        console.error('❌ [EMPTY-MENTION] 空メンション応答送信失敗:', error);
+        console.error('❌ [EMPTY-MENTION] details:', {
+          name: error?.name,
+          message: error?.message,
+          code: error?.code,
+          status: error?.status,
+          rawError: error?.rawError
+        });
+
+        // 🔥 保険：ボタン無しでも送る
+        try {
+          const fallback = await message.channel.send({
+            content: '⚠️ ボタン付きメッセージの送信に失敗しました。まずはテキストで質問を送ってください。'
+          });
+          console.log(`✅ [EMPTY-MENTION] フォールバック送信成功 messageId=${fallback?.id || 'unknown'}`);
+        } catch (e2) {
+          console.error('❌ [EMPTY-MENTION] フォールバック送信も失敗:', e2);
+          console.error('❌ [EMPTY-MENTION] fallback details:', {
+            name: e2?.name,
+            message: e2?.message,
+            code: e2?.code,
+            status: e2?.status,
+            rawError: e2?.rawError
+          });
+        }
       }
-      
+      // ✅ 追加ここまで
+
       return; // ここで処理終了
     }
 
