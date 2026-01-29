@@ -90,7 +90,7 @@ class QALoggerService {
       // 既存データを確認
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A1:N1`
+        range: `${sheetName}!A1:O1`
       });
 
       if (!response.data.values || response.data.values.length === 0) {
@@ -101,21 +101,23 @@ class QALoggerService {
           'タイムスタンプ',       // A列
           'ユーザーID',          // B列
           'ユーザー名',          // C列
-          'チャンネル名',        // D列 (新規)
+          'チャンネル名',        // D列
           'チャンネルID',        // E列
-          'サーバー名',          // F列 (新規)
+          'サーバー名',          // F列
           '質問内容',            // G列
-          '回答内容',            // H列 (新規)
-          '回答文字数',          // I列 (新規)
-          '処理時間(ms)',        // J列 (新規)
-          '質問タイプ',          // K列 (新規)
-          '画像添付',            // L列
-          'メッセージID'         // M列
+          '回答内容',            // H列
+          '回答文字数',          // I列
+          '処理時間(ms)',        // J列
+          '質問タイプ',          // K列
+          '回答ステータス',      // L列
+          'サーバーID',          // M列
+          '生徒名',              // N列
+          '学籍番号'             // O列
         ];
 
         await this.sheets.spreadsheets.values.update({
           spreadsheetId: this.spreadsheetId,
-          range: `${sheetName}!A1:M1`,
+          range: `${sheetName}!A1:O1`,
           valueInputOption: 'RAW',
           resource: { values: [headers] }
         });
@@ -147,14 +149,16 @@ class QALoggerService {
       const {
         userId,
         username,
-        channelName,      // ✅ 新規
+        channelName,
         channelId,
-        guildName,        // ✅ 新規
+        guildName,
+        guildId,          // ✅ 追加
         question,
-        response,         // ✅ 新規（従来の"answer"から変更）
-        responseLength,   // ✅ 新規
-        processingTime,   // ✅ 新規
-        questionType,     // ✅ 新規
+        response,
+        responseLength,
+        processingTime,
+        questionType,
+        responseStatus,   // ✅ 追加
         hasImage,
         messageId
       } = qaData;
@@ -163,35 +167,37 @@ class QALoggerService {
       console.log('📊 [DEBUG] 記録データ:');
       console.log(`  ユーザー: ${username} (${userId})`);
       console.log(`  チャンネル: ${channelName} (${channelId})`);
-      console.log(`  サーバー: ${guildName}`);
+      console.log(`  サーバー: ${guildName} (${guildId || 'N/A'})`);
       console.log(`  質問長: ${question?.length || 0}文字`);
       console.log(`  回答長: ${responseLength || response?.length || 0}文字`);
       console.log(`  処理時間: ${processingTime || 'N/A'}ms`);
       console.log(`  質問タイプ: ${questionType || '通常質問'}`);
-      console.log(`  画像添付: ${hasImage ? 'あり' : 'なし'}`);
+      console.log(`  回答ステータス: ${responseStatus || '成功'}`);
 
       // スプレッドシートに書き込むデータ
       const row = [
         new Date().toISOString(),                    // A: タイムスタンプ
         userId || '',                                // B: ユーザーID
         username || '',                              // C: ユーザー名
-        channelName || 'DM',                         // D: チャンネル名 ✅
+        channelName || 'DM',                         // D: チャンネル名
         channelId || '',                             // E: チャンネルID
-        guildName || 'DM',                           // F: サーバー名 ✅
+        guildName || 'DM',                           // F: サーバー名
         question || '',                              // G: 質問内容
-        response || '',                              // H: 回答内容 ✅
-        responseLength || (response?.length || 0),   // I: 回答文字数 ✅
-        processingTime || 0,                         // J: 処理時間(ms) ✅
-        questionType || '通常質問',                  // K: 質問タイプ ✅
-        hasImage ? 'あり' : 'なし',                  // L: 画像添付
-        messageId || ''                              // M: メッセージID
+        response || '',                              // H: 回答内容
+        responseLength || (response?.length || 0),   // I: 回答文字数
+        processingTime || 0,                         // J: 処理時間(ms)
+        questionType || '通常質問',                  // K: 質問タイプ
+        responseStatus || '成功',                    // L: 回答ステータス
+        guildId || '',                               // M: サーバーID
+        '',                                          // N: 生徒名（スプレッドシート関数で自動入力）
+        ''                                           // O: 学籍番号（スプレッドシート関数で自動入力）
       ];
 
       // スプレッドシートに追記
       const sheetName = 'Q&A記録';
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A:M`,
+        range: `${sheetName}!A:O`,
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         resource: { values: [row] }
@@ -227,7 +233,7 @@ class QALoggerService {
       const sheetName = 'Q&A記録';
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A:M`
+        range: `${sheetName}!A:O`
       });
 
       const rows = response.data.values || [];

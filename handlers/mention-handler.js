@@ -758,18 +758,20 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     
     try {
       if (qaLoggerService && typeof qaLoggerService.logQA === 'function') {
-        // ✅ 修正版: フィールド名を qa-logger.js v15.5.3 に合わせる
+        // ✅ 修正版: フィールド名を qa-logger.js に合わせる
         const qaData = {
           userId: message.author.id,
           username: message.author.tag,
-          channelName: message.channel.name || 'DM',     // ✅ 追加
+          channelName: message.channel.name || 'DM',
           channelId: message.channel.id,
-          guildName: message.guild?.name || 'DM',        // ✅ 追加
+          guildName: message.guild?.name || 'DM',
+          guildId: message.guild?.id || '',              // ✅ 追加
           question: questionText,
-          response: responseText,                         // ✅ "answer" から "response" に変更
-          responseLength: responseText.length,            // ✅ 追加
-          processingTime: processingTime,                 // ✅ 追加
-          questionType: waitingType || '通常質問',       // ✅ 追加
+          response: responseText,
+          responseLength: responseText.length,
+          processingTime: processingTime,
+          questionType: waitingType || '通常質問',
+          responseStatus: '成功',                        // ✅ 追加
           hasImage: imageUrls.length > 0,
           messageId: message.id
         };
@@ -777,11 +779,12 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         console.log('📊 [DEBUG] Q&A記録データ:');
         console.log(`  ユーザー: ${qaData.username}`);
         console.log(`  チャンネル: ${qaData.channelName}`);
-        console.log(`  サーバー: ${qaData.guildName}`);
+        console.log(`  サーバー: ${qaData.guildName} (${qaData.guildId})`);
         console.log(`  質問長: ${qaData.question.length}文字`);
         console.log(`  回答長: ${qaData.responseLength}文字`);
         console.log(`  処理時間: ${qaData.processingTime}ms`);
         console.log(`  質問タイプ: ${qaData.questionType}`);
+        console.log(`  回答ステータス: ${qaData.responseStatus}`);
         
         await qaLoggerService.logQA(qaData);
         console.log('✅ [QA-LOG] 記録完了');
