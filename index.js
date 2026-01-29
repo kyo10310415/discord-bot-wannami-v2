@@ -1,6 +1,7 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
 // Version: 16.0.0 - Q&A自動生成・週次送信機能追加版
 // Hotfix: Discord login timeout でも落とさず再試行（Render のデプロイループ停止）
+// Hotfix2: DISCORD状態ログの多重 setInterval を抑止 + リトライ間隔の整合（5分開始/最大30分）
 
 const express = require('express');
 const cookieParser = require('cookie-parser');
@@ -612,8 +613,9 @@ client.on('reconnecting', () => {
 // サーバー起動
 async function startServer() {
   // ✅ Discord login 失敗でも落とさないための再試行設定
-  let discordRetryMs = 300_000; // 60秒
-  const discordMaxRetryMs = 30 * 60_000; // 最大15分
+  // 初期: 5分 / 最大: 30分（Cloudflare 1015 等で弾かれている間に叩き過ぎない）
+  let discordRetryMs = 300_000;        // 5分
+  const discordMaxRetryMs = 30 * 60_000; // 最大30分
 
   try {
     // ✅ Render対策: 先にExpressを起動してPORTを開ける
@@ -638,14 +640,18 @@ async function startServer() {
       logger.info('');
     });
 
-    // ✅ 追加: Discord接続状態を定期ログ（原因切り分け用）
-    setInterval(() => {
-      try {
-        logger.info(`ℹ️ [DISCORD] isReady=${client.isReady()} wsStatus=${client.ws.status} ping=${client.ws.ping}`);
-      } catch (e) {
-        console.log('ℹ️ [DISCORD] status log failed');
-      }
-    }, 15000);
+    // ✅ 追加: Discord接続状態を定期ログ（多重登録防止）
+    if (!global.__discordStatusIntervalStarted) {
+      global.__discordStatusIntervalStarted = true;
+
+      setInterval(() => {
+        try {
+          logger.info(`ℹ️ [DISCORD] isReady=${client.isReady()} wsStatus=${client.ws.status} ping=${client.ws.ping}`);
+        } catch (e) {
+          console.log('ℹ️ [DISCORD] status log failed');
+        }
+      }, 30000); // 30秒（1015中はログを抑制）
+    }
 
     // 環境変数チェック（ここはアプリとして致命的なので落としてOK）
     if (!env.DISCORD_BOT_TOKEN) {
@@ -673,8 +679,8 @@ async function startServer() {
         await Promise.race([loginPromise, timeoutPromise]);
         logger.success('✅ Discord Bot接続完了');
 
-        // ✅ 成功したらリトライ間隔を戻す
-        discordRetryMs = 60_000;
+        // ✅ 成功したらリトライ間隔を 5分に戻す（再度の1015踏みを避ける）
+        discordRetryMs = 300_000;
       } catch (loginError) {
         // ✅ 最重要：ここで throw しない（＝プロセスを落とさない）
         logger.errorDetail('❌ [DISCORD] client.login 失敗（プロセスは継続・再試行します）:', loginError);
