@@ -38,7 +38,21 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.DirectMessages
-  ]
+  ],
+  // ✅ WebSocket接続設定を明示的に指定（Render環境対策）
+  ws: {
+    large_threshold: 50,
+    compress: true,
+    properties: {
+      browser: 'Discord.js',
+      device: 'render-bot'
+    }
+  },
+  // ✅ 接続タイムアウトを延長
+  rest: {
+    timeout: 30000,
+    retries: 3
+  }
 });
 
 // ✅ 追加: Discord接続のデバッグログ（原因特定用）
@@ -683,6 +697,7 @@ async function startServer() {
 
       logger.info('🔄 Discord Bot接続開始...');
       logger.info(`ℹ️ [DISCORD] token length: ${token.length}`);
+      logger.info(`ℹ️ [DISCORD] 接続前状態: wsStatus=${client.ws.status} ping=${client.ws.ping}`);
 
       // ✅ HOTFIX: Renderのネットワーク初期化遅延対策で60秒に延長
       const loginPromise = client.login(token);
