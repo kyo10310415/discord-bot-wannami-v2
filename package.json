@@ -15,7 +15,7 @@
     "qa:count": "node -e \"require('./services/qa-generator').qaGeneratorService.initialize().then(() => require('./services/qa-generator').qaGeneratorService.getSampleCount().then(count => console.log('Q&Aサンプル数:', count)))\""
   },
   "engines": {
-    "node": "18.x"
+    "node": "20.x"
   },
   "dependencies": {
     "axios": "^1.6.8",
