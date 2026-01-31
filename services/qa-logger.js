@@ -90,7 +90,7 @@ class QALoggerService {
       // 既存データを確認
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A1:O1`
+        range: `${sheetName}!A1:M1`
       });
 
       if (!response.data.values || response.data.values.length === 0) {
@@ -110,14 +110,12 @@ class QALoggerService {
           '処理時間(ms)',        // J列
           '質問タイプ',          // K列
           '回答ステータス',      // L列
-          'サーバーID',          // M列
-          '生徒名',              // N列
-          '学籍番号'             // O列
+          'サーバーID'           // M列
         ];
 
         await this.sheets.spreadsheets.values.update({
           spreadsheetId: this.spreadsheetId,
-          range: `${sheetName}!A1:O1`,
+          range: `${sheetName}!A1:M1`,
           valueInputOption: 'RAW',
           resource: { values: [headers] }
         });
@@ -188,16 +186,14 @@ class QALoggerService {
         processingTime || 0,                         // J: 処理時間(ms)
         questionType || '通常質問',                  // K: 質問タイプ
         responseStatus || '成功',                    // L: 回答ステータス
-        guildId || '',                               // M: サーバーID
-        '',                                          // N: 生徒名（スプレッドシート関数で自動入力）
-        ''                                           // O: 学籍番号（スプレッドシート関数で自動入力）
+        guildId || ''                                // M: サーバーID
       ];
 
       // スプレッドシートに追記
       const sheetName = 'Q&A記録';
       await this.sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A:O`,
+        range: `${sheetName}!A:M`,
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         resource: { values: [row] }
@@ -233,7 +229,7 @@ class QALoggerService {
       const sheetName = 'Q&A記録';
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A:O`
+        range: `${sheetName}!A:M`
       });
 
       const rows = response.data.values || [];
