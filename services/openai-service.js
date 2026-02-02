@@ -1,7 +1,7 @@
-// services/openai-service.js - OpenAI サービス（詳細回答版 v2.7.0）
-// Version: 2.7.0
-// 更新日: 2025-11-13
-// 変更内容: max_tokensのデフォルト値を増加、詳細回答に対応
+// services/openai-service.js - OpenAI サービス（詳細回答版 v2.8.0）
+// Version: 2.8.0
+// 更新日: 2026-01-29
+// 変更内容: ネットワークエラー（ECONNRESET）のリトライ処理を追加
 
 const OpenAI = require('openai');
 const { OPENAI_MODELS } = require('../config/constants');
@@ -41,72 +41,126 @@ class OpenAIService {
     }
   }
 
-  // テキスト埋め込み生成
+  // テキスト埋め込み生成（リトライ機能付き）
   async createEmbeddings(texts) {
     if (!this.isInitialized) {
       throw new Error('OpenAI service not initialized');
     }
 
-    try {
-      const response = await this.client.embeddings.create({
-        model: OPENAI_MODELS.EMBEDDING,
-        input: texts
-      });
+    const maxRetries = 3;
+    const retryDelay = 2000; // 2秒
 
-      return response.data.map(item => item.embedding);
-    } catch (error) {
-      console.error('❌ 埋め込み生成エラー:', error.message);
-      throw error;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.client.embeddings.create({
+          model: OPENAI_MODELS.EMBEDDING,
+          input: texts,
+          timeout: 60000 // 60秒タイムアウト
+        });
+
+        return response.data.map(item => item.embedding);
+      } catch (error) {
+        const isNetworkError = error.message?.includes('ECONNRESET') || 
+                               error.message?.includes('ETIMEDOUT') ||
+                               error.message?.includes('ENOTFOUND') ||
+                               error.code === 'ECONNRESET';
+        
+        if (isNetworkError && attempt < maxRetries) {
+          console.warn(`⚠️ Embeddings ネットワークエラー (試行 ${attempt}/${maxRetries}): ${error.message}`);
+          console.log(`🔄 ${retryDelay}ms 後に再試行...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
+        }
+        
+        console.error('❌ 埋め込み生成エラー:', error.message);
+        throw error;
+      }
     }
   }
 
-  // ✨ v2.7.0: チャット完了（テキストのみ）- デフォルトmax_tokens増加
+  // ✨ v2.7.0: チャット完了（テキストのみ）- デフォルトmax_tokens増加 + リトライ機能
   async createChatCompletion(messages, options = {}) {
     if (!this.isInitialized) {
       throw new Error('OpenAI service not initialized');
     }
 
-    try {
-      // ✨ max_tokensのデフォルト値を3000に変更
-      const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
-      
-      const response = await this.client.chat.completions.create({
-        model: options.model || OPENAI_MODELS.TEXT,
-        messages: messages,
-        max_tokens: maxTokens,
-        temperature: options.temperature || 0.7,
-        ...options
-      });
+    const maxRetries = options.maxRetries || 3;
+    const retryDelay = options.retryDelay || 2000; // 2秒
 
-      return response.choices[0].message.content;
-    } catch (error) {
-      console.error('❌ Chat completion エラー:', error.message);
-      throw error;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // ✨ max_tokensのデフォルト値を3000に変更
+        const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
+        
+        const response = await this.client.chat.completions.create({
+          model: options.model || OPENAI_MODELS.TEXT,
+          messages: messages,
+          max_tokens: maxTokens,
+          temperature: options.temperature || 0.7,
+          timeout: 60000, // 60秒タイムアウト
+          ...options
+        });
+
+        return response.choices[0].message.content;
+      } catch (error) {
+        const isNetworkError = error.message?.includes('ECONNRESET') || 
+                               error.message?.includes('ETIMEDOUT') ||
+                               error.message?.includes('ENOTFOUND') ||
+                               error.code === 'ECONNRESET';
+        
+        if (isNetworkError && attempt < maxRetries) {
+          console.warn(`⚠️ Chat completion ネットワークエラー (試行 ${attempt}/${maxRetries}): ${error.message}`);
+          console.log(`🔄 ${retryDelay}ms 後に再試行...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
+        }
+        
+        console.error('❌ Chat completion エラー:', error.message);
+        throw error;
+      }
     }
   }
 
-  // ✨ v2.7.0: Visionモデル用チャット完了 - デフォルトmax_tokens増加
+  // ✨ v2.7.0: Visionモデル用チャット完了 - デフォルトmax_tokens増加 + リトライ機能
   async createVisionCompletion(messages, options = {}) {
     if (!this.isInitialized) {
       throw new Error('OpenAI service not initialized');
     }
 
-    try {
-      // ✨ max_tokensのデフォルト値を3000に変更
-      const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
-      
-      const response = await this.client.chat.completions.create({
-        model: OPENAI_MODELS.VISION,
-        messages: messages,
-        max_tokens: maxTokens,
-        temperature: options.temperature || 0.7,
-        ...options
-      });
+    const maxRetries = options.maxRetries || 3;
+    const retryDelay = options.retryDelay || 2000; // 2秒
 
-      return response.choices[0].message.content;
-    } catch (error) {
-      console.error('❌ Vision completion エラー:', error.message);
-      throw error;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // ✨ max_tokensのデフォルト値を3000に変更
+        const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
+        
+        const response = await this.client.chat.completions.create({
+          model: OPENAI_MODELS.VISION,
+          messages: messages,
+          max_tokens: maxTokens,
+          temperature: options.temperature || 0.7,
+          timeout: 60000, // 60秒タイムアウト
+          ...options
+        });
+
+        return response.choices[0].message.content;
+      } catch (error) {
+        const isNetworkError = error.message?.includes('ECONNRESET') || 
+                               error.message?.includes('ETIMEDOUT') ||
+                               error.message?.includes('ENOTFOUND') ||
+                               error.code === 'ECONNRESET';
+        
+        if (isNetworkError && attempt < maxRetries) {
+          console.warn(`⚠️ Vision completion ネットワークエラー (試行 ${attempt}/${maxRetries}): ${error.message}`);
+          console.log(`🔄 ${retryDelay}ms 後に再試行...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
+        }
+        
+        console.error('❌ Vision completion エラー:', error.message);
+        throw error;
+      }
     }
   }
 
@@ -149,7 +203,9 @@ class OpenAIService {
           visionMessage
         ], {
           max_tokens: maxTokens,
-          temperature: temperature
+          temperature: temperature,
+          maxRetries: 3,
+          retryDelay: 2000
         });
 
         console.log(`✅ Vision応答生成完了（文字数: ${response.length}）`);
@@ -164,7 +220,9 @@ class OpenAIService {
 
       const response = await this.createChatCompletion(messages, {
         temperature: temperature,
-        max_tokens: maxTokens
+        max_tokens: maxTokens,
+        maxRetries: 3,
+        retryDelay: 2000
       });
 
       console.log(`✅ テキスト応答生成完了（文字数: ${response.length}）`);
