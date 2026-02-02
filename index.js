@@ -716,7 +716,7 @@ async function startServer() {
         } catch (e) {
           console.log('ℹ️ [DISCORD] status log failed');
         }
-      }, 30000); // 30秒（1015中はログを抑制）
+      }, 3600000); // 1時間ごと（30秒→1時間に変更）
     }
 
     // 環境変数チェック（ここはアプリとして致命的なので落としてOK）
