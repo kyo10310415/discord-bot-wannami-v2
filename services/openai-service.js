@@ -1,7 +1,7 @@
-// services/openai-service.js - OpenAI サービス（詳細回答版 v2.8.0）
-// Version: 2.8.0
-// 更新日: 2026-01-29
-// 変更内容: ネットワークエラー（ECONNRESET）のリトライ処理を追加
+// services/openai-service.js - OpenAI サービス（詳細回答版 v2.8.1）
+// Version: 2.8.1
+// 更新日: 2026-02-03
+// 変更内容: OpenAI API呼び出し時の不正な引数を除外（maxRetries, retryDelay, timeout）
 
 const OpenAI = require('openai');
 const { OPENAI_MODELS } = require('../config/constants');
@@ -27,7 +27,11 @@ class OpenAIService {
         return false;
       }
 
-      this.client = new OpenAI({ apiKey: environment.OPENAI_API_KEY });
+      this.client = new OpenAI({ 
+        apiKey: environment.OPENAI_API_KEY,
+        timeout: 60000, // 60秒タイムアウト（全API呼び出しに適用）
+        maxRetries: 0   // リトライは手動で実装しているため、クライアント側のリトライは無効化
+      });
       this.isInitialized = true;
       
       console.log('🤖 OpenAI初期化成功（詳細回答モード）');
@@ -54,8 +58,8 @@ class OpenAIService {
       try {
         const response = await this.client.embeddings.create({
           model: OPENAI_MODELS.EMBEDDING,
-          input: texts,
-          timeout: 60000 // 60秒タイムアウト
+          input: texts
+          // ⚠️ timeout はクライアント初期化時に設定すべきで、個別API呼び出しには渡さない
         });
 
         return response.data.map(item => item.embedding);
@@ -92,13 +96,15 @@ class OpenAIService {
         // ✨ max_tokensのデフォルト値を3000に変更
         const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
         
+        // ⚠️ OpenAI APIに渡すパラメータから内部制御用の引数を除外
+        const { maxRetries: _, retryDelay: __, timeout: ___, ...apiOptions } = options;
+        
         const response = await this.client.chat.completions.create({
           model: options.model || OPENAI_MODELS.TEXT,
           messages: messages,
           max_tokens: maxTokens,
           temperature: options.temperature || 0.7,
-          timeout: 60000, // 60秒タイムアウト
-          ...options
+          ...apiOptions // maxRetries, retryDelay, timeout を除外したオプションのみ渡す
         });
 
         return response.choices[0].message.content;
@@ -135,13 +141,15 @@ class OpenAIService {
         // ✨ max_tokensのデフォルト値を3000に変更
         const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
         
+        // ⚠️ OpenAI APIに渡すパラメータから内部制御用の引数を除外
+        const { maxRetries: _, retryDelay: __, timeout: ___, ...apiOptions } = options;
+        
         const response = await this.client.chat.completions.create({
           model: OPENAI_MODELS.VISION,
           messages: messages,
           max_tokens: maxTokens,
           temperature: options.temperature || 0.7,
-          timeout: 60000, // 60秒タイムアウト
-          ...options
+          ...apiOptions // maxRetries, retryDelay, timeout を除外したオプションのみ渡す
         });
 
         return response.choices[0].message.content;
