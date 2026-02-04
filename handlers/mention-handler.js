@@ -1,5 +1,9 @@
 /**
- * メンション処理ハンドラー v15.5.14（Q&A記録フィールド修正版）
+ * メンション処理ハンドラー v15.5.15（画像分析対応版）
+ * 
+ * 【v15.5.15 変更点】🚨 重要
+ * - 通常質問でも画像分析に対応（ミッション以外でも画像添付を処理）
+ * - generateKnowledgeOnlyResponse 呼び出し時に imageUrls を context に含める
  * 
  * 【v15.5.14 変更点】🚨 重要
  * - Q&A記録のフィールド名を修正: answer → response
@@ -698,10 +702,13 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         // 通常の質問応答
         console.log('💬 [AI] 通常の質問応答処理');
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
+        console.log(`🖼️ [DEBUG] 画像を含むcontextを渡します: ${imageUrls.length}件`);
         
         responseText = await RAGSystem.generateKnowledgeOnlyResponse(
           questionText,
-          imageUrls
+          {
+            imageUrls: imageUrls  // ← 画像URLを context として渡す
+          }
         );
         
         console.log('✅ [AI] 通常応答生成完了');

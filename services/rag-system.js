@@ -1,10 +1,10 @@
-// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.12.0
-// Version: 2.12.0
-// 更新日: 2025-11-25
+// services/rag-system.js - RAG(Retrieval-Augmented Generation)システム v2.12.1
+// Version: 2.12.1
+// 更新日: 2026-02-03
 // 変更内容: 
-// - わなみさんの口調を大幅強化（Few-shot例追加、避けるべき表現明示）
-// - temperature値を0.5に上昇（より自然な口調）
-// - システムプロンプトに話し方の具体例を追加
+// - 通常質問でも画像分析に対応（ミッション以外でも画像添付時に分析）
+// - generateKnowledgeOnlyResponse に画像URL対応を追加
+// - 画像がある場合の専用プロンプト指示を追加
 
 const logger = require('../utils/logger');
 const knowledgeBase = require('./knowledge-base');
@@ -737,7 +737,16 @@ ${userQuery}
   // ✨ v2.12.0: 厳格な知識ベース限定応答（口調強化版）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（v2.12.0）');
+      logger.ai('知識ベース限定応答生成開始（v2.12.1 - 画像対応版）');
+
+      // 🖼️ 画像URLを context から取得
+      const imageUrls = context.imageUrls || [];
+      logger.info(`🖼️ 画像: ${imageUrls.length}件`);
+      if (imageUrls.length > 0) {
+        imageUrls.forEach((url, i) => {
+          logger.info(`  📸 画像${i + 1}: ${url}`);
+        });
+      }
 
       // ✨ 挨拶検出（最優先）
       const greetingResponse = detectGreeting(userQuery);
@@ -813,6 +822,30 @@ ${userQuery}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 
+      // 🖼️ 画像がある場合は画像分析の指示を追加
+      let imageInstruction = '';
+      if (imageUrls.length > 0) {
+        imageInstruction = `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🖼️ 画像分析の指示
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ ユーザーが画像を${imageUrls.length}件添付しています
+✅ 画像の内容を詳しく確認し、質問に関連する要素を分析してください
+✅ 画像から読み取れる情報（テキスト、デザイン、構図、色使い、問題点など）を具体的に説明
+✅ 画像の内容と参照資料の知識を組み合わせてアドバイス
+✅ 改善点がある場合は、具体的な修正案を提示
+
+【画像分析のポイント】
+• テキスト：読みやすさ、フォント、配置
+• デザイン：配色、バランス、視認性
+• 構図：レイアウト、要素の配置
+• 全体の印象：プロフェッショナルさ、魅力度
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+      }
+
       const systemPrompt = `${WANAMI_CHARACTER}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -878,6 +911,8 @@ ${userQuery}
 
 ${fewShotExample}
 
+${imageInstruction}
+
 ${knowledgeContext}
 
 【重要なスクールルール】
@@ -897,6 +932,8 @@ ${userQuery}
 ✅ 絵文字で見やすく（🎯📝💡✨など）
 ✅ 「えっと」「つまり」「一緒に」などの自然な口語表現を必ず使う
 ✅ 具体例は参照資料内のものだけを使う
+${imageUrls.length > 0 ? '✅ **添付された画像を詳しく分析し、具体的なフィードバックを提供する**' : ''}
+${imageUrls.length > 0 ? '✅ **画像から読み取れる内容を明示的に言及する**' : ''}
 ✅ 最後に「📚 **出典**: [資料1][資料2]...」と明記
 
 ❌ 参照資料にない情報を追加しない
@@ -918,7 +955,7 @@ ${userQuery}
       const aiResponse = await generateAIResponse(
         systemPrompt,
         userQuery,
-        [],
+        imageUrls,  // ← 画像URL配列を渡す（空配列ではなく）
         context,
         { 
           maxTokens: 3000,
@@ -926,7 +963,7 @@ ${userQuery}
         }
       );
 
-      logger.info('✅ 知識ベース限定応答生成完了（v2.12.0）');
+      logger.info('✅ 知識ベース限定応答生成完了（v2.12.1 - 画像対応版）');
       
       // フッター追加
       const footer = `\n\n---\n📚 *知識ベースからの回答（${knowledgeResults.length}件の資料を参照）*`;
