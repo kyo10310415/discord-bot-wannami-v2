@@ -1,6 +1,7 @@
 // config/hidden-keywords.js - 隠しキーワード設定
-// Version: 1.0.0
-// 作成日: 2026-02-03
+// Version: 1.0.1
+// 更新日: 2026-02-03
+// 変更内容: 応答メッセージを固定テキストとして明示的に定義
 
 /**
  * 隠しキーワードの定義
@@ -12,14 +13,11 @@
  *   - 'sns_consultation': SNS運用相談ボタンを押した後のみ有効
  *   - 'mission_submission': ミッション提出ボタンを押した後のみ有効
  *   - null: どのコンテキストでも有効
- * - response: キーワード検出時に返すメッセージ
+ * - response: キーワード検出時に返すメッセージ（固定テキスト）
  */
 
-const HIDDEN_KEYWORDS = [
-  {
-    keyword: 'WannaV最高',
-    requiredContext: 'lesson_question',  // レッスン質問ボタンを押した後のみ有効
-    response: `🎉✨ **隠しキーワード発見！おめでとうございます！** ✨🎉
+// 🎁 固定レスポンステキスト
+const WANNAV_SPECIAL_RESPONSE = `🎉✨ **隠しキーワード発見！おめでとうございます！** ✨🎉
 
 お世話になっております、わなみです！
 
@@ -37,7 +35,13 @@ https://docs.google.com/presentation/d/12EtMovdC1h0NWXJgtgTgxIXgDaUv2-uSf0FFWJD1
 どうぞよろしくお願いいたします✨
 
 ---
-🎁 *隠しキーワード特典*`
+🎁 *隠しキーワード特典*`;
+
+const HIDDEN_KEYWORDS = [
+  {
+    keyword: 'WannaV最高',
+    requiredContext: 'lesson_question',  // レッスン質問ボタンを押した後のみ有効
+    response: WANNAV_SPECIAL_RESPONSE    // ← 固定テキスト（AIは使用しない）
   }
   
   // 🎁 新しい隠しキーワードを追加する場合は、ここに追加してください

@@ -1,5 +1,10 @@
 /**
- * メンション処理ハンドラー v15.6.0（隠しキーワード機能追加版）
+ * メンション処理ハンドラー v15.6.1（隠しキーワード検出強化版）
+ * 
+ * 【v15.6.1 変更点】🔧 修正
+ * - 隠しキーワード検出のデバッグログを大幅に強化
+ * - 検出後の処理終了を確実にするため、ログと return を明示化
+ * - 固定レスポンスが確実に返されることを保証
  * 
  * 【v15.6.0 変更点】🎁 新機能
  * - 隠しキーワード検出機能を追加
@@ -114,29 +119,52 @@ function clearWaitingQuestion(userId, interactionStates) {
 
 // === 🎁 隠しキーワード検出関数 ===
 function checkHiddenKeyword(questionText, waitingType) {
+  console.log(`🔍 [HIDDEN-FUNC] 検出関数開始`);
+  console.log(`📝 [HIDDEN-FUNC] 入力テキスト: "${questionText}"`);
+  console.log(`🎯 [HIDDEN-FUNC] コンテキスト: "${waitingType}"`);
+  console.log(`📚 [HIDDEN-FUNC] 登録キーワード数: ${HIDDEN_KEYWORDS.length}`);
+  
   // キーワードをチェック
-  for (const hidden of HIDDEN_KEYWORDS) {
+  for (let i = 0; i < HIDDEN_KEYWORDS.length; i++) {
+    const hidden = HIDDEN_KEYWORDS[i];
+    console.log(`🔎 [HIDDEN-FUNC] キーワード${i + 1}/${HIDDEN_KEYWORDS.length}: "${hidden.keyword}"`);
+    
     // 質問テキストに隠しキーワードが含まれているか（大文字小文字区別なし、スペース除去）
     const normalizedQuestion = questionText.toLowerCase().replace(/\s+/g, '');
     const normalizedKeyword = hidden.keyword.toLowerCase().replace(/\s+/g, '');
     
+    console.log(`  📝 正規化後の質問: "${normalizedQuestion}"`);
+    console.log(`  🔑 正規化後のキーワード: "${normalizedKeyword}"`);
+    console.log(`  🔍 includes結果: ${normalizedQuestion.includes(normalizedKeyword)}`);
+    
     if (normalizedQuestion.includes(normalizedKeyword)) {
+      console.log(`  ✅ キーワード一致！`);
+      
       // コンテキストが指定されている場合はチェック
       if (hidden.requiredContext) {
+        console.log(`  🎯 必要コンテキスト: "${hidden.requiredContext}"`);
+        console.log(`  🎯 現在のコンテキスト: "${waitingType}"`);
+        console.log(`  🎯 一致判定: ${waitingType === hidden.requiredContext}`);
+        
         if (waitingType !== hidden.requiredContext) {
-          console.log(`⚠️ [HIDDEN] キーワード "${hidden.keyword}" 検出したが、コンテキスト不一致: ${waitingType} !== ${hidden.requiredContext}`);
+          console.log(`  ⚠️ コンテキスト不一致 → スキップ`);
           continue;
         }
+      } else {
+        console.log(`  🎯 コンテキスト制限なし`);
       }
       
-      console.log(`🎉 [HIDDEN] キーワード "${hidden.keyword}" 検出成功！`);
+      console.log(`  🎉 隠しキーワード検出成功！`);
       return {
         keyword: hidden.keyword,
         response: hidden.response
       };
+    } else {
+      console.log(`  ❌ キーワード不一致`);
     }
   }
   
+  console.log(`🔍 [HIDDEN-FUNC] 検出なし → null を返す`);
   return null;
 }
 
@@ -702,20 +730,38 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     console.log('✅ [CHECK-2] 通過 - require成功');
 
     // === 🎁 隠しキーワード検出 ===
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🔍 [HIDDEN] 隠しキーワードチェック開始');
+    console.log(`📝 [HIDDEN] 検査対象テキスト: "${questionText}"`);
+    console.log(`🎯 [HIDDEN] コンテキスト: ${waitingType || 'なし'}`);
+    
     const hiddenKeywordResult = checkHiddenKeyword(questionText, waitingType);
+    
+    console.log(`🔎 [HIDDEN] チェック結果: ${hiddenKeywordResult ? 'キーワード検出！' : 'なし'}`);
+    
     if (hiddenKeywordResult) {
-      console.log(`🎉 [HIDDEN] 隠しキーワード検出: ${hiddenKeywordResult.keyword}`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log(`🎉 [HIDDEN] ✨ 隠しキーワード発見！ ✨`);
+      console.log(`🔑 [HIDDEN] キーワード: "${hiddenKeywordResult.keyword}"`);
+      console.log(`📤 [HIDDEN] 固定レスポンスを返します`);
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
+      // Typing Indicator を停止
       stopTypingIndicator(typingInterval);
       
       // 待機状態をクリア
       clearWaitingQuestion(message.author.id, interactionStates);
       
+      // 固定レスポンスを送信
       await message.reply(hiddenKeywordResult.response);
-      console.log('✅ [HIDDEN] 隠しキーワード応答送信完了');
-      return;
+      
+      console.log('✅ [HIDDEN] 隠しキーワード応答送信完了 → 処理終了');
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      return; // ← 🚨 ここで処理を完全に終了
     }
+    
     console.log('✅ [HIDDEN] 隠しキーワードなし → 通常処理続行');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     // === 7. RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
