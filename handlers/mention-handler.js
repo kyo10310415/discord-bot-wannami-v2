@@ -1,5 +1,10 @@
 /**
- * メンション処理ハンドラー v15.5.15（画像分析対応版）
+ * メンション処理ハンドラー v15.6.0（隠しキーワード機能追加版）
+ * 
+ * 【v15.6.0 変更点】🎁 新機能
+ * - 隠しキーワード検出機能を追加
+ * - レッスン質問ボタン後に「WannaV最高」と入力すると特別なURLを表示
+ * - コンテキスト依存の隠しキーワード対応（特定のボタンを押した後のみ有効）
  * 
  * 【v15.5.15 変更点】🚨 重要
  * - 通常質問でも画像分析に対応（ミッション以外でも画像添付を処理）
@@ -31,6 +36,7 @@
  */
 
 const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
+const { HIDDEN_KEYWORDS } = require('../config/hidden-keywords');
 
 // === 画像URL抽出関数（インライン実装） ===
 function extractImageUrls(message) {
@@ -104,6 +110,34 @@ function clearWaitingQuestion(userId, interactionStates) {
     interactionStates.delete(userId);
     console.log(`✅ [STATE] 待機状態クリア: ${userId}`);
   }
+}
+
+// === 🎁 隠しキーワード検出関数 ===
+function checkHiddenKeyword(questionText, waitingType) {
+  // キーワードをチェック
+  for (const hidden of HIDDEN_KEYWORDS) {
+    // 質問テキストに隠しキーワードが含まれているか（大文字小文字区別なし、スペース除去）
+    const normalizedQuestion = questionText.toLowerCase().replace(/\s+/g, '');
+    const normalizedKeyword = hidden.keyword.toLowerCase().replace(/\s+/g, '');
+    
+    if (normalizedQuestion.includes(normalizedKeyword)) {
+      // コンテキストが指定されている場合はチェック
+      if (hidden.requiredContext) {
+        if (waitingType !== hidden.requiredContext) {
+          console.log(`⚠️ [HIDDEN] キーワード "${hidden.keyword}" 検出したが、コンテキスト不一致: ${waitingType} !== ${hidden.requiredContext}`);
+          continue;
+        }
+      }
+      
+      console.log(`🎉 [HIDDEN] キーワード "${hidden.keyword}" 検出成功！`);
+      return {
+        keyword: hidden.keyword,
+        response: hidden.response
+      };
+    }
+  }
+  
+  return null;
 }
 
 // === Typing Indicator 管理関数 ===
@@ -666,6 +700,22 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
 
     console.log('✅ [CHECK-2] 通過 - require成功');
+
+    // === 🎁 隠しキーワード検出 ===
+    console.log('🔍 [HIDDEN] 隠しキーワードチェック開始');
+    const hiddenKeywordResult = checkHiddenKeyword(questionText, waitingType);
+    if (hiddenKeywordResult) {
+      console.log(`🎉 [HIDDEN] 隠しキーワード検出: ${hiddenKeywordResult.keyword}`);
+      stopTypingIndicator(typingInterval);
+      
+      // 待機状態をクリア
+      clearWaitingQuestion(message.author.id, interactionStates);
+      
+      await message.reply(hiddenKeywordResult.response);
+      console.log('✅ [HIDDEN] 隠しキーワード応答送信完了');
+      return;
+    }
+    console.log('✅ [HIDDEN] 隠しキーワードなし → 通常処理続行');
 
     // === 7. RAGシステム呼び出し（待機状態に応じて分岐） ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
