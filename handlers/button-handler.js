@@ -15,20 +15,6 @@ function getInteractionStates() {
 
 // 各ボタンの応答内容定義
 const BUTTON_RESPONSES = {
-  [BUTTON_IDS.PAYMENT_CONSULTATION]: {
-    title: "💰 お支払い相談",
-    content: `**お支払いに関するご相談はこちらではお受けできません。**
-    担当者にご連絡ください。
-`
-  },
-  
-  [BUTTON_IDS.PRIVATE_CONSULTATION]: {
-    title: "💬 プライベート相談",
-    content: `**プライベートなご相談はこちらではお受けできません。**
-    担任の先生にご相談ください。
-`
-  },
-  
   [BUTTON_IDS.LESSON_QUESTION]: {
     title: "📚 レッスン質問",
     categoryName: "レッスン",
@@ -59,6 +45,32 @@ const BUTTON_RESPONSES = {
       "レッスン3のミッション成果物を提出します",
       "作成した動画のURL: https://...",
       "デザイン作品の説明: ..."
+    ]
+  },
+  
+  [BUTTON_IDS.X_PLANNING]: {
+    title: "📱 Xの企画相談",
+    categoryName: "X企画",
+    contextInfo: "Xの企画立案、コンテンツアイデア、投稿戦略について",
+    filterCategory: "X",           // E列（カテゴリ）でフィルタ
+    filterKeyword: "企画",          // G列（備考）でキーワード検索
+    examples: [
+      "Xの企画アイデアを考えて",
+      "バズるポストの企画を相談したい",
+      "フォロワーが増える企画を教えて"
+    ]
+  },
+  
+  [BUTTON_IDS.YOUTUBE_PLANNING]: {
+    title: "🎬 YouTubeの企画相談",
+    categoryName: "YouTube企画",
+    contextInfo: "YouTubeの企画立案、動画アイデア、配信企画について",
+    filterCategory: "配信",         // E列（カテゴリ）でフィルタ
+    filterKeyword: "企画",          // G列（備考）でキーワード検索
+    examples: [
+      "YouTubeの企画アイデアを考えて",
+      "再生回数が伸びる動画企画を相談したい",
+      "配信で面白い企画を教えて"
     ]
   }
 };

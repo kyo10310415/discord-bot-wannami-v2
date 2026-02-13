@@ -737,7 +737,7 @@ ${userQuery}
   // ✨ v2.12.0: 厳格な知識ベース限定応答（口調強化版）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（v2.12.1 - 画像対応版）');
+      logger.ai('知識ベース限定応答生成開始（v2.12.2 - カテゴリフィルタ対応版）');
 
       // 🖼️ 画像URLを context から取得
       const imageUrls = context.imageUrls || [];
@@ -748,6 +748,14 @@ ${userQuery}
         });
       }
 
+      // 🎯 企画相談フィルタを context から取得
+      const filterCategory = context.filterCategory;
+      const filterKeyword = context.filterKeyword;
+      if (filterCategory || filterKeyword) {
+        logger.info(`🎯 [FILTER] カテゴリフィルタ: ${filterCategory || 'なし'}`);
+        logger.info(`🎯 [FILTER] キーワードフィルタ: ${filterKeyword || 'なし'}`);
+      }
+
       // ✨ 挨拶検出（最優先）
       const greetingResponse = detectGreeting(userQuery);
       if (greetingResponse) {
@@ -755,9 +763,25 @@ ${userQuery}
         return greetingResponse;
       }
 
-      const knowledgeResults = await this._searchKnowledge(userQuery, {
+      // 🔍 検索オプションを構築
+      const searchOptions = {
         maxResults: 5,
         minScore: 0.05,
+        includeMetadata: true
+      };
+
+      // 🎯 フィルタが指定されている場合は filters に追加
+      if (filterCategory || filterKeyword) {
+        searchOptions.filters = {};
+        if (filterCategory) {
+          searchOptions.filters.category = filterCategory;
+        }
+        if (filterKeyword) {
+          searchOptions.filters.remarksKeyword = filterKeyword;
+        }
+      }
+
+      const knowledgeResults = await this._searchKnowledge(userQuery, searchOptions);
         includeMetadata: true
       });
 

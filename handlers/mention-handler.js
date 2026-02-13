@@ -196,32 +196,32 @@ function stopTypingIndicator(typingInterval) {
 
 // === 以前のスタイルのボタンセットを作成する関数 ===
 function createClassicButtons() {
-  // 1行目: 主要な相談ボタン（3つ）
+  // 1行目: レッスン・SNS・ミッションボタン（3つ）
   const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
-      .setCustomId('payment_consultation')
-      .setLabel('①お支払い相談')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('private_consultation')
-      .setLabel('②プライベート相談')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
       .setCustomId('lesson_question')
-      .setLabel('③レッスン質問')
-      .setStyle(ButtonStyle.Primary)
-  );
-
-  // 2行目: その他のボタン（2つ）
-  const row2 = new ActionRowBuilder().addComponents(
+      .setLabel('①レッスン質問')
+      .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('sns_consultation')
-      .setLabel('④SNS運用相談')
+      .setLabel('②SNS運用相談')
       .setStyle(ButtonStyle.Primary),
     new ButtonBuilder()
       .setCustomId('mission_submission')
-      .setLabel('⑤ミッション提出')
+      .setLabel('③ミッション提出')
       .setStyle(ButtonStyle.Primary)
+  );
+
+  // 2行目: 企画相談ボタン（2つ）
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('x_planning')
+      .setLabel('📱 Xの企画相談')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('youtube_planning')
+      .setLabel('🎬 YouTubeの企画相談')
+      .setStyle(ButtonStyle.Success)
   );
 
   return [row1, row2];
@@ -800,10 +800,27 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
         console.log(`🖼️ [DEBUG] 画像を含むcontextを渡します: ${imageUrls.length}件`);
         
+        // 🎯 企画相談ボタンのフィルタ情報を取得
+        let filterOptions = {};
+        if (waitingType === 'x_planning') {
+          filterOptions = {
+            filterCategory: 'X',
+            filterKeyword: '企画'
+          };
+          console.log(`🎯 [FILTER] Xの企画相談: カテゴリ="X", キーワード="企画"`);
+        } else if (waitingType === 'youtube_planning') {
+          filterOptions = {
+            filterCategory: '配信',
+            filterKeyword: '企画'
+          };
+          console.log(`🎯 [FILTER] YouTubeの企画相談: カテゴリ="配信", キーワード="企画"`);
+        }
+        
         responseText = await RAGSystem.generateKnowledgeOnlyResponse(
           questionText,
           {
-            imageUrls: imageUrls  // ← 画像URLを context として渡す
+            imageUrls: imageUrls,  // ← 画像URLを context として渡す
+            ...filterOptions       // ← フィルタオプションを展開
           }
         );
         

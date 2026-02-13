@@ -78,18 +78,20 @@ const LIMITS = {
 
 // ボタンID定数
 const BUTTON_IDS = {
-  PAYMENT_CONSULTATION: 'payment_consultation',
-  PRIVATE_CONSULTATION: 'private_consultation',
   LESSON_QUESTION: 'lesson_question',
   SNS_CONSULTATION: 'sns_consultation',
-  MISSION_SUBMISSION: 'mission_submission'
+  MISSION_SUBMISSION: 'mission_submission',
+  X_PLANNING: 'x_planning',           // 新規: Xの企画相談
+  YOUTUBE_PLANNING: 'youtube_planning' // 新規: YouTubeの企画相談
 };
 
 // AI対象ボタン（AI機能を使用するボタン）
 const AI_TARGET_BUTTONS = new Set([
   BUTTON_IDS.LESSON_QUESTION,
   BUTTON_IDS.SNS_CONSULTATION,
-  BUTTON_IDS.MISSION_SUBMISSION
+  BUTTON_IDS.MISSION_SUBMISSION,
+  BUTTON_IDS.X_PLANNING,        // 新規追加
+  BUTTON_IDS.YOUTUBE_PLANNING   // 新規追加
 ]);
 
 // ログレベル

@@ -236,6 +236,14 @@ class KnowledgeBaseService {
         logger.info(`🔍 カテゴリフィルタ適用: ${filters.category} (${filteredDocuments.length}件)`);
       }
 
+      // 🎯 remarksKeyword フィルタ: G列（備考）にキーワードが含まれるものを抽出
+      if (filters.remarksKeyword) {
+        filteredDocuments = filteredDocuments.filter(doc => 
+          doc.remarks && doc.remarks.includes(filters.remarksKeyword)
+        );
+        logger.info(`🎯 備考キーワードフィルタ適用: "${filters.remarksKeyword}" (${filteredDocuments.length}件)`);
+      }
+
       const scoredDocuments = filteredDocuments.map(doc => {
         const contentLower = doc.content.toLowerCase();
         let score = 0;
