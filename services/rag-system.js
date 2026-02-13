@@ -782,8 +782,6 @@ ${userQuery}
       }
 
       const knowledgeResults = await this._searchKnowledge(userQuery, searchOptions);
-        includeMetadata: true
-      });
 
       logger.info(`🔍 検索結果: ${knowledgeResults.length}件`);
 
