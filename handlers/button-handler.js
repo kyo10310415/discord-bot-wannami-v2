@@ -64,12 +64,12 @@ const BUTTON_RESPONSES = {
   [BUTTON_IDS.YOUTUBE_PLANNING]: {
     title: "🎬 YouTubeの企画相談",
     categoryName: "YouTube企画",
-    contextInfo: "YouTubeの企画立案、動画アイデア、配信企画について",
+    contextInfo: "YouTubeの企画立案、動画アイデア、配信企画について。チャンネルURLを含めるとパーソナライズ提案が可能",
     filterCategory: "配信",         // E列（カテゴリ）でフィルタ
     filterKeyword: "企画",          // G列（備考）でキーワード検索
     examples: [
       "YouTubeの企画アイデアを考えて",
-      "再生回数が伸びる動画企画を相談したい",
+      "チャンネルURL: https://youtube.com/@example モンハンの企画を考えて",
       "配信で面白い企画を教えて"
     ]
   }

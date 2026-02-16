@@ -1,5 +1,5 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
-// Version: 16.3.0 - YouTube企画提案機能追加版
+// Version: 16.3.1 - YouTube企画提案機能追加版（ボタン連動修正）
 // Feature: YouTube Data APIを使用したチャンネル分析・企画提案機能
 // Hotfix: Discord login timeout でも落とさず再試行（Render のデプロイループ停止）
 // Hotfix2: DISCORD状態ログの多重 setInterval を抑止 + リトライ間隔の整合（5分開始/最大30分）

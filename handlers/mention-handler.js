@@ -1,5 +1,10 @@
 /**
- * メンション処理ハンドラー v16.1.0（YouTube企画提案機能追加版）
+ * メンション処理ハンドラー v16.1.1（YouTube企画相談ボタン連動版）
+ * 
+ * 【v16.1.1 変更点】🔧 修正
+ * - YouTube URL検出を「YouTubeの企画相談」ボタン押下時のみに限定
+ * - YouTube企画相談モード以外ではYouTube分析をスキップ
+ * - 無駄なAPI消費を防止
  * 
  * 【v16.1.0 変更点】🎬 新機能
  * - YouTube URL検出機能を追加
@@ -467,12 +472,12 @@ async function handleMessage(message, client) {
         // 通常の質問応答
         console.log('💬 [AI] 通常の質問応答処理');
         
-        // YouTube URL検出とチャンネル分析
+        // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
         let youtubeContext = null;
         
-        if (youtubeUrl) {
-          console.log('📺 [YOUTUBE] チャンネル分析開始...');
+        if (youtubeUrl && waitingType === 'youtube_planning') {
+          console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
@@ -499,6 +504,8 @@ async function handleMessage(message, client) {
             stopTypingIndicator(typingInterval);
             return;
           }
+        } else if (youtubeUrl && waitingType !== 'youtube_planning') {
+          console.log('⚠️ [YOUTUBE] YouTube URLが検出されましたが、YouTube企画相談ボタンを押していないためスキップします');
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
@@ -857,12 +864,12 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         // 通常の質問応答
         console.log('💬 [AI] 通常の質問応答処理');
         
-        // YouTube URL検出とチャンネル分析
+        // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
         let youtubeContext = null;
         
-        if (youtubeUrl) {
-          console.log('📺 [YOUTUBE] チャンネル分析開始...');
+        if (youtubeUrl && waitingType === 'youtube_planning') {
+          console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
@@ -889,6 +896,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
             stopTypingIndicator(typingInterval);
             return;
           }
+        } else if (youtubeUrl && waitingType !== 'youtube_planning') {
+          console.log('⚠️ [YOUTUBE] YouTube URLが検出されましたが、YouTube企画相談ボタンを押していないためスキップします');
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
