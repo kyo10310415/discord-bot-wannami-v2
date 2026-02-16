@@ -76,6 +76,9 @@ BOT_USER_ID=your_bot_user_id_here
 # OpenAI API設定
 OPENAI_API_KEY=your_openai_api_key_here
 
+# YouTube Data API設定（企画提案機能で使用）
+YOUTUBE_API_KEY=your_youtube_api_key_here
+
 # Google サービスアカウント設定
 GOOGLE_PROJECT_ID=your_project_id
 GOOGLE_PRIVATE_KEY_ID=your_private_key_id
@@ -374,6 +377,62 @@ const HIDDEN_KEYWORDS = [
 
 #### 4. キーワードの仕様
 - **大文字小文字を区別しない**: `WannaV最高` = `wannav最高` = `WANNAV最高`
+- **スペースを無視**: `WannaV 最高` = `WannaV最高`
+- **部分一致**: 質問の中にキーワードが含まれていればOK
+
+#### 5. 応答メッセージのカスタマイズ
+Markdown形式で自由にカスタマイズ可能：
+```javascript
+response: `🎉✨ **タイトル** ✨🎉
+
+本文テキスト
+
+🔗 **リンク**
+https://example.com
+
+---
+🎁 *フッター*`
+```
+
+### 動作確認
+1. Discordでボットにメンション
+2. 隠しキーワードを含む質問を入力
+3. 特別な応答が返されることを確認
+
+---
+
+## 🛠️ トラブルシューティング
+
+### Q&A生成が失敗する
+- OpenAI API キーが正しいか確認
+- Google スプレッドシートの権限を確認
+- `回答サンプル` シートが存在するか確認
+
+### Webhook送信が失敗する
+- 生徒情報スプレッドシートのアクセス権限を確認
+- Webhook URLが正しいか確認
+- Discord側のWebhook設定を確認
+
+### スケジューラーが動作しない
+- Renderの無料プランでスリープしていないか確認
+- `/api/scheduler/status` でスケジューラー状態を確認
+- ログを確認してエラーメッセージを確認
+
+---
+
+## 📝 ライセンス
+
+MIT License
+
+## 👨‍💻 作者
+
+VTuber育成スクール
+
+## 🔗 リンク
+
+- GitHub: https://github.com/kyo10310415/discord-bot-wannami-v2
+- Issues: https://github.com/kyo10310415/discord-bot-wannami-v2/issues
+`WannaV最高` = `wannav最高` = `WANNAV最高`
 - **スペースを無視**: `WannaV 最高` = `WannaV最高`
 - **部分一致**: 質問の中にキーワードが含まれていればOK
 

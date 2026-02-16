@@ -1,5 +1,6 @@
 // Discord Bot for わなみさん - VTuber育成スクール相談システム
-// Version: 16.1.0 - Slack通知機能追加版
+// Version: 16.3.0 - YouTube企画提案機能追加版
+// Feature: YouTube Data APIを使用したチャンネル分析・企画提案機能
 // Hotfix: Discord login timeout でも落とさず再試行（Render のデプロイループ停止）
 // Hotfix2: DISCORD状態ログの多重 setInterval を抑止 + リトライ間隔の整合（5分開始/最大30分）
 // Hotfix3: タイムアウトを60秒に延長 + 認証エラー判定強化（Renderネットワーク遅延対策）
@@ -32,6 +33,9 @@ const { weeklySchedulerService } = require('./services/weekly-scheduler');
 
 // 新機能: Slack通知サービス
 const { slackNotifier } = require('./services/slack-notifier');
+
+// 新機能: YouTube分析サービス
+const { youtubeAnalyzer } = require('./services/youtube-analyzer');
 
 const app = express();
 
@@ -234,6 +238,19 @@ client.once('ready', async () => {
     } catch (error) {
       logger.error('❌ 週次スケジューラー開始失敗:', error.message);
       logger.warn('⚠️ 定期実行機能は無効です');
+    }
+
+    // YouTube分析サービス初期化
+    try {
+      const ytInitialized = youtubeAnalyzer.initialize();
+      if (ytInitialized) {
+        logger.success('✅ YouTube分析サービス初期化完了');
+      } else {
+        logger.warn('⚠️ YouTube分析サービスは無効です（YOUTUBE_API_KEY未設定）');
+      }
+    } catch (error) {
+      logger.error('❌ YouTube分析サービス初期化失敗:', error.message);
+      logger.warn('⚠️ YouTube企画提案機能は無効です');
     }
 
     logger.success('🎉 全サービス初期化完了！');

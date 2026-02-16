@@ -1,5 +1,11 @@
 /**
- * メンション処理ハンドラー v15.6.1（隠しキーワード検出強化版）
+ * メンション処理ハンドラー v16.1.0（YouTube企画提案機能追加版）
+ * 
+ * 【v16.1.0 変更点】🎬 新機能
+ * - YouTube URL検出機能を追加
+ * - YouTubeチャンネル分析機能（YouTube Data API利用）
+ * - チャンネル情報に基づいた企画提案機能
+ * - ユーザーのチャンネルと近い活動内容のVTuberを参考にした企画生成
  * 
  * 【v15.6.1 変更点】🔧 修正
  * - 隠しキーワード検出のデバッグログを大幅に強化
@@ -42,6 +48,18 @@
 
 const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { HIDDEN_KEYWORDS } = require('../config/hidden-keywords');
+const { youtubeAnalyzer } = require('../services/youtube-analyzer');
+
+// === YouTube URL検出関数 ===
+function extractYouTubeUrl(text) {
+  const youtubeRegex = /https?:\/\/(www\.)?(youtube\.com\/(channel\/|c\/|@|user\/)|youtu\.be\/)[\w\-@]+/gi;
+  const matches = text.match(youtubeRegex);
+  if (matches && matches.length > 0) {
+    console.log(`📺 [YOUTUBE] YouTube URL検出: ${matches[0]}`);
+    return matches[0];
+  }
+  return null;
+}
 
 // === 画像URL抽出関数（インライン実装） ===
 function extractImageUrls(message) {
@@ -448,11 +466,52 @@ async function handleMessage(message, client) {
       } else {
         // 通常の質問応答
         console.log('💬 [AI] 通常の質問応答処理');
+        
+        // YouTube URL検出とチャンネル分析
+        const youtubeUrl = extractYouTubeUrl(questionText);
+        let youtubeContext = null;
+        
+        if (youtubeUrl) {
+          console.log('📺 [YOUTUBE] チャンネル分析開始...');
+          try {
+            // YouTube API初期化
+            if (!youtubeAnalyzer.initialized) {
+              youtubeAnalyzer.initialize();
+            }
+            
+            // チャンネル分析実行
+            const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
+            
+            if (analysis.success) {
+              console.log(`✅ [YOUTUBE] 分析成功: ${analysis.channel.name}`);
+              youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
+              console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
+            } else {
+              console.warn(`⚠️ [YOUTUBE] 分析失敗: ${analysis.error}`);
+              // エラーメッセージをユーザーに通知
+              await message.reply(`⚠️ ${analysis.error}`);
+              stopTypingIndicator(typingInterval);
+              return;
+            }
+          } catch (ytError) {
+            console.error('❌ [YOUTUBE] チャンネル分析エラー:', ytError.message);
+            await message.reply('⚠️ YouTubeチャンネルの分析中にエラーが発生しました。URLをご確認ください。');
+            stopTypingIndicator(typingInterval);
+            return;
+          }
+        }
+        
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
+        
+        // youtubeContextがあれば追加情報として渡す
+        const context = {
+          imageUrls: imageUrls,
+          youtubeContext: youtubeContext
+        };
         
         response = await RAGSystem.generateKnowledgeOnlyResponse(
           questionText,
-          imageUrls
+          context
         );
         
         console.log('✅ [AI] 通常応答生成完了');
@@ -797,6 +856,41 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       } else {
         // 通常の質問応答
         console.log('💬 [AI] 通常の質問応答処理');
+        
+        // YouTube URL検出とチャンネル分析
+        const youtubeUrl = extractYouTubeUrl(questionText);
+        let youtubeContext = null;
+        
+        if (youtubeUrl) {
+          console.log('📺 [YOUTUBE] チャンネル分析開始...');
+          try {
+            // YouTube API初期化
+            if (!youtubeAnalyzer.initialized) {
+              youtubeAnalyzer.initialize();
+            }
+            
+            // チャンネル分析実行
+            const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
+            
+            if (analysis.success) {
+              console.log(`✅ [YOUTUBE] 分析成功: ${analysis.channel.name}`);
+              youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
+              console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
+            } else {
+              console.warn(`⚠️ [YOUTUBE] 分析失敗: ${analysis.error}`);
+              // エラーメッセージをユーザーに通知
+              await message.reply(`⚠️ ${analysis.error}`);
+              stopTypingIndicator(typingInterval);
+              return;
+            }
+          } catch (ytError) {
+            console.error('❌ [YOUTUBE] チャンネル分析エラー:', ytError.message);
+            await message.reply('⚠️ YouTubeチャンネルの分析中にエラーが発生しました。URLをご確認ください。');
+            stopTypingIndicator(typingInterval);
+            return;
+          }
+        }
+        
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
         console.log(`🖼️ [DEBUG] 画像を含むcontextを渡します: ${imageUrls.length}件`);
         
@@ -820,6 +914,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           questionText,
           {
             imageUrls: imageUrls,  // ← 画像URLを context として渡す
+            youtubeContext: youtubeContext, // ← YouTube企画提案コンテキスト
             ...filterOptions       // ← フィルタオプションを展開
           }
         );
