@@ -873,6 +873,7 @@ ${userQuery}
       const youtubeContext = context.youtubeContext;
       if (youtubeContext) {
         logger.info('📺 [YOUTUBE] 企画提案モードを有効化');
+        logger.info(`📺 [YOUTUBE] コンテキスト長: ${youtubeContext.length}文字`);
         youtubeInstruction = `
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -899,6 +900,7 @@ ${youtubeContext}
 • 参照資料の知識を活用していること
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+        logger.info('📺 [YOUTUBE] 企画提案指示をシステムプロンプトに追加しました');
       }
 
       const systemPrompt = `${WANAMI_CHARACTER}
