@@ -1,6 +1,6 @@
 {
   "name": "discord-bot-wannami-v2",
-  "version": "16.3.1",
+  "version": "16.3.2",
   "description": "VTuber育成スクール用Discord自動応答チャットボット - Q&A自動生成・週次配信・隠しキーワード・YouTube企画提案・Slack通知機能付き完全版",
   "main": "index.js",
   "scripts": {

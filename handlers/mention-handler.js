@@ -1,5 +1,11 @@
 /**
- * メンション処理ハンドラー v16.1.1（YouTube企画相談ボタン連動版）
+ * メンション処理ハンドラー v16.1.2（YouTube分析デバッグログ強化版）
+ * 
+ * 【v16.1.2 変更点】🔧 デバッグ強化
+ * - YouTube分析の詳細ログを追加
+ * - API初期化状態の確認ログ
+ * - 分析結果のJSON出力
+ * - waitingTypeとYouTube URL検出の状態を詳細表示
  * 
  * 【v16.1.1 変更点】🔧 修正
  * - YouTube URL検出を「YouTubeの企画相談」ボタン押下時のみに限定
@@ -471,26 +477,43 @@ async function handleMessage(message, client) {
       } else {
         // 通常の質問応答
         console.log('💬 [AI] 通常の質問応答処理');
+        console.log(`🔍 [DEBUG] waitingType: "${waitingType}"`);
         
         // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
+        console.log(`🔍 [DEBUG] YouTube URL検出結果: ${youtubeUrl || 'なし'}`);
+        
         let youtubeContext = null;
         
         if (youtubeUrl && waitingType === 'youtube_planning') {
           console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
+          console.log(`📺 [YOUTUBE] 分析対象URL: ${youtubeUrl}`);
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
-              youtubeAnalyzer.initialize();
+              console.log('📺 [YOUTUBE] YouTube Analyzerを初期化中...');
+              const initialized = youtubeAnalyzer.initialize();
+              console.log(`📺 [YOUTUBE] 初期化結果: ${initialized ? '成功' : '失敗（APIキー未設定）'}`);
+              
+              if (!initialized) {
+                console.error('❌ [YOUTUBE] YouTube API初期化失敗（YOUTUBE_API_KEY未設定の可能性）');
+                await message.reply('⚠️ YouTube分析機能が利用できません。管理者にお問い合わせください。');
+                stopTypingIndicator(typingInterval);
+                return;
+              }
             }
             
             // チャンネル分析実行
+            console.log('📺 [YOUTUBE] analyzeChannel() を実行中...');
             const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
+            console.log('📺 [YOUTUBE] analyzeChannel() 完了');
+            console.log(`📺 [YOUTUBE] 分析結果:`, JSON.stringify(analysis, null, 2));
             
             if (analysis.success) {
               console.log(`✅ [YOUTUBE] 分析成功: ${analysis.channel.name}`);
               youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
               console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
+              console.log(`📊 [YOUTUBE] コンテキスト長: ${youtubeContext?.length || 0}文字`);
             } else {
               console.warn(`⚠️ [YOUTUBE] 分析失敗: ${analysis.error}`);
               // エラーメッセージをユーザーに通知
@@ -500,12 +523,17 @@ async function handleMessage(message, client) {
             }
           } catch (ytError) {
             console.error('❌ [YOUTUBE] チャンネル分析エラー:', ytError.message);
+            console.error('❌ [YOUTUBE] スタックトレース:', ytError.stack);
             await message.reply('⚠️ YouTubeチャンネルの分析中にエラーが発生しました。URLをご確認ください。');
             stopTypingIndicator(typingInterval);
             return;
           }
         } else if (youtubeUrl && waitingType !== 'youtube_planning') {
-          console.log('⚠️ [YOUTUBE] YouTube URLが検出されましたが、YouTube企画相談ボタンを押していないためスキップします');
+          console.log(`⚠️ [YOUTUBE] YouTube URLが検出されましたが、waitingType="${waitingType}"のためスキップします`);
+          console.log('💡 [YOUTUBE] YouTube企画提案を利用するには「YouTubeの企画相談」ボタンを押してください');
+        } else if (!youtubeUrl && waitingType === 'youtube_planning') {
+          console.log('⚠️ [YOUTUBE] YouTube企画相談モードですが、YouTube URLが検出されませんでした');
+          console.log(`📝 [YOUTUBE] 入力テキスト: "${questionText}"`);
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
@@ -863,26 +891,43 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       } else {
         // 通常の質問応答
         console.log('💬 [AI] 通常の質問応答処理');
+        console.log(`🔍 [DEBUG] waitingType: "${waitingType}"`);
         
         // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
+        console.log(`🔍 [DEBUG] YouTube URL検出結果: ${youtubeUrl || 'なし'}`);
+        
         let youtubeContext = null;
         
         if (youtubeUrl && waitingType === 'youtube_planning') {
           console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
+          console.log(`📺 [YOUTUBE] 分析対象URL: ${youtubeUrl}`);
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
-              youtubeAnalyzer.initialize();
+              console.log('📺 [YOUTUBE] YouTube Analyzerを初期化中...');
+              const initialized = youtubeAnalyzer.initialize();
+              console.log(`📺 [YOUTUBE] 初期化結果: ${initialized ? '成功' : '失敗（APIキー未設定）'}`);
+              
+              if (!initialized) {
+                console.error('❌ [YOUTUBE] YouTube API初期化失敗（YOUTUBE_API_KEY未設定の可能性）');
+                await message.reply('⚠️ YouTube分析機能が利用できません。管理者にお問い合わせください。');
+                stopTypingIndicator(typingInterval);
+                return;
+              }
             }
             
             // チャンネル分析実行
+            console.log('📺 [YOUTUBE] analyzeChannel() を実行中...');
             const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
+            console.log('📺 [YOUTUBE] analyzeChannel() 完了');
+            console.log(`📺 [YOUTUBE] 分析結果:`, JSON.stringify(analysis, null, 2));
             
             if (analysis.success) {
               console.log(`✅ [YOUTUBE] 分析成功: ${analysis.channel.name}`);
               youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
               console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
+              console.log(`📊 [YOUTUBE] コンテキスト長: ${youtubeContext?.length || 0}文字`);
             } else {
               console.warn(`⚠️ [YOUTUBE] 分析失敗: ${analysis.error}`);
               // エラーメッセージをユーザーに通知
@@ -892,12 +937,17 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
             }
           } catch (ytError) {
             console.error('❌ [YOUTUBE] チャンネル分析エラー:', ytError.message);
+            console.error('❌ [YOUTUBE] スタックトレース:', ytError.stack);
             await message.reply('⚠️ YouTubeチャンネルの分析中にエラーが発生しました。URLをご確認ください。');
             stopTypingIndicator(typingInterval);
             return;
           }
         } else if (youtubeUrl && waitingType !== 'youtube_planning') {
-          console.log('⚠️ [YOUTUBE] YouTube URLが検出されましたが、YouTube企画相談ボタンを押していないためスキップします');
+          console.log(`⚠️ [YOUTUBE] YouTube URLが検出されましたが、waitingType="${waitingType}"のためスキップします`);
+          console.log('💡 [YOUTUBE] YouTube企画提案を利用するには「YouTubeの企画相談」ボタンを押してください');
+        } else if (!youtubeUrl && waitingType === 'youtube_planning') {
+          console.log('⚠️ [YOUTUBE] YouTube企画相談モードですが、YouTube URLが検出されませんでした');
+          console.log(`📝 [YOUTUBE] 入力テキスト: "${questionText}"`);
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
