@@ -97,14 +97,14 @@ class OpenAIService {
         const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
         
         // ⚠️ OpenAI APIに渡すパラメータから内部制御用の引数を除外
-        const { maxRetries: _, retryDelay: __, timeout: ___, ...apiOptions } = options;
+        const { maxRetries: _, retryDelay: __, timeout: ___, maxTokens: ____, ...apiOptions } = options;
         
         const response = await this.client.chat.completions.create({
           model: options.model || OPENAI_MODELS.TEXT,
           messages: messages,
           max_tokens: maxTokens,
           temperature: options.temperature || 0.7,
-          ...apiOptions // maxRetries, retryDelay, timeout を除外したオプションのみ渡す
+          ...apiOptions // maxRetries, retryDelay, timeout, maxTokens を除外したオプションのみ渡す
         });
 
         return response.choices[0].message.content;
@@ -142,14 +142,14 @@ class OpenAIService {
         const maxTokens = options.max_tokens || options.maxTokens || this.defaultMaxTokens;
         
         // ⚠️ OpenAI APIに渡すパラメータから内部制御用の引数を除外
-        const { maxRetries: _, retryDelay: __, timeout: ___, ...apiOptions } = options;
+        const { maxRetries: _, retryDelay: __, timeout: ___, maxTokens: ____, ...apiOptions } = options;
         
         const response = await this.client.chat.completions.create({
           model: OPENAI_MODELS.VISION,
           messages: messages,
           max_tokens: maxTokens,
           temperature: options.temperature || 0.7,
-          ...apiOptions // maxRetries, retryDelay, timeout を除外したオプションのみ渡す
+          ...apiOptions // maxRetries, retryDelay, timeout, maxTokens を除外したオプションのみ渡す
         });
 
         return response.choices[0].message.content;

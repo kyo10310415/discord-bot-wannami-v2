@@ -734,10 +734,10 @@ ${userQuery}
     return hasPass && !hasFail;
   }
 
-  // ✨ v2.12.3: YouTube企画提案機能対応版
+  // ✨ v2.12.5: YouTube企画提案機能対応版（参照資料統合）
   async generateKnowledgeOnlyResponse(userQuery, context = {}) {
     try {
-      logger.ai('知識ベース限定応答生成開始（v2.12.3 - YouTube企画提案対応版）');
+      logger.ai('知識ベース限定応答生成開始（v2.12.5 - YouTube企画提案対応版）');
 
       // 🖼️ 画像URLを context から取得
       const imageUrls = context.imageUrls || [];
@@ -746,6 +746,12 @@ ${userQuery}
         imageUrls.forEach((url, i) => {
           logger.info(`  📸 画像${i + 1}: ${url}`);
         });
+      }
+
+      // 📺 YouTubeコンテキストを context から取得
+      const youtubeContext = context.youtubeContext;
+      if (youtubeContext) {
+        logger.info(`📺 [YOUTUBE] コンテキスト長: ${youtubeContext.length}文字`);
       }
 
       // 🎯 企画相談フィルタを context から取得
@@ -878,7 +884,6 @@ ${userQuery}
 
       // 📺 YouTubeチャンネル分析結果がある場合は企画提案の指示を追加
       let youtubeInstruction = '';
-      const youtubeContext = context.youtubeContext;
       if (youtubeContext) {
         logger.info('📺 [YOUTUBE] 企画提案モードを有効化');
         logger.info(`📺 [YOUTUBE] コンテキスト長: ${youtubeContext.length}文字`);
