@@ -391,22 +391,64 @@ class YouTubeAnalyzer {
       return null;
     }
 
+    // 動画タイトルからゲームタイトルを抽出
+    const extractGameTitles = (videos) => {
+      const gameTitles = new Set();
+      const gamePatterns = [
+        /【([^】]+)】/g,  // 【ゲーム名】形式
+        /「([^」]+)」/g,  // 「ゲーム名」形式
+        /Overwatch\s?\d*/gi,
+        /モンスターハンター/gi,
+        /マイクラ|Minecraft/gi,
+        /APEX|エーペックス/gi,
+        /ポケモン|Pokemon/gi,
+        /原神|Genshin/gi
+      ];
+      
+      videos.forEach(video => {
+        gamePatterns.forEach(pattern => {
+          const matches = video.title.matchAll(pattern);
+          for (const match of matches) {
+            if (match[1]) {
+              gameTitles.add(match[1]);
+            } else if (match[0]) {
+              gameTitles.add(match[0]);
+            }
+          }
+        });
+      });
+      
+      return Array.from(gameTitles);
+    };
+
+    const gameTitles = extractGameTitles(analysis.recentVideos);
+    const gameTitlesText = gameTitles.length > 0 
+      ? `主なゲームタイトル: ${gameTitles.slice(0, 5).join('、')}\n` 
+      : '';
+
+    // 視聴回数の傾向分析
+    const avgViews = analysis.recentVideos.reduce((sum, v) => sum + parseInt(v.viewCount || 0), 0) / analysis.recentVideos.length;
+    const topVideos = [...analysis.recentVideos].sort((a, b) => parseInt(b.viewCount || 0) - parseInt(a.viewCount || 0)).slice(0, 3);
+
     const context = `
-【チャンネル分析結果】
+【📊 最近の配信内容分析（最優先）】
+${gameTitlesText}平均視聴回数: ${Math.round(avgViews)}回
+配信傾向: ${analysis.activities.categories.join('、')}
+
+【人気の配信TOP3】
+${topVideos.map((v, i) => `${i + 1}. ${v.title}（${v.viewCount}回視聴）`).join('\n')}
+
+【直近10件の配信タイトル】
+${analysis.recentVideos.map((v, i) => `${i + 1}. ${v.title}（${v.viewCount}回視聴）`).join('\n')}
+
+【チャンネル基本情報（参考）】
 チャンネル名: ${analysis.channel.name}
 登録者数: ${analysis.channel.subscriberCount}人
 動画投稿数: ${analysis.channel.videoCount}本
-チャンネル説明: ${analysis.channel.description.substring(0, 200)}...
+説明: ${analysis.channel.description.substring(0, 150)}...
 
-【活動内容】
-主なジャンル: ${analysis.activities.mainGenre}
-活動カテゴリ: ${analysis.activities.categories.join('、')}
-
-【キーワード】
+【活動キーワード】
 ${analysis.keywords.slice(0, 15).join('、')}
-
-【最近の動画】
-${analysis.recentVideos.map(v => `・${v.title}（視聴回数: ${v.viewCount}）`).join('\n')}
 
 【ユーザーからのリクエスト】
 ${userRequest}
