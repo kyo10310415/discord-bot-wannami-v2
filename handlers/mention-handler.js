@@ -339,10 +339,6 @@ async function handleMessage(message, client) {
 
 どのようなご相談でしょうか？下のボタンから選択してください✨
 
-📘 **知識ベース限定回答システム**
-• @わなみさん【質問】で知識ベースから正確な回答
-• VTuber活動に特化した専門情報のみ回答
-
 📖 **専門サポートメニュー**
 下のボタンから選択して、より詳しいサポートを受けられます！`;
 
@@ -389,6 +385,19 @@ async function handleMessage(message, client) {
       return; // ここで処理終了
     }
 
+    // === ✅ 直接質問ブロック（ボタン未使用の場合） ===
+    // waitingType が null（ボタンを押していない）かつ questionText がある場合は案内メッセージを返す
+    const interactionStatesCheck = global.interactionStates || new Map();
+    const waitingTypeCheck = isUserWaitingForQuestion(message.author.id, interactionStatesCheck);
+    if (!waitingTypeCheck) {
+      console.log('🚫 [DIRECT-QUESTION] ボタン未使用の直接質問を検出 → 案内メッセージを返す');
+      await message.reply({
+        content: 'アップデートに伴い直接質問の機能がなくなりました。\nお手数ですが「@わなみさん」だけで送信していただき、表示される選択肢からご質問をお願い致します。',
+        allowedMentions: { repliedUser: false }
+      });
+      return;
+    }
+
     console.log('✅ コンテンツ抽出成功 → AI回答処理へ');
 
     // === Typing Indicator 開始 ===
@@ -406,11 +415,13 @@ async function handleMessage(message, client) {
       });
     }
 
-    // === 5. 待機状態チェック（状態タイプを取得） ===
-    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
-    const interactionStates = global.interactionStates || new Map();
-    const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${waitingType ? `待機中 (${waitingType}) ⏳` : '待機なし ✅'}`);
+    // === 5. 待機状態チェック ===
+    // ※ interactionStatesCheck / waitingTypeCheck は上の直接質問ブロックで宣言済み
+    console.log(`🔍 [CHECK-1] waitingType: ${waitingTypeCheck ? `待機中 (${waitingTypeCheck}) ⏳` : '待機なし ✅'}`);
+
+    // ローカル変数にコピーして以降の処理で利用
+    const interactionStates = interactionStatesCheck;
+    const waitingType = waitingTypeCheck;
 
     // === 6. require文のテスト（services/パス対応版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
@@ -728,10 +739,6 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
 
 どのようなご相談でしょうか？下のボタンから選択してください✨
 
-📘 **知識ベース限定回答システム**
-• @わなみさん【質問】で知識ベースから正確な回答
-• VTuber活動に特化した専門情報のみ回答
-
 📖 **専門サポートメニュー**
 下のボタンから選択して、より詳しいサポートを受けられます！`;
 
@@ -778,6 +785,19 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       return; // ここで処理終了
     }
 
+    // === ✅ 直接質問ブロック（ボタン未使用の場合） ===
+    // waitingType が null（ボタンを押していない）かつ questionText がある場合は案内メッセージを返す
+    const interactionStates = global.interactionStates || new Map();
+    const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
+    if (!waitingType) {
+      console.log('🚫 [DIRECT-QUESTION] ボタン未使用の直接質問を検出 → 案内メッセージを返す');
+      await message.reply({
+        content: 'アップデートに伴い直接質問の機能がなくなりました。\nお手数ですが「@わなみさん」だけで送信していただき、表示される選択肢からご質問をお願い致します。',
+        allowedMentions: { repliedUser: false }
+      });
+      return;
+    }
+
     console.log('✅ コンテンツ抽出成功 → AI回答処理へ');
 
     // === Typing Indicator 開始 ===
@@ -795,11 +815,9 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       });
     }
 
-    // === 5. 待機状態チェック（状態タイプを取得） ===
-    console.log('🔍 [CHECK-1] isUserWaitingForQuestion チェック開始');
-    const interactionStates = global.interactionStates || new Map();
-    const waitingType = isUserWaitingForQuestion(message.author.id, interactionStates);
-    console.log(`🔍 [CHECK-1] 結果: ${waitingType ? `待機中 (${waitingType}) ⏳` : '待機なし ✅'}`);
+    // === 5. 待機状態チェック ===
+    // ※ interactionStates / waitingType は上の直接質問ブロックで宣言済み
+    console.log(`🔍 [CHECK-1] waitingType: ${waitingType ? `待機中 (${waitingType}) ⏳` : '待機なし ✅'}`);
 
     // === 6. require文のテスト（services/パス対応版） ===
     console.log('🔍 [CHECK-2] require文テスト開始');
