@@ -253,7 +253,19 @@ function createClassicButtons() {
       .setStyle(ButtonStyle.Success)
   );
 
-  return [row1, row2];
+  // 3行目: 休会相談・お支払い相談ボタン（2つ）
+  const row3 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('hiatus_consultation')
+      .setLabel('🏖️ 休会相談')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('payment_consultation')
+      .setLabel('💳 お支払い相談')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return [row1, row2, row3];
 }
 
 // === メンション処理メイン関数（既存） ===
