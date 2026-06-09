@@ -566,13 +566,39 @@ async function handleMessage(message, client) {
           imageUrls: imageUrls,
           youtubeContext: youtubeContext
         };
-        
-        response = await RAGSystem.generateKnowledgeOnlyResponse(
-          questionText,
-          context
-        );
-        
-        console.log('✅ [AI] 通常応答生成完了');
+
+        // 💳 お支払い相談: 固定知識ベース + 末尾に必ず相談フォームURLを付与
+        if (waitingType === 'payment_consultation') {
+          console.log('💳 [PAYMENT] お支払い相談処理開始');
+          const PAYMENT_KNOWLEDGE = `【レッスン料の支払いに関する規則（WannaV）】
+・レッスン料は毎月末までに翌月分をお支払いください。
+・月末までに入金が確認できない場合「支払い遅延」として処理され、確認されるまでレッスンは受けられません。
+・遅延後も支払い義務は継続します。
+・支払い遅延から14日経過しても入金がない場合、強制退会となります。
+・強制退会後もWannaVのサービスは受けられませんが、残りの契約期間のレッスン料支払い義務は残ります。`;
+
+          const paymentAiResponse = await RAGSystem.generateKnowledgeOnlyResponse(
+            questionText,
+            {
+              ...context,
+              additionalKnowledge: PAYMENT_KNOWLEDGE,
+              contextInfo: 'レッスン料の支払い、支払い遅延ルール、強制退会について'
+            }
+          );
+
+          const PAYMENT_FOOTER = `\n\nこの回答で解決できなかった場合は下記フォームよりご相談ください。\nhttps://docs.google.com/forms/d/e/1FAIpQLSeTAfgFm65uyQeroLPXQvwVX7ww-1U6Mfr54ogdK9p26dg9FQ/viewform?usp=sharing&ouid=100215225792867511983`;
+          response = paymentAiResponse + PAYMENT_FOOTER;
+
+          clearWaitingQuestion(message.author.id, interactionStates);
+          console.log('✅ [PAYMENT] お支払い相談応答生成完了 & 待機状態クリア');
+
+        } else {
+          response = await RAGSystem.generateKnowledgeOnlyResponse(
+            questionText,
+            context
+          );
+          console.log('✅ [AI] 通常応答生成完了');
+        }
       }
 
       console.log(`📊 [RAG] 応答長: ${response?.length || 0}文字`);
@@ -998,17 +1024,43 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           };
           console.log(`🎯 [FILTER] YouTubeの企画相談: カテゴリ="配信", キーワード="企画"`);
         }
-        
-        responseText = await RAGSystem.generateKnowledgeOnlyResponse(
-          questionText,
-          {
-            imageUrls: imageUrls,  // ← 画像URLを context として渡す
-            youtubeContext: youtubeContext, // ← YouTube企画提案コンテキスト
-            ...filterOptions       // ← フィルタオプションを展開
-          }
-        );
-        
-        console.log('✅ [AI] 通常応答生成完了');
+
+        // 💳 お支払い相談: 固定知識ベース + 末尾に必ず相談フォームURLを付与
+        if (waitingType === 'payment_consultation') {
+          console.log('💳 [PAYMENT] お支払い相談処理開始');
+          const PAYMENT_KNOWLEDGE = `【レッスン料の支払いに関する規則（WannaV）】
+・レッスン料は毎月末までに翌月分をお支払いください。
+・月末までに入金が確認できない場合「支払い遅延」として処理され、確認されるまでレッスンは受けられません。
+・遅延後も支払い義務は継続します。
+・支払い遅延から14日経過しても入金がない場合、強制退会となります。
+・強制退会後もWannaVのサービスは受けられませんが、残りの契約期間のレッスン料支払い義務は残ります。`;
+
+          const paymentAiResponse = await RAGSystem.generateKnowledgeOnlyResponse(
+            questionText,
+            {
+              imageUrls: imageUrls,
+              additionalKnowledge: PAYMENT_KNOWLEDGE,
+              contextInfo: 'レッスン料の支払い、支払い遅延ルール、強制退会について'
+            }
+          );
+
+          const PAYMENT_FOOTER = `\n\nこの回答で解決できなかった場合は下記フォームよりご相談ください。\nhttps://docs.google.com/forms/d/e/1FAIpQLSeTAfgFm65uyQeroLPXQvwVX7ww-1U6Mfr54ogdK9p26dg9FQ/viewform?usp=sharing&ouid=100215225792867511983`;
+          responseText = paymentAiResponse + PAYMENT_FOOTER;
+
+          clearWaitingQuestion(message.author.id, interactionStates);
+          console.log('✅ [PAYMENT] お支払い相談応答生成完了 & 待機状態クリア');
+
+        } else {
+          responseText = await RAGSystem.generateKnowledgeOnlyResponse(
+            questionText,
+            {
+              imageUrls: imageUrls,  // ← 画像URLを context として渡す
+              youtubeContext: youtubeContext, // ← YouTube企画提案コンテキスト
+              ...filterOptions       // ← フィルタオプションを展開
+            }
+          );
+          console.log('✅ [AI] 通常応答生成完了');
+        }
       }
 
       console.log(`📊 [RAG] 応答長: ${responseText?.length || 0}文字`);
