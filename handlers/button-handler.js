@@ -72,6 +72,24 @@ const BUTTON_RESPONSES = {
       "チャンネルURL: https://youtube.com/@example モンハンの企画を考えて",
       "配信で面白い企画を教えて"
     ]
+  },
+
+  // ─── 新規追加 ───────────────────────────────────────────
+  [BUTTON_IDS.HIATUS_CONSULTATION]: {
+    title: "🏖️ 休会相談",
+    // 固定テキスト応答（AI不使用）
+    content: "休会に関しましては**担任の先生に**ご相談ください。"
+  },
+
+  [BUTTON_IDS.PAYMENT_CONSULTATION]: {
+    title: "💳 お支払い相談",
+    categoryName: "お支払い",
+    contextInfo: "レッスン料の支払い、支払い遅延、強制退会ルールなどお支払いに関するご相談",
+    examples: [
+      "支払いが遅れてしまいそうです",
+      "今月の支払いができない場合どうなりますか",
+      "支払い遅延のペナルティについて教えてください"
+    ]
   }
 };
 
@@ -104,6 +122,9 @@ async function handleButtonClick(interaction, client) {
       // 🆕 ミッション提出ボタンの特別なメッセージ
       if (buttonId === BUTTON_IDS.MISSION_SUBMISSION) {
         responseContent = generateMissionPrompt(buttonResponse, buttonId, user);
+      } else if (buttonId === BUTTON_IDS.PAYMENT_CONSULTATION) {
+        // 🆕 お支払い相談専用アナウンス
+        responseContent = generatePaymentPrompt(buttonResponse, buttonId, user);
       } else {
         // その他のAI対応ボタン: 質問入力を促すメッセージを表示
         responseContent = generateQuestionPrompt(buttonResponse, buttonId, user);
@@ -113,7 +134,7 @@ async function handleButtonClick(interaction, client) {
       registerQuestionWait(user.id, buttonId, interaction.channel_id);
       
     } else {
-      // 静的応答ボタン: 事前定義された内容を返す
+      // 静的応答ボタン: 事前定義された内容を返す（休会相談など）
       responseContent = `✨ **${buttonResponse.title}** ✨\n\n${buttonResponse.content}`;
     }
 
@@ -163,6 +184,30 @@ function generateMissionPrompt(buttonResponse, buttonId, user) {
   
   content += `準備ができましたら、成果物を提出してください！✨`;
   
+  return content;
+}
+
+// 🆕 お支払い相談専用プロンプト生成
+function generatePaymentPrompt(buttonResponse, buttonId, user) {
+  const { title, categoryName, examples } = buttonResponse;
+
+  let content = `✨ **${title}** ✨\n\n`;
+  content += `💳 **お支払い相談システム**\n`;
+  content += `${categoryName}に関するご相談をお聞かせください！\n\n`;
+
+  content += `📝 **質問の送信方法:**\n`;
+  content += `このメッセージに返信するか、このチャンネルで **@わなみさん [ご相談内容]** とメンションしてください\n\n`;
+
+  content += `💡 **ご相談例:**\n`;
+  examples.forEach((example, index) => {
+    content += `${index + 1}. ${example}\n`;
+  });
+
+  content += `\n⏰ **制限時間: 3分間**\n`;
+  content += `3分以内にご相談内容をお送りください。\n\n`;
+
+  content += `準備ができましたら、ご相談内容をどうぞ！✨`;
+
   return content;
 }
 
@@ -344,6 +389,36 @@ async function generateAIButtonResponse(buttonResponse, buttonId, userQuery, con
       case BUTTON_IDS.SNS_CONSULTATION:
         basePrompt = 'SNS運用に関する相談にお答えします';
         break;
+
+      case BUTTON_IDS.PAYMENT_CONSULTATION: {
+        // 🆕 お支払い相談: 固定知識ベースを使ってAI回答 + 末尾に固定テキスト
+        const PAYMENT_KNOWLEDGE = `【レッスン料の支払いに関する規則（WannaV）】
+・レッスン料は毎月末までに翌月分をお支払いください。
+・月末までに入金が確認できない場合「支払い遅延」として処理され、確認されるまでレッスンは受けられません。
+・遅延後も支払い義務は継続します。
+・支払い遅延から14日経過しても入金がない場合、強制退会となります。
+・強制退会後もWannaVのサービスは受けられませんが、残りの契約期間のレッスン料支払い義務は残ります。`;
+
+        const paymentResponse = await ragSystem.generateKnowledgeOnlyResponse(
+          userQuery,
+          {
+            ...context,
+            buttonContext: buttonId,
+            responseType: 'payment_consultation',
+            additionalKnowledge: PAYMENT_KNOWLEDGE,
+            contextInfo: 'レッスン料の支払い、支払い遅延ルール、強制退会について'
+          }
+        );
+
+        const PAYMENT_FOOTER = `\n\n---\nこの回答で解決できなかった場合は下記フォームよりご相談ください。\nhttps://docs.google.com/forms/d/e/1FAIpQLSeTAfgFm65uyQeroLPXQvwVX7ww-1U6Mfr54ogdK9p26dg9FQ/viewform?usp=sharing&ouid=100215225792867511983`;
+
+        let paymentResult = `💳 **${buttonResponse.title} - AI回答**\n\n`;
+        paymentResult += `「**${userQuery}**」についてお答えします！\n\n`;
+        paymentResult += `${paymentResponse}`;
+        paymentResult += PAYMENT_FOOTER;
+
+        return paymentResult;
+      }
       
       default:
         basePrompt = '知識ベースから回答します';
@@ -472,6 +547,9 @@ async function handleButtonClickGateway(interaction, client) {
       // 🆕 ミッション提出ボタンの特別なメッセージ
       if (buttonId === BUTTON_IDS.MISSION_SUBMISSION) {
         responseContent = generateMissionPrompt(buttonResponse, buttonId, user);
+      } else if (buttonId === BUTTON_IDS.PAYMENT_CONSULTATION) {
+        // 🆕 お支払い相談専用アナウンス
+        responseContent = generatePaymentPrompt(buttonResponse, buttonId, user);
       } else {
         // その他のAI対応ボタン: 質問入力を促すメッセージを表示
         responseContent = generateQuestionPrompt(buttonResponse, buttonId, user);
@@ -481,7 +559,7 @@ async function handleButtonClickGateway(interaction, client) {
       registerQuestionWait(user.id, buttonId, interaction.channelId);
       
     } else {
-      // 静的応答ボタン: 事前定義された内容を返す
+      // 静的応答ボタン: 事前定義された内容を返す（休会相談など）
       responseContent = `✨ **${buttonResponse.title}** ✨\n\n${buttonResponse.content}`;
     }
 
