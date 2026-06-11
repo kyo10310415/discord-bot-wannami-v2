@@ -312,11 +312,17 @@ async function handleMessage(message, client) {
       return;
     }
 
-    // === 1. メンション検出 ===
-    const botMentioned = message.mentions.has(client.user.id);
+    // === 1. メンション検出（ユーザーメンション OR ロールメンション） ===
+    const botMentionedDirect = message.mentions.has(client.user.id);
+    // Botに付与されているロールがメンションされているか確認
+    const botMember = message.guild?.members.cache.get(client.user.id);
+    const botRoleIds = botMember?.roles.cache.map(r => r.id) || [];
+    const botMentionedViaRole = message.mentions.roles.some(r => botRoleIds.includes(r.id));
+    const botMentioned = botMentionedDirect || botMentionedViaRole;
+
     console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
     console.log(`📝 メッセージ内容: "${message.content}"`);
-    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
+    console.log(`🤖 ユーザーメンション: ${botMentionedDirect ? 'あり ✅' : 'なし ❌'} / ロールメンション: ${botMentionedViaRole ? 'あり ✅' : 'なし ❌'}`);
 
     if (!botMentioned) {
       console.log('❌ ボットへのメンションなし → 処理スキップ');
@@ -327,19 +333,23 @@ async function handleMessage(message, client) {
     console.log('✅ メンション検出成功 → 処理続行');
 
     // === 2. 権限チェック ===
-    const botMember = message.guild?.members.cache.get(client.user.id);
     if (botMember && !message.channel.permissionsFor(botMember).has(PermissionsBitField.Flags.SendMessages)) {
       console.warn('⚠️ 送信権限なし');
       return;
     }
 
-    // === 3. コンテンツ抽出 ===
-    const botMention = `<@${client.user.id}>`;
+    // === 3. コンテンツ抽出（ユーザーメンション・ニックネームメンション・ロールメンションを除去） ===
+    const botMentionStr = `<@${client.user.id}>`;
     const botMentionNick = `<@!${client.user.id}>`;
-    let questionText = message.content
-      .replace(new RegExp(botMention, 'g'), '')
-      .replace(new RegExp(botMentionNick, 'g'), '')
-      .trim();
+    let questionText = message.content;
+    // ユーザーメンション除去
+    questionText = questionText.replace(new RegExp(botMentionStr, 'g'), '');
+    questionText = questionText.replace(new RegExp(botMentionNick, 'g'), '');
+    // ロールメンション除去（Botが持つ全ロールIDを除去）
+    for (const roleId of botRoleIds) {
+      questionText = questionText.replace(new RegExp(`<@&${roleId}>`, 'g'), '');
+    }
+    questionText = questionText.trim();
 
     console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
 
@@ -738,11 +748,17 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       return;
     }
 
-    // === 1. メンション検出 ===
-    const botMentioned = message.mentions.has(client.user.id);
+    // === 1. メンション検出（ユーザーメンション OR ロールメンション） ===
+    const botMentionedDirect = message.mentions.has(client.user.id);
+    // Botに付与されているロールがメンションされているか確認
+    const botMemberRef = message.guild?.members.cache.get(client.user.id);
+    const botRoleIdsRef = botMemberRef?.roles.cache.map(r => r.id) || [];
+    const botMentionedViaRole = message.mentions.roles.some(r => botRoleIdsRef.includes(r.id));
+    const botMentioned = botMentionedDirect || botMentionedViaRole;
+
     console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
     console.log(`📝 メッセージ内容: "${message.content}"`);
-    console.log(`🤖 ボットへのメンション: ${botMentioned ? 'あり ✅' : 'なし ❌'}`);
+    console.log(`🤖 ユーザーメンション: ${botMentionedDirect ? 'あり ✅' : 'なし ❌'} / ロールメンション: ${botMentionedViaRole ? 'あり ✅' : 'なし ❌'}`);
 
     if (!botMentioned) {
       console.log('❌ ボットへのメンションなし → 処理スキップ');
@@ -759,13 +775,19 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       return;
     }
 
-    // === 3. コンテンツ抽出 ===
+    // === 3. コンテンツ抽出（ユーザーメンション・ニックネームメンション・ロールメンションを除去） ===
     const botMention = `<@${client.user.id}>`;
     const botMentionNick = `<@!${client.user.id}>`;
-    let questionText = message.content
-      .replace(new RegExp(botMention, 'g'), '')
-      .replace(new RegExp(botMentionNick, 'g'), '')
-      .trim();
+    let questionText = message.content;
+    // ユーザーメンション除去
+    questionText = questionText.replace(new RegExp(botMention, 'g'), '');
+    questionText = questionText.replace(new RegExp(botMentionNick, 'g'), '');
+    // ロールメンション除去（Botが持つ全ロールIDを除去）
+    const botRoleIds2 = botMember?.roles.cache.map(r => r.id) || [];
+    for (const roleId of botRoleIds2) {
+      questionText = questionText.replace(new RegExp(`<@&${roleId}>`, 'g'), '');
+    }
+    questionText = questionText.trim();
 
     console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
 
