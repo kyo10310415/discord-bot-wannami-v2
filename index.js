@@ -25,9 +25,8 @@ const logger = require('./utils/logger');
 const discordHandler = require('./handlers/discord-handler');
 const mentionHandler = require('./handlers/mention-handler');
 const buttonHandler = require('./handlers/button-handler');
-const { initializeServices } = require('./services/google-apis');
 const knowledgeBase = require('./services/knowledge-base');
-const { initializeRAG } = require('./services/rag-system');
+const { initializeKnowledgeServices } = require('./services/knowledge-service-initializer');
 const { qaLoggerService } = require('./services/qa-logger');
 
 // 新機能: Q&A自動生成・週次送信サービス
@@ -41,7 +40,6 @@ const { slackNotifier } = require('./services/slack-notifier');
 
 // 新機能: YouTube分析サービス
 const { youtubeAnalyzer } = require('./services/youtube-analyzer');
-const { knowledgeSourceProvider } = require('./services/knowledge-source-provider');
 const { closePool } = require('./db/pool');
 
 const app = express();
@@ -207,17 +205,9 @@ client.once('ready', async () => {
     // 各種サービス初期化
     logger.info('🔄 サービス初期化開始...');
 
-    // Google APIs初期化
-    await initializeServices();
-    logger.success('✅ Google APIs初期化完了');
-
-    // 知識ベース初期化
-    await knowledgeBase.initialize();
-    logger.success('✅ 知識ベース初期化完了');
-
-    // RAGシステム初期化
-    await initializeRAG();
-    logger.success('✅ RAGシステム初期化完了');
+    // Web管理画面と共通の知識ベース・RAG初期化
+    await initializeKnowledgeServices();
+    logger.success('✅ 知識ベース・RAGシステム初期化完了');
 
     // Q&A記録サービス初期化
     if (env.QA_SPREADSHEET_ID) {
@@ -744,12 +734,11 @@ async function startServer() {
       logger.info('');
     });
 
-    try {
-      await knowledgeSourceProvider.initialize();
-      logger.success('✅ ナレッジソース保存先の初期化完了');
-    } catch (error) {
-      logger.errorDetail('ナレッジソース保存先の初期化失敗:', error);
-    }
+    // Discord Gatewayの接続状態に関係なく、管理画面の回答テストを利用可能にする。
+    // 管理APIから呼ばれた場合も同じPromiseを待つため、初期化は重複しない。
+    initializeKnowledgeServices().catch((error) => {
+      logger.errorDetail('知識ベース・RAGシステム初期化失敗:', error);
+    });
 
     // ✅ 追加: Discord接続状態を定期ログ（多重登録防止）
     if (!global.__discordStatusIntervalStarted) {

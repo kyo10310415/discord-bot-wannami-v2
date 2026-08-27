@@ -37,3 +37,22 @@ test('answer preview returns the exact sources passed to answer generation', asy
   assert.equal(previewResponse.answer, 'レッスン1の開始前に、必要な準備を済ませてください。');
   assert.equal(previewResponse.knowledgeResults, knowledgeResults);
 });
+
+test('answer preview surfaces generation errors while Discord keeps its fallback response', async (t) => {
+  const originalSearch = ragSystem._searchKnowledge;
+  ragSystem._searchKnowledge = async () => {
+    throw Object.assign(new Error('quota exceeded'), { status: 429 });
+  };
+  t.after(() => {
+    ragSystem._searchKnowledge = originalSearch;
+  });
+
+  await assert.rejects(
+    ragSystem.generateKnowledgeOnlyResponsePreview('配信準備は？'),
+    (error) => error.status === 429
+  );
+  assert.equal(
+    await ragSystem.generateKnowledgeOnlyResponse('配信準備は？'),
+    '申し訳ございません。現在知識ベースにアクセスできません。しばらく待ってから再度お試しください。'
+  );
+});

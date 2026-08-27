@@ -1257,6 +1257,7 @@ ${imageUrls.length === 0 ? '7. 🚨 画像が添付されていないため、�
 
     } catch (error) {
       logger.errorDetail('知識ベース限定応答エラー:', error);
+      if (includeRetrievalTrace) throw error;
       return formatResponse('申し訳ございません。現在知識ベースにアクセスできません。しばらく待ってから再度お試しください。');
     }
   }

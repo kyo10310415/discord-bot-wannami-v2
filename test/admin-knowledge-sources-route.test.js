@@ -9,6 +9,8 @@ const migration = require('../db/migrate');
 migration.runMigrations = async () => ({ applied: 0 });
 
 const ragService = require('../services/rag-system');
+const knowledgeInitializer = require('../services/knowledge-service-initializer');
+knowledgeInitializer.initializeKnowledgeServices = async () => ({ initialized: true });
 const { knowledgeSourceRepository } = require('../services/knowledge-source-repository');
 knowledgeSourceRepository.list = async () => [{
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -26,6 +28,7 @@ knowledgeSourceRepository.getStats = async () => ({
 });
 
 const router = require('../routes/admin-knowledge-sources');
+const { answerPreviewErrorMessage } = router;
 
 test('admin source API returns list and stats from the repository', async (t) => {
   const app = express();
@@ -100,4 +103,15 @@ test('admin answer preview returns the generated answer and its semantic sources
   assert.equal(body.results[0].title, 'レッスン1');
   assert.equal(body.results[0].lessonNumber, 1);
   assert.equal(body.results[0].score, 0.82);
+});
+
+test('answer preview errors provide safe and actionable OpenAI guidance', () => {
+  assert.equal(
+    answerPreviewErrorMessage({ status: 401, message: 'Incorrect API key' }),
+    'OpenAI APIの認証に失敗しました。RenderのOPENAI_API_KEYを確認してください。'
+  );
+  assert.equal(
+    answerPreviewErrorMessage({ status: 429, message: 'quota exceeded' }),
+    'OpenAI APIの利用上限に達しています。OpenAIの利用枠と請求設定を確認してください。'
+  );
 });

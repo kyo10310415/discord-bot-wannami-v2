@@ -4,6 +4,7 @@ const { knowledgeSourceRepository } = require('../services/knowledge-source-repo
 const { importKnowledgeSourcesFromSpreadsheet } = require('../services/knowledge-source-importer');
 const { requestKnowledgeRefresh, getRefreshState } = require('../services/knowledge-refresh-queue');
 const ragService = require('../services/rag-system');
+const { initializeKnowledgeServices } = require('../services/knowledge-service-initializer');
 const { validateSourceInput, isUuid } = require('../utils/source-validation');
 const logger = require('../utils/logger');
 
@@ -11,6 +12,24 @@ const router = express.Router();
 
 function isValidationError(error) {
   return ['必須', 'URL', '文字以内', '真偽値'].some((message) => error.message?.includes(message));
+}
+
+function answerPreviewErrorMessage(error) {
+  const message = String(error?.message || '').toLowerCase();
+  const status = Number(error?.status || error?.statusCode || 0);
+  if (status === 401 || message.includes('api key') || message.includes('authentication')) {
+    return 'OpenAI APIの認証に失敗しました。RenderのOPENAI_API_KEYを確認してください。';
+  }
+  if (status === 429 || message.includes('quota') || message.includes('rate limit')) {
+    return 'OpenAI APIの利用上限に達しています。OpenAIの利用枠と請求設定を確認してください。';
+  }
+  if (message.includes('timeout') || message.includes('timed out')) {
+    return '回答生成がタイムアウトしました。少し時間を置いて再度お試しください。';
+  }
+  if (message.includes('database') || message.includes('postgres')) {
+    return '知識データベースへ接続できません。RenderのDATABASE_URLとPostgreSQLの状態を確認してください。';
+  }
+  return '回答生成に失敗しました。Renderログの「知識ベース限定応答エラー」を確認してください。';
 }
 
 router.use(async (req, res, next) => {
@@ -125,6 +144,7 @@ router.post('/actions/test-search', async (req, res, next) => {
     if (!query) return res.status(400).json({ error: '質問を入力してください' });
     if (query.length > 500) return res.status(400).json({ error: '質問は500文字以内で入力してください' });
 
+    await initializeKnowledgeServices();
     const preview = await ragService.generateKnowledgeOnlyResponsePreview(query);
     res.json({
       query,
@@ -140,7 +160,8 @@ router.post('/actions/test-search', async (req, res, next) => {
       }))
     });
   } catch (error) {
-    next(error);
+    logger.errorDetail('回答テストエラー:', error);
+    res.status(503).json({ error: answerPreviewErrorMessage(error) });
   }
 });
 
@@ -150,3 +171,4 @@ router.use((error, req, res, next) => {
 });
 
 module.exports = router;
+module.exports.answerPreviewErrorMessage = answerPreviewErrorMessage;
