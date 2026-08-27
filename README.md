@@ -39,7 +39,7 @@ VTuber育成スクール用Discord自動応答チャットボット - Q&A自動�
 - ✅ Discord Interactions API
 - ✅ @わなみさんメンション対応（AI統合）
 - ✅ /soudanスラッシュコマンド
-- ✅ AI知識ベース統合（スプレッドシートA-G列対応）
+- ✅ AI知識ベース管理（PostgreSQL + 管理Web UI）
 - ✅ 画像検出・抽出・Vision解析機能
 - ✅ RAGシステム（OpenAI統合）
 - ✅ Notion/WEBサイト読み込み
@@ -88,7 +88,7 @@ GOOGLE_CLIENT_ID=your_client_id
 GOOGLE_CLIENT_CERT_URL=your_cert_url
 
 # スプレッドシートID
-KNOWLEDGE_SPREADSHEET_ID=16BO2pz7Wi36MKwxFZFo5YyaANzVfajkPkXtw1xtSJbQ
+KNOWLEDGE_BASE_SPREADSHEET_ID=16BO2pz7Wi36MKwxFZFo5YyaANzVfajkPkXtw1xtSJbQ
 QA_SPREADSHEET_ID=your_qa_spreadsheet_id
 STUDENT_SPREADSHEET_ID=1iqrAhNjW8jTvobkur5N_9r9uUWFHCKqrhxM72X5z-iM
 
@@ -96,6 +96,13 @@ STUDENT_SPREADSHEET_ID=1iqrAhNjW8jTvobkur5N_9r9uUWFHCKqrhxM72X5z-iM
 PORT=10000
 NODE_ENV=production
 LOG_LEVEL=info
+
+# AI回答用ソース管理DB
+DATABASE_URL=postgresql://user:password@host:5432/database
+DATABASE_SSL=require
+DATABASE_SSL_REJECT_UNAUTHORIZED=true
+KNOWLEDGE_SOURCE_PROVIDER=database
+ADMIN_ROLES=admin,owner
 ```
 
 詳細な設定方法は `SETUP.md` を参照してください。
@@ -106,7 +113,25 @@ LOG_LEVEL=info
 npm install
 ```
 
-### 3. Google スプレッドシート準備
+### 3. PostgreSQLと管理Web UI
+
+AI回答用ソース一覧はPostgreSQLへ保存されます。初回デプロイ時にテーブルは自動作成されます。
+
+```bash
+# 手動でDBを準備する場合
+npm run db:migrate
+
+# 既存スプレッドシートのAI回答用ソース一覧を一括移行
+npm run knowledge:import
+```
+
+管理画面は `https://<Botのホスト>/admin/sources` です。WannaV SSOで認証され、`ADMIN_ROLES` に含まれるロールだけがアクセスできます。
+
+管理画面では、ソースの登録・編集・無効化・削除、取得状態の確認、AI回答への再反映、検索結果テスト、既存シートからの一括移行ができます。
+
+> Q&A回答ログ、生徒情報、週次配信用の「回答サンプル」は従来どおりGoogleスプレッドシートを使用します。
+
+### 4. Google スプレッドシート準備
 
 #### 知識ベーススプレッドシートに「回答サンプル」シートを作成
 
@@ -118,7 +143,7 @@ npm install
 |-----|-----|-----|-----|
 | タイムスタンプ | 質問 | 回答 | 使用済み |
 
-### 4. 初回Q&Aサンプル生成
+### 5. 初回Q&Aサンプル生成
 
 ```bash
 # 方法1: npm scriptで30個生成
@@ -131,7 +156,7 @@ POST http://your-server/api/qa-automation/generate-full-set
 
 **注意**: 30個の生成には約5〜10分かかります。
 
-### 5. サーバー起動
+### 6. サーバー起動
 
 ```bash
 npm start
@@ -242,6 +267,12 @@ npm run knowledge:update
 
 # 知識ベース状態確認
 npm run knowledge:status
+
+# PostgreSQLテーブル作成
+npm run db:migrate
+
+# AI回答用ソース一覧をスプレッドシートからDBへ移行
+npm run knowledge:import
 ```
 
 ---
