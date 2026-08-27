@@ -44,7 +44,7 @@ STUDENT_SPREADSHEET_ID=1iqrAhNjW8jTvobkur5N_9r9uUWFHCKqrhxM72X5z-iM
 
 # AI回答用ソース管理DB
 DATABASE_URL=postgresql://user:password@host:5432/database
-DATABASE_SSL=require
+DATABASE_SSL=disable
 DATABASE_SSL_REJECT_UNAUTHORIZED=true
 KNOWLEDGE_SOURCE_PROVIDER=database
 ADMIN_ROLES=admin,owner
@@ -171,7 +171,9 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY--
 
 ### AI回答用ソース一覧のPostgreSQL移行
 
-1. RenderなどでPostgreSQLを作成し、接続URLを `DATABASE_URL` に設定します。
+1. RenderでWebサービスと同じリージョンにPostgreSQLを作成し、内部URLを `DATABASE_URL` に設定します。
+   - Render内部URL: `DATABASE_SSL=disable`
+   - 外部URL: `DATABASE_SSL=require`
 2. `KNOWLEDGE_SOURCE_PROVIDER=database` を設定します。
 3. 初回のみ、以下のどちらかで既存のAI回答用ソース一覧を移行します。
 

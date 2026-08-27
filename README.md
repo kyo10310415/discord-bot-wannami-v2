@@ -99,7 +99,7 @@ LOG_LEVEL=info
 
 # AI回答用ソース管理DB
 DATABASE_URL=postgresql://user:password@host:5432/database
-DATABASE_SSL=require
+DATABASE_SSL=disable # Renderの同一リージョン内部URLを使う場合
 DATABASE_SSL_REJECT_UNAUTHORIZED=true
 KNOWLEDGE_SOURCE_PROVIDER=database
 ADMIN_ROLES=admin,owner
@@ -116,6 +116,8 @@ npm install
 ### 3. PostgreSQLと管理Web UI
 
 AI回答用ソース一覧はPostgreSQLへ保存されます。初回デプロイ時にテーブルは自動作成されます。
+
+RenderではWebサービスと同じリージョンにPostgreSQLを作成し、`DATABASE_URL`には内部URLを使用してください。内部URLの場合は`DATABASE_SSL=disable`、外部URLの場合は`DATABASE_SSL=require`を指定します。
 
 ```bash
 # 手動でDBを準備する場合
