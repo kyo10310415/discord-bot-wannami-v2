@@ -1,7 +1,19 @@
 // services/knowledge-base.js - 知識ベース構築サービス v2.7.0（クリーン版）
 
+const { createHash } = require('crypto');
 const { detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
 const { knowledgeSourceProvider } = require('./knowledge-source-provider');
+const { openAIService } = require('./openai-service');
+const { OPENAI_MODELS, RAG_CONFIG } = require('../config/constants');
+const {
+  aggregateRankedChunks,
+  cosineSimilarity,
+  createDocumentChunks,
+  extractLessonNumber,
+  extractSourceLessonNumber,
+  lexicalSimilarity,
+  meaningfulTokens
+} = require('./knowledge-retrieval');
 const { loadNotionContent, loadWebsiteContent, loadImageUrlInfo } = require('../utils/content-loaders');
 const logger = require('../utils/logger');
 
@@ -9,8 +21,12 @@ class KnowledgeBaseService {
   constructor() {
     this.documentImages = [];
     this.documents = [];
+    this.searchChunks = [];
     this.lastBuildTime = null;
     this.isInitialized = false;
+    this.embeddingService = openAIService;
+    this.embeddingCache = new Map();
+    this.indexVersion = 'semantic-v1';
   }
 
   async initialize() {
@@ -46,6 +62,7 @@ class KnowledgeBaseService {
         console.log('⚠️ 有効なナレッジソースが登録されていません');
         this.documentImages = [];
         this.documents = [];
+        this.searchChunks = [];
         this.lastBuildTime = new Date().toISOString();
         this.isInitialized = true;
         return [];
@@ -55,6 +72,7 @@ class KnowledgeBaseService {
 
       const documents = [];
       const documentImages = [];
+      const searchChunks = [];
       let totalImages = 0;
 
       for (const urlInfo of urlList) {
@@ -69,6 +87,7 @@ class KnowledgeBaseService {
           }
           
           const doc = {
+            id: urlInfo.id || null,
             source: urlInfo.fileName,
             url: urlInfo.url,
             classification: urlInfo.classification || '',
@@ -89,6 +108,9 @@ class KnowledgeBaseService {
 
           documents.push(doc);
 
+          const indexedChunks = await this._indexDocument(doc);
+          searchChunks.push(...indexedChunks);
+
           await knowledgeSourceProvider.markReady(urlInfo, result.content.length);
 
           if (result.images && result.images.length > 0) {
@@ -105,11 +127,13 @@ class KnowledgeBaseService {
 
       this.documents = documents;
       this.documentImages = documentImages;
+      this.searchChunks = searchChunks;
       this.lastBuildTime = new Date().toISOString();
       this.isInitialized = true;
 
       console.log(`✅ 知識ベース構築完了`);
       console.log(`📄 文書数: ${documents.length}`);
+      console.log(`🧩 意味検索チャンク数: ${searchChunks.length}`);
       console.log(`🖼️ 総画像数: ${totalImages}`);
       console.log(`📊 総文字数: ${documents.reduce((sum, doc) => sum + doc.content.length, 0)}`);
 
@@ -128,244 +152,187 @@ class KnowledgeBaseService {
     }
   }
 
-  _tokenizeQuery(query) {
-    const tokens = [];
-    
-    const alphanumericWords = query.match(/[a-zA-Z0-9]+/g) || [];
-    tokens.push(...alphanumericWords);
-    
-    const hiragana = query.match(/[ぁ-ん]{2,}/g) || [];
-    const katakana = query.match(/[ァ-ヴ]{2,}/g) || [];
-    const kanji = query.match(/[一-龯]{2,}/g) || [];
-    
-    tokens.push(...hiragana, ...katakana, ...kanji);
-    
-    const singleChars = query.match(/[ァ-ヴA-Z]/g) || [];
-    tokens.push(...singleChars);
-    
-    const uniqueTokens = [...new Set(tokens.map(t => t.toLowerCase()))];
-    
-    return uniqueTokens;
-  }
+  async _indexDocument(document) {
+    const chunks = createDocumentChunks(document, {
+      maxSize: RAG_CONFIG.MAX_CHUNK_SIZE,
+      overlap: RAG_CONFIG.CHUNK_OVERLAP
+    });
+    if (!chunks.length) return [];
 
-  /**
-   * ✨ Phase 12: G列完全一致判定を強化
-   * N-gram分解の前に、G列キーワードと検索クエリを直接比較
-   */
-  _checkExactRemarksMatch(remarks, query) {
-    if (!remarks || !query) {
-      return { matched: false, matchedKeywords: [] };
-    }
-
-    const remarksLower = remarks.toLowerCase();
-    const queryLower = query.toLowerCase();
-    const matchedKeywords = [];
-
-    // G列に複数のキーワードがカンマ区切りで含まれている可能性を考慮
-    const remarksKeywords = remarks.split(/[,、]/).map(k => k.trim()).filter(k => k.length > 0);
-
-    for (const keyword of remarksKeywords) {
-      const keywordLower = keyword.toLowerCase();
-      
-      // 完全一致チェック（検索クエリにG列のキーワードが含まれているか）
-      if (queryLower.includes(keywordLower)) {
-        matchedKeywords.push(keyword);
-      }
-    }
-
-    return {
-      matched: matchedKeywords.length > 0,
-      matchedKeywords: matchedKeywords
+    const contentHash = createHash('sha256').update(document.content, 'utf8').digest('hex');
+    const cacheKey = {
+      contentHash,
+      embeddingModel: OPENAI_MODELS.EMBEDDING,
+      indexVersion: this.indexVersion
     };
+    const memoryCacheKey = `${document.id || document.url}:${contentHash}:${OPENAI_MODELS.EMBEDDING}:${this.indexVersion}`;
+
+    const memoryCached = this.embeddingCache.get(memoryCacheKey);
+    if (memoryCached?.length === chunks.length) {
+      return this._mergeIndexedChunks(chunks, memoryCached);
+    }
+
+    try {
+      const persistedChunks = await knowledgeSourceProvider.loadCachedChunks(document, cacheKey);
+      if (persistedChunks.length === chunks.length && persistedChunks.every((chunk) => chunk.embedding.length > 0)) {
+        this.embeddingCache.set(memoryCacheKey, persistedChunks);
+        logger.info(`♻️ 埋め込みキャッシュ利用: ${document.source} (${persistedChunks.length}チャンク)`);
+        return this._mergeIndexedChunks(chunks, persistedChunks);
+      }
+    } catch (error) {
+      logger.warn(`埋め込みキャッシュ読込失敗 (${document.source}): ${error.message}`);
+    }
+
+    try {
+      const embeddings = await this._createEmbeddingsInBatches(chunks.map((chunk) =>
+        this._embeddingInput(document, chunk.content)));
+      const indexedChunks = chunks.map((chunk, index) => ({
+        ...chunk,
+        embedding: embeddings[index]
+      }));
+
+      const cacheChunks = indexedChunks.map((chunk) => ({
+        chunkIndex: chunk.chunkIndex,
+        content: chunk.content,
+        embedding: chunk.embedding
+      }));
+      this.embeddingCache.set(memoryCacheKey, cacheChunks);
+
+      try {
+        await knowledgeSourceProvider.saveCachedChunks(document, cacheKey, cacheChunks);
+      } catch (error) {
+        logger.warn(`埋め込みキャッシュ保存失敗 (${document.source}): ${error.message}`);
+      }
+
+      logger.info(`🧩 意味検索インデックス作成: ${document.source} (${indexedChunks.length}チャンク)`);
+      return indexedChunks;
+    } catch (error) {
+      logger.warn(`意味検索インデックス作成失敗 (${document.source})。本文検索へフォールバック: ${error.message}`);
+      return chunks.map((chunk) => ({ ...chunk, embedding: null }));
+    }
   }
 
-  searchKnowledge(query, options = {}) {
+  _mergeIndexedChunks(chunks, cachedChunks) {
+    const cachedByIndex = new Map(cachedChunks.map((chunk) => [chunk.chunkIndex, chunk]));
+    return chunks.map((chunk) => ({
+      ...chunk,
+      embedding: cachedByIndex.get(chunk.chunkIndex)?.embedding || null
+    }));
+  }
+
+  _embeddingInput(document, content) {
+    return [
+      `タイトル: ${document.source}`,
+      document.classification ? `分類: ${document.classification}` : '',
+      document.category ? `カテゴリ: ${document.category}` : '',
+      document.remarks ? `備考: ${document.remarks}` : '',
+      `本文:\n${content}`
+    ].filter(Boolean).join('\n');
+  }
+
+  async _createEmbeddingsInBatches(texts) {
+    if (!this.embeddingService.isInitialized && !this.embeddingService.initialize()) {
+      throw new Error('OpenAI埋め込みサービスを初期化できませんでした');
+    }
+
+    const batchSize = Math.max(1, Number(process.env.EMBEDDING_BATCH_SIZE || 32));
+    const embeddings = [];
+    for (let start = 0; start < texts.length; start += batchSize) {
+      const batch = texts.slice(start, start + batchSize);
+      embeddings.push(...await this.embeddingService.createEmbeddings(batch));
+    }
+    return embeddings;
+  }
+
+  _tokenizeQuery(query) {
+    return meaningfulTokens(query);
+  }
+
+  async searchKnowledge(query, options = {}) {
     try {
       const {
         maxResults = 5,
-        minScore = 0.05,
-        topK = 5,
+        minScore = RAG_CONFIG.SIMILARITY_THRESHOLD,
+        topK = RAG_CONFIG.TOP_K_CHUNKS,
         includeMetadata = true,
-        filters = {}
+        filters = {},
+        lessonNumber: requestedLessonNumber = null
       } = options;
 
-      logger.info(`🔍 知識ベース検索: "${query}"`);
-      logger.info(`📊 検索オプション: maxResults=${maxResults}, minScore=${minScore}, includeMetadata=${includeMetadata}`);
-      logger.info(`📊 検索前の状態: 初期化=${this.isInitialized}, 文書数=${this.documents.length}`);
+      logger.info(`🔍 全文意味検索: "${query}"`);
+      logger.info(`📊 検索前の状態: 初期化=${this.isInitialized}, 文書数=${this.documents.length}, チャンク数=${this.searchChunks.length}`);
 
-      if (!this.isInitialized || this.documents.length === 0) {
-        logger.warn('⚠️ 知識ベースが初期化されていないか、文書が空です');
-        logger.warn(`詳細: isInitialized=${this.isInitialized}, documents.length=${this.documents.length}`);
+      if (!this.isInitialized || this.searchChunks.length === 0) {
+        logger.warn('⚠️ 知識ベースが初期化されていないか、検索チャンクが空です');
         return [];
       }
 
-      const queryTokens = this._tokenizeQuery(query);
-      logger.info(`🔑 検索キーワード (${queryTokens.length}個): ${queryTokens.join(', ')}`);
-
-      const queryLower = query.toLowerCase();
-
-      let filteredDocuments = this.documents;
-      
-      if (filters.classification) {
-        filteredDocuments = filteredDocuments.filter(doc => 
-          doc.classification === filters.classification
-        );
-        logger.info(`🔍 分類フィルタ適用: ${filters.classification} (${filteredDocuments.length}件)`);
-      }
-
-      if (filters.goodBadExample) {
-        filteredDocuments = filteredDocuments.filter(doc => 
-          doc.goodBadExample === filters.goodBadExample
-        );
-        logger.info(`🔍 良い例/悪い例フィルタ適用: ${filters.goodBadExample} (${filteredDocuments.length}件)`);
-      }
-
-      if (filters.category) {
-        filteredDocuments = filteredDocuments.filter(doc => 
-          doc.category === filters.category
-        );
-        logger.info(`🔍 カテゴリフィルタ適用: ${filters.category} (${filteredDocuments.length}件)`);
-      }
-
-      // 🎯 remarksKeyword フィルタ: G列（備考）にキーワードが含まれるものを抽出
-      if (filters.remarksKeyword) {
-        filteredDocuments = filteredDocuments.filter(doc => 
-          doc.remarks && doc.remarks.includes(filters.remarksKeyword)
-        );
-        logger.info(`🎯 備考キーワードフィルタ適用: "${filters.remarksKeyword}" (${filteredDocuments.length}件)`);
-      }
-
-      const scoredDocuments = filteredDocuments.map(doc => {
-        const contentLower = doc.content.toLowerCase();
-        let score = 0;
-        let matchDetails = [];
-
-        // ✨ Phase 12: G列完全一致の事前チェック（N-gram分解の影響を受けない）
-        const remarksMatch = this._checkExactRemarksMatch(doc.remarks, query);
-        if (remarksMatch.matched) {
-          const exactMatchBonus = remarksMatch.matchedKeywords.length * 5.0;
-          score += exactMatchBonus;
-          matchDetails.push(`🎯G列完全一致(${remarksMatch.matchedKeywords.join(', ')})+${exactMatchBonus.toFixed(1)}`);
-          
-          logger.info(`  🎯 ${doc.source}: G列完全一致「${remarksMatch.matchedKeywords.join(', ')}」 +${exactMatchBonus.toFixed(1)}`);
-        }
-
-        // トークンマッチング
-        queryTokens.forEach(token => {
-          const matches = (contentLower.match(new RegExp(token, 'gi')) || []).length;
-          if (matches > 0) {
-            const tokenScore = Math.min(matches * 0.05, 0.3);
-            score += tokenScore;
-            matchDetails.push(`"${token}":${matches}回(+${tokenScore.toFixed(2)})`);
-          }
-        });
-
-        // 完全一致ボーナス
-        if (contentLower.includes(queryLower)) {
-          score += 0.5;
-          matchDetails.push('完全一致+0.5');
-        }
-
-        // カテゴリ一致ボーナス
-        if (doc.category) {
-          const categoryLower = doc.category.toLowerCase();
-          if (queryLower.includes(categoryLower) || categoryLower.includes(queryLower)) {
-            score += 0.3;
-            matchDetails.push('カテゴリ一致+0.3');
-          }
-        }
-
-        // 分類一致ボーナス
-        if (doc.classification) {
-          const classificationLower = doc.classification.toLowerCase();
-          if (queryLower.includes(classificationLower) || classificationLower.includes(queryLower)) {
-            score += 0.4;
-            matchDetails.push('分類一致+0.4');
-          }
-        }
-
-        // ファイル名一致ボーナス
-        const sourceLower = doc.source.toLowerCase();
-        queryTokens.forEach(token => {
-          if (sourceLower.includes(token)) {
-            score += 0.2;
-            matchDetails.push(`ファイル名一致("${token}")+0.2`);
-          }
-        });
-
-        // ✅ 備考欄（G列）のキーワードマッチングを最優先
-        if (doc.remarks) {
-          const remarksLower = doc.remarks.toLowerCase();
-          
-          // クエリ全体が備考に含まれる場合、超強力なボーナス
-          if (remarksLower.includes(queryLower)) {
-            score += 3.0;
-            matchDetails.push('備考完全一致+3.0');
-          }
-          
-          // 個別トークンマッチング
-          queryTokens.forEach(token => {
-            if (remarksLower.includes(token)) {
-              score += 1.0;
-              matchDetails.push(`備考一致("${token}")+1.0`);
-            }
-          });
-        }
-
-        return {
-          ...doc,
-          score: score,
-          rawScore: score,
-          similarity: score,
-          title: doc.source,
-          answer: this._extractRelevantContent(doc.content, queryTokens),
-          matchDetails: matchDetails,
-          metadata: includeMetadata ? {
-            source: doc.source,
-            classification: doc.classification,
-            category: doc.category,
-            type: doc.type,
-            goodBadExample: doc.goodBadExample,
-            remarks: doc.remarks,
-            url: doc.url
-          } : undefined
-        };
+      const parsedLessonNumber = Number(requestedLessonNumber);
+      const lessonNumber = requestedLessonNumber === null || requestedLessonNumber === undefined
+        ? extractLessonNumber(query)
+        : (Number.isSafeInteger(parsedLessonNumber) && parsedLessonNumber >= 0 ? parsedLessonNumber : null);
+      let candidateChunks = this.searchChunks.filter((chunk) => {
+        if (filters.classification && chunk.classification !== filters.classification) return false;
+        if (filters.goodBadExample && chunk.goodBadExample !== filters.goodBadExample) return false;
+        if (filters.category && chunk.category !== filters.category) return false;
+        if (filters.remarksKeyword && !chunk.remarks?.includes(filters.remarksKeyword)) return false;
+        return true;
       });
 
-      // スコアでソート（降順）
-      scoredDocuments.sort((a, b) => b.score - a.score);
+      if (lessonNumber !== null) {
+        candidateChunks = candidateChunks.filter((chunk) =>
+          extractSourceLessonNumber(chunk) === lessonNumber);
+        logger.info(`📚 レッスン番号の厳密フィルタ: レッスン${lessonNumber} (${candidateChunks.length}チャンク)`);
+        if (candidateChunks.length === 0) {
+          logger.warn(`⚠️ レッスン${lessonNumber}に一致するソースが見つからないため、他レッスンへはフォールバックしません`);
+          return [];
+        }
+      }
 
-      logger.info('\n📊 ===== スコア計算詳細（上位10件） =====');
-      scoredDocuments.slice(0, 10).forEach((doc, i) => {
-        const details = doc.matchDetails.length > 0 ? doc.matchDetails.join(', ') : 'マッチなし';
-        logger.info(`[${i + 1}] ${doc.source} [${doc.classification}/${doc.goodBadExample}]`);
-        logger.info(`    スコア: ${doc.score.toFixed(3)} (上限なし)`);
-        logger.info(`    マッチ詳細: ${details}`);
+      if (candidateChunks.length === 0) return [];
+
+      let rankedChunks;
+      const hasCompleteSemanticIndex = candidateChunks.every((chunk) =>
+        Array.isArray(chunk.embedding) && chunk.embedding.length > 0);
+
+      if (hasCompleteSemanticIndex) {
+        try {
+          const [queryEmbedding] = await this._createEmbeddingsInBatches([query]);
+          rankedChunks = candidateChunks.map((chunk) => ({
+            ...chunk,
+            score: Math.max(0, Math.min(1, cosineSimilarity(queryEmbedding, chunk.embedding))),
+            searchMode: 'semantic'
+          }));
+        } catch (error) {
+          logger.warn(`意味検索に失敗したため本文検索へフォールバック: ${error.message}`);
+        }
+      }
+
+      if (!rankedChunks) {
+        rankedChunks = candidateChunks.map((chunk) => ({
+          ...chunk,
+          score: lexicalSimilarity(`${chunk.source}\n${chunk.content}`, query),
+          searchMode: 'lexical-fallback'
+        }));
+      }
+
+      rankedChunks.sort((left, right) => right.score - left.score);
+      const effectiveMinScore = lessonNumber !== null ? 0 : minScore;
+      const selectedChunks = rankedChunks
+        .filter((chunk) => chunk.score >= effectiveMinScore)
+        .slice(0, Math.max(topK, maxResults));
+
+      const results = aggregateRankedChunks(selectedChunks, {
+        maxResults,
+        maxChunksPerSource: 3,
+        includeMetadata
       });
-      logger.info('==========================================\n');
 
-      // minScoreでフィルタリング
-      const results = scoredDocuments
-        .filter(doc => doc.score >= minScore)
-        .slice(0, Math.max(maxResults, topK));
-
-      logger.info(`✅ 検索完了: ${results.length}件ヒット (最高スコア: ${results[0]?.score.toFixed(3) || 0})`);
-
-      if (results.length > 0) {
-        logger.info('🔍 検索結果のメタデータサンプル（最初の3件）:');
-        results.slice(0, 3).forEach((result, idx) => {
-          logger.info(`  ${idx + 1}. [${result.metadata?.classification || 'なし'}/${result.metadata?.goodBadExample || 'なし'}] ${result.source}`);
-          logger.info(`     スコア: ${result.score.toFixed(3)}, メタデータ:`, JSON.stringify(result.metadata, null, 2));
-        });
-      }
-      
-      if (results.length === 0 && scoredDocuments.length > 0) {
-        logger.warn(`⚠️ minScore=${minScore}でフィルタリングされました。最高スコア: ${scoredDocuments[0].score.toFixed(3)}`);
-        logger.warn(`💡 ヒント: minScoreを下げるか、より関連性の高いキーワードで検索してください`);
-      }
-
+      logger.info(`✅ 全文検索完了: ${results.length}ソース (${selectedChunks.length}チャンク、方式=${rankedChunks[0]?.searchMode || 'none'})`);
+      results.forEach((result, index) => {
+        logger.info(`  ${index + 1}. ${result.source} - 関連度:${(result.score * 100).toFixed(1)}%`);
+      });
       return results;
-
     } catch (error) {
       logger.error('❌ 知識ベース検索エラー:', error);
       return [];
@@ -544,7 +511,9 @@ class KnowledgeBaseService {
     return {
       initialized: this.isInitialized,
       totalDocuments: this.documents.length,
+      totalChunks: this.searchChunks.length,
       totalDocumentImages: this.documentImages.length,
+      searchMode: 'semantic-full-text',
       sourceProvider: knowledgeSourceProvider.getName(),
       lastBuildTime: this.lastBuildTime,
       imagesBySource: this.documentImages.reduce((acc, img) => {
@@ -557,7 +526,9 @@ class KnowledgeBaseService {
   getStats() {
     return {
       totalDocuments: this.documents.length,
+      totalChunks: this.searchChunks.length,
       totalDocumentImages: this.documentImages.length,
+      searchMode: 'semantic-full-text',
       sourceProvider: knowledgeSourceProvider.getName(),
       lastBuildTime: this.lastBuildTime,
       imagesBySource: this.documentImages.reduce((acc, img) => {
@@ -574,6 +545,7 @@ class KnowledgeBaseService {
   reset() {
     this.documents = [];
     this.documentImages = [];
+    this.searchChunks = [];
     this.lastBuildTime = null;
     this.isInitialized = false;
     console.log('🔄 知識ベースサービスリセット完了');

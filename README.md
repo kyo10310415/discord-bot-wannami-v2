@@ -75,6 +75,8 @@ BOT_USER_ID=your_bot_user_id_here
 
 # OpenAI API設定
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_BATCH_SIZE=32
 
 # YouTube Data API設定（企画提案機能で使用）
 YOUTUBE_API_KEY=your_youtube_api_key_here
@@ -129,7 +131,11 @@ npm run knowledge:import
 
 管理画面は `https://<Botのホスト>/admin/sources` です。WannaV SSOで認証され、`ADMIN_ROLES` に含まれるロールだけがアクセスできます。
 
-管理画面では、ソースの登録・編集・無効化・削除、取得状態の確認、AI回答への再反映、検索結果テスト、既存シートからの一括移行ができます。
+管理画面では、ソースの登録・編集・無効化・削除、取得状態の確認、AI回答への再反映、全文意味検索テスト、既存シートからの一括移行ができます。
+
+ソース本文はチャンクへ分割してOpenAI Embeddingsで意味検索します。タイトルや単純なキーワード一致だけではなく、本文全体から質問と意味的に近い箇所を抽出して回答へ渡します。生成済みの埋め込みはPostgreSQLへ保存され、本文が変わらない限り再利用されます。
+
+質問に「レッスン1」などの番号が含まれる場合は、同じ番号をタイトルまたは備考に持つソースだけへ厳密に限定します。該当番号のソースがない場合、別レッスンの資料へはフォールバックしません。
 
 > Q&A回答ログ、生徒情報、週次配信用の「回答サンプル」は従来どおりGoogleスプレッドシートを使用します。
 

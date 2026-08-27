@@ -49,6 +49,10 @@ DATABASE_SSL_REJECT_UNAUTHORIZED=true
 KNOWLEDGE_SOURCE_PROVIDER=database
 ADMIN_ROLES=admin,owner
 
+# AI回答用ソースの全文意味検索
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+EMBEDDING_BATCH_SIZE=32
+
 # サーバー設定
 PORT=10000
 NODE_ENV=production
@@ -185,6 +189,8 @@ npm run knowledge:import
 または、管理画面 `/admin/sources` の「シートから移行」を実行します。同じURLがすでに存在する場合は更新されるため、再実行しても重複登録されません。
 
 移行後のソース登録・編集・無効化・削除は管理画面から行います。Google認証情報は、既存シートの初回移行とGoogle Docs／Slides本文の取得に引き続き必要です。
+
+各ソースの本文は全文が分割・ベクトル化され、埋め込みキャッシュがPostgreSQLの `knowledge_source_chunks` テーブルへ自動保存されます。初回デプロイまたは本文変更時のみ埋め込みを再生成します。質問にレッスン番号が含まれる場合は、同じ番号のソースだけが検索対象になります。
 
 Q&A回答ログ、生徒情報、週次配信用の「回答サンプル」は移行対象外で、従来どおりスプレッドシートを使用します。
 

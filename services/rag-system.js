@@ -299,7 +299,7 @@ class RAGSystem {
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 5,
-        minScore: 0.05,
+        minScore: 0.3,
         includeMetadata: true
       });
 
@@ -382,7 +382,7 @@ ${knowledgeContext || '関連する知識ベース情報が見つかりません
 
       const knowledgeResults = await this._searchKnowledge(userQuery, {
         maxResults: 3,
-        minScore: 0.05,
+        minScore: 0.3,
         includeMetadata: true
       });
 
@@ -460,8 +460,10 @@ ${visionContext}
       
       const knowledgeResults = await this._searchKnowledge(optimizedQuery, {
         maxResults: 50,
-        minScore: 0.005,
-        includeMetadata: true
+        topK: 50,
+        minScore: 0.2,
+        includeMetadata: true,
+        lessonNumber
       });
 
       logger.info(`✅ 検索完了: ${knowledgeResults.length}件ヒット`);
@@ -772,7 +774,7 @@ ${userQuery}
       // 🔍 検索オプションを構築
       const searchOptions = {
         maxResults: 5,
-        minScore: 0.05,
+        minScore: 0.3,
         includeMetadata: true
       };
 

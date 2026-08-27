@@ -2,6 +2,7 @@ const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
 const { isDatabaseConfigured, checkDatabaseConnection } = require('../db/pool');
 const { runMigrations } = require('../db/migrate');
 const { knowledgeSourceRepository } = require('./knowledge-source-repository');
+const { knowledgeChunkRepository } = require('./knowledge-chunk-repository');
 const { googleAPIsService } = require('./google-apis');
 const logger = require('../utils/logger');
 
@@ -82,6 +83,23 @@ class KnowledgeSourceProvider {
         logger.warn(`ソースエラー状態の保存失敗 (${source.fileName}): ${statusError.message}`);
       }
     }
+  }
+
+  async loadCachedChunks(source, cacheKey) {
+    if (!this.isDatabase() || !source.id) return [];
+    return knowledgeChunkRepository.listCached({
+      sourceId: source.id,
+      ...cacheKey
+    });
+  }
+
+  async saveCachedChunks(source, cacheKey, chunks) {
+    if (!this.isDatabase() || !source.id) return;
+    await knowledgeChunkRepository.replaceForSource({
+      sourceId: source.id,
+      ...cacheKey,
+      chunks
+    });
   }
 }
 

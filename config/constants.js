@@ -21,7 +21,7 @@ module.exports = {
   OPENAI_MODELS: {
     VISION: 'gpt-4o',
     TEXT: 'gpt-4o-mini',
-    EMBEDDING: 'text-embedding-3-small'
+    EMBEDDING: process.env.OPENAI_EMBEDDING_MODEL || 'text-embedding-3-small'
   },
   
   // RAG設定
