@@ -42,6 +42,13 @@ KNOWLEDGE_BASE_SPREADSHEET_ID=16BO2pz7Wi36MKwxFZFo5YyaANzVfajkPkXtw1xtSJbQ
 QA_SPREADSHEET_ID=            # Q&A記録用スプレッドシートID（オプション）
 STUDENT_SPREADSHEET_ID=1iqrAhNjW8jTvobkur5N_9r9uUWFHCKqrhxM72X5z-iM
 
+# AI回答用ソース管理DB
+DATABASE_URL=postgresql://user:password@host:5432/database
+DATABASE_SSL=require
+DATABASE_SSL_REJECT_UNAUTHORIZED=true
+KNOWLEDGE_SOURCE_PROVIDER=database
+ADMIN_ROLES=admin,owner
+
 # サーバー設定
 PORT=10000
 NODE_ENV=production
@@ -161,6 +168,23 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY--
 ---
 
 ## スプレッドシート設定
+
+### AI回答用ソース一覧のPostgreSQL移行
+
+1. RenderなどでPostgreSQLを作成し、接続URLを `DATABASE_URL` に設定します。
+2. `KNOWLEDGE_SOURCE_PROVIDER=database` を設定します。
+3. 初回のみ、以下のどちらかで既存のAI回答用ソース一覧を移行します。
+
+```bash
+npm run db:migrate
+npm run knowledge:import
+```
+
+または、管理画面 `/admin/sources` の「シートから移行」を実行します。同じURLがすでに存在する場合は更新されるため、再実行しても重複登録されません。
+
+移行後のソース登録・編集・無効化・削除は管理画面から行います。Google認証情報は、既存シートの初回移行とGoogle Docs／Slides本文の取得に引き続き必要です。
+
+Q&A回答ログ、生徒情報、週次配信用の「回答サンプル」は移行対象外で、従来どおりスプレッドシートを使用します。
 
 ### 1. 知識ベーススプレッドシート
 

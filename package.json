@@ -7,7 +7,9 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "message-bot": "node discord-message-bot.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test",
+    "db:migrate": "node db/migrate.js",
+    "knowledge:import": "node scripts/import-knowledge-sources.js",
     "knowledge:update": "node -e \"require('./services/knowledge-scheduler').knowledgeScheduler.performManualUpdate()\"",
     "knowledge:status": "node -e \"console.log(JSON.stringify(require('./services/knowledge-scheduler').knowledgeScheduler.getStatus(), null, 2))\"",
     "qa:generate-one": "node -e \"require('./services/qa-generator').qaGeneratorService.initialize().then(() => require('./services/qa-generator').qaGeneratorService.generateAndSaveOne())\"",
@@ -32,8 +34,8 @@
     "node-fetch": "^3.3.2",
     "openai": "^4.56.0",
     "pdf-parse": "^1.1.1",
+    "pg": "^8.23.0",
     "tweetnacl": "^1.0.3",
-    "uuid": "^10.0.0",
     "winston": "^3.13.0"
   },
   "devDependencies": {

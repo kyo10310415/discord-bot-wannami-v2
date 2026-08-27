@@ -1,7 +1,7 @@
 // services/knowledge-base.js - 知識ベース構築サービス v2.7.0（クリーン版）
 
-const { googleAPIsService, detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
-const { KNOWLEDGE_SPREADSHEET_ID } = require('../config/constants');
+const { detectUrlType, loadGoogleSlides, loadGoogleDocs, loadTextFile, convertGoogleDriveUrl } = require('./google-apis');
+const { knowledgeSourceProvider } = require('./knowledge-source-provider');
 const { loadNotionContent, loadWebsiteContent, loadImageUrlInfo } = require('../utils/content-loaders');
 const logger = require('../utils/logger');
 
@@ -41,81 +41,72 @@ class KnowledgeBaseService {
     try {
       console.log('📚 知識ベース構築開始...');
       
-      this.documentImages = [];
-      this.documents = [];
-      
-      const urlList = await googleAPIsService.loadUrlListFromSpreadsheet(KNOWLEDGE_SPREADSHEET_ID);
+      const urlList = await knowledgeSourceProvider.listActiveSources();
       if (urlList.length === 0) {
-        console.log('❌ スプレッドシートにURLが見つかりません');
-        return null;
+        console.log('⚠️ 有効なナレッジソースが登録されていません');
+        this.documentImages = [];
+        this.documents = [];
+        this.lastBuildTime = new Date().toISOString();
+        this.isInitialized = true;
+        return [];
       }
 
       console.log(`📄 ${urlList.length}件のコンテンツを読み込み開始`);
 
       const documents = [];
+      const documentImages = [];
       let totalImages = 0;
 
       for (const urlInfo of urlList) {
         console.log(`📖 読み込み中: ${urlInfo.fileName}`);
         
         try {
+          await knowledgeSourceProvider.markProcessing(urlInfo);
           const result = await this.loadContentFromUrl(urlInfo);
+
+          if (!result || typeof result.content !== 'string' || !result.content.trim()) {
+            throw new Error('ソース本文を取得できませんでした');
+          }
           
-          if (result) {
-            const doc = {
-              source: urlInfo.fileName,
-              url: urlInfo.url,
+          const doc = {
+            source: urlInfo.fileName,
+            url: urlInfo.url,
+            classification: urlInfo.classification || '',
+            type: urlInfo.type || '',
+            category: urlInfo.category || '',
+            goodBadExample: urlInfo.goodBadExample || '',
+            remarks: urlInfo.remarks || '',
+            content: result.content,
+            images: result.images || [],
+            metadata: {
               classification: urlInfo.classification || '',
               type: urlInfo.type || '',
               category: urlInfo.category || '',
               goodBadExample: urlInfo.goodBadExample || '',
-              remarks: urlInfo.remarks || '',
-              content: result.content,
-              images: result.images || [],
-              metadata: {
-                classification: urlInfo.classification || '',
-                type: urlInfo.type || '',
-                category: urlInfo.category || '',
-                goodBadExample: urlInfo.goodBadExample || '',
-                remarks: urlInfo.remarks || ''
-              }
-            };
-            
-            documents.push(doc);
-
-            if (result.images && result.images.length > 0) {
-              this.documentImages.push(...result.images);
-              totalImages += result.images.length;
+              remarks: urlInfo.remarks || ''
             }
+          };
+
+          documents.push(doc);
+
+          await knowledgeSourceProvider.markReady(urlInfo, result.content.length);
+
+          if (result.images && result.images.length > 0) {
+            documentImages.push(...result.images);
+            totalImages += result.images.length;
           }
         } catch (error) {
           console.error(`❌ ${urlInfo.fileName} 読み込み失敗:`, error.message);
-          
-          documents.push({
-            source: urlInfo.fileName,
-            url: urlInfo.url,
-            classification: urlInfo.classification || '',
-            type: 'error',
-            category: urlInfo.category || '',
-            goodBadExample: urlInfo.goodBadExample || '',
-            remarks: urlInfo.remarks || '',
-            content: `${urlInfo.fileName}: 読み込みエラー - ${error.message}`,
-            images: [],
-            metadata: {
-              classification: urlInfo.classification || '',
-              type: 'error',
-              category: urlInfo.category || '',
-              goodBadExample: urlInfo.goodBadExample || '',
-              remarks: urlInfo.remarks || ''
-            }
-          });
+          await knowledgeSourceProvider.markError(urlInfo, error);
         }
         
         await this.sleep(200);
       }
 
       this.documents = documents;
+      this.documentImages = documentImages;
       this.lastBuildTime = new Date().toISOString();
+      this.isInitialized = true;
 
       console.log(`✅ 知識ベース構築完了`);
       console.log(`📄 文書数: ${documents.length}`);
@@ -410,7 +401,7 @@ class KnowledgeBaseService {
     let detectedType = detectUrlType(url);
     
     console.log(`📖 コンテンツ読み込み開始: ${fileName}`);
-    console.log(`🔍 スプレッドシートのタイプ: "${type}" → 自動検出: "${detectedType}"`);
+    console.log(`🔍 登録された資料タイプ: "${type}" → 自動検出: "${detectedType}"`);
     
     // スプレッドシートのD列（type）が "テキスト" の場合、Google Driveをテキストファイルとして扱う
     if (detectedType === 'google_drive_file') {
@@ -554,6 +545,7 @@ class KnowledgeBaseService {
       initialized: this.isInitialized,
       totalDocuments: this.documents.length,
       totalDocumentImages: this.documentImages.length,
+      sourceProvider: knowledgeSourceProvider.getName(),
       lastBuildTime: this.lastBuildTime,
       imagesBySource: this.documentImages.reduce((acc, img) => {
         acc[img.source] = (acc[img.source] || 0) + 1;
@@ -566,6 +558,7 @@ class KnowledgeBaseService {
     return {
       totalDocuments: this.documents.length,
       totalDocumentImages: this.documentImages.length,
+      sourceProvider: knowledgeSourceProvider.getName(),
       lastBuildTime: this.lastBuildTime,
       imagesBySource: this.documentImages.reduce((acc, img) => {
         acc[img.source] = (acc[img.source] || 0) + 1;

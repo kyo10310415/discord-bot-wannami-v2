@@ -6,13 +6,18 @@
 // Hotfix3: タイムアウトを60秒に延長 + 認証エラー判定強化（Renderネットワーク遅延対策）
 // Feature: Slack通知機能（Discord接続エラー時に自動通知）
 
+require('dotenv').config();
+
 const express = require('express');
 const cookieParser = require('cookie-parser');
+const path = require('path');
 const { Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, InteractionType } = require('discord.js');
 const crypto = require('crypto');
 
 // SSO Authentication
 const ssoAuthMiddleware = require('./middleware/sso-auth-middleware');
+const { requireAdmin, requireAdminRequestHeader } = require('./middleware/admin-auth-middleware');
+const adminKnowledgeSourcesRouter = require('./routes/admin-knowledge-sources');
 
 // 設定とサービスのインポート
 const env = require('./config/environment');
@@ -36,6 +41,8 @@ const { slackNotifier } = require('./services/slack-notifier');
 
 // 新機能: YouTube分析サービス
 const { youtubeAnalyzer } = require('./services/youtube-analyzer');
+const { knowledgeSourceProvider } = require('./services/knowledge-source-provider');
+const { closePool } = require('./db/pool');
 
 const app = express();
 
@@ -126,6 +133,18 @@ app.use((req, res, next) => {
   }
   ssoAuthMiddleware(req, res, next);
 });
+
+// AI回答用ナレッジソース管理画面（管理者のみ）
+app.get('/admin/sources', requireAdmin, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'admin', 'sources.html'));
+});
+app.use('/admin', requireAdmin, express.static(path.join(__dirname, 'public', 'admin')));
+app.use(
+  '/api/admin/knowledge-sources',
+  requireAdmin,
+  requireAdminRequestHeader,
+  adminKnowledgeSourcesRouter
+);
 
 // Discord署名検証関数
 function verifySignature(req) {
@@ -626,7 +645,7 @@ app.get('/', (req, res) => {
         '✅ Discord Interactions API',
         '✅ @わなみさんメンション対応（AI統合）',
         '✅ /soudanスラッシュコマンド',
-        '✅ AI知識ベース統合（スプレッドシートA-G列対応）',
+        '✅ AI知識ベース管理（PostgreSQL + 管理Web UI）',
         '✅ 画像検出・抽出・Vision解析機能',
         '✅ RAGシステム（OpenAI統合）',
         '✅ Notion/WEBサイト読み込み',
@@ -652,6 +671,7 @@ app.get('/', (req, res) => {
         bot_id_check_endpoint: '/api/bot/user-id',
         knowledge_base_status: '/api/knowledge-base/status',
         knowledge_base_refresh: 'POST /api/knowledge-base/refresh',
+        knowledge_source_admin: '/admin/sources',
         qa_log_stats: '/api/qa-log/stats',
         qa_generator_status: '/api/qa-generator/status',
         qa_generator_count: '/api/qa-generator/count',
@@ -711,6 +731,7 @@ async function startServer() {
       logger.info(`   GET  /api/bot/user-id - Bot User ID確認`);
       logger.info(`   GET  /api/knowledge-base/status - 知識ベース状態`);
       logger.info(`   POST /api/knowledge-base/refresh - 知識ベース更新`);
+      logger.info(`   GET  /admin/sources - ナレッジソース管理画面`);
       logger.info(`   GET  /api/qa-log/stats - Q&A記録統計`);
       logger.info(`   GET  /api/qa-generator/status - Q&A生成サービス状態`);
       logger.info(`   GET  /api/qa-generator/count - Q&Aサンプル件数`);
@@ -722,6 +743,13 @@ async function startServer() {
       logger.info(`   POST /interactions - Discord Interactions`);
       logger.info('');
     });
+
+    try {
+      await knowledgeSourceProvider.initialize();
+      logger.success('✅ ナレッジソース保存先の初期化完了');
+    } catch (error) {
+      logger.errorDetail('ナレッジソース保存先の初期化失敗:', error);
+    }
 
     // ✅ 追加: Discord接続状態を定期ログ（多重登録防止）
     if (!global.__discordStatusIntervalStarted) {
@@ -914,6 +942,7 @@ process.on('SIGTERM', async () => {
   if (client.isReady()) {
     await client.destroy();
   }
+  await closePool();
   process.exit(0);
 });
 
@@ -935,6 +964,7 @@ process.on('SIGINT', async () => {
   if (client.isReady()) {
     await client.destroy();
   }
+  await closePool();
   process.exit(0);
 });
 

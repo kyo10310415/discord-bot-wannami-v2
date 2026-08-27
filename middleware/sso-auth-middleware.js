@@ -12,10 +12,15 @@
 const jwt = require('jsonwebtoken');
 
 // WannaV Dashboardと同じJWT_SECRETを使用
-const JWT_SECRET = process.env.JWT_SECRET || 'wannav-secret-key-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET;
 const DASHBOARD_URL = process.env.DASHBOARD_URL || 'https://wannav-main.onrender.com';
 
 function ssoAuthMiddleware(req, res, next) {
+  if (!JWT_SECRET) {
+    console.error('❌ JWT_SECRETが設定されていません');
+    return res.status(503).send('認証設定が完了していません');
+  }
+
   // 認証トークンをチェック
   const tokenFromQuery = req.query.auth_token;
   const tokenFromCookie = req.cookies?.wannav_sso;

@@ -28,16 +28,24 @@ class Environment {
 
   // SSO Authentication設定
   get JWT_SECRET() {
-    return process.env.JWT_SECRET || 'wannav-secret-key-change-in-production';
+    return process.env.JWT_SECRET;
   }
 
   get DASHBOARD_URL() {
     return process.env.DASHBOARD_URL || 'https://wannav-main.onrender.com';
   }
 
+  get DATABASE_URL() {
+    return process.env.DATABASE_URL;
+  }
+
+  get KNOWLEDGE_SOURCE_PROVIDER() {
+    return process.env.KNOWLEDGE_SOURCE_PROVIDER || (process.env.DATABASE_URL ? 'database' : 'spreadsheet');
+  }
+
   // Google Sheets設定 - スプレッドシートID
   get KNOWLEDGE_SPREADSHEET_ID() {
-    return process.env.KNOWLEDGE_SPREADSHEET_ID;
+    return process.env.KNOWLEDGE_BASE_SPREADSHEET_ID || process.env.KNOWLEDGE_SPREADSHEET_ID;
   }
 
   get QA_SPREADSHEET_ID() {
@@ -84,10 +92,15 @@ class Environment {
 
   // 必須環境変数の検証
   validateRequiredEnvVars() {
+    if (process.env.SKIP_APP_ENV_VALIDATION === 'true') {
+      return;
+    }
+
     // 基本的な環境変数のみチェック
     const required = [
       'DISCORD_BOT_TOKEN',
-      'OPENAI_API_KEY'
+      'OPENAI_API_KEY',
+      'JWT_SECRET'
     ];
     
     // Google APIs関連はオプションとしてチェック
@@ -123,7 +136,9 @@ class Environment {
       google_project_id: !!process.env.GOOGLE_PROJECT_ID,
       google_client_email: !!process.env.GOOGLE_CLIENT_EMAIL,
       google_private_key: !!process.env.GOOGLE_PRIVATE_KEY,
-      knowledge_spreadsheet_id: !!process.env.KNOWLEDGE_SPREADSHEET_ID,
+      knowledge_spreadsheet_id: !!(process.env.KNOWLEDGE_BASE_SPREADSHEET_ID || process.env.KNOWLEDGE_SPREADSHEET_ID),
+      database_url: !!process.env.DATABASE_URL,
+      knowledge_source_provider: this.KNOWLEDGE_SOURCE_PROVIDER,
       qa_spreadsheet_id: !!process.env.QA_SPREADSHEET_ID,
       discord_bot_token: !!process.env.DISCORD_BOT_TOKEN,
       discord_public_key: !!process.env.DISCORD_PUBLIC_KEY,
