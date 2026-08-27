@@ -187,6 +187,16 @@ td time { color: #7f8a84; font-size: 10px; }
 .test-form input { min-width: 0; flex: 1; padding: 0 13px; border: 1px solid var(--line); border-radius: 9px; outline: 0; font-size: 12px; }
 .test-form input:focus { border-color: #74ac90; box-shadow: 0 0 0 3px rgba(49,123,88,.1); }
 .test-results { grid-column: 1 / -1; padding-top: 20px; border-top: 1px solid var(--line); }
+.answer-preview { overflow: hidden; border: 1px solid #cfe1d7; border-radius: 13px; background: #fbfdfc; }
+.answer-preview-header, .source-preview-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.answer-preview-header { padding: 12px 15px; border-bottom: 1px solid #dce9e2; background: var(--green-soft); }
+.answer-preview-header strong, .source-preview-header strong { font-size: 12px; }
+.answer-preview-header small { color: var(--green-dark); font-size: 10px; }
+.answer-preview-body { padding: 18px; color: var(--ink); font-size: 13px; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; }
+.source-preview { margin-top: 20px; }
+.source-preview-header { padding-bottom: 9px; }
+.source-preview-header span { min-width: 32px; padding: 4px 8px; border-radius: 999px; background: #eef3ef; color: var(--muted); font-size: 10px; font-weight: 800; text-align: center; }
+.no-source-message { padding: 16px 0; border-top: 1px solid var(--line); }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 10; padding: 24px; display: grid; place-items: center; background: rgba(12,23,18,.58); backdrop-filter: blur(4px); }
 .modal-backdrop[hidden] { display: none; }

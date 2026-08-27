@@ -8,7 +8,7 @@ process.env.KNOWLEDGE_SOURCE_PROVIDER = 'spreadsheet';
 const migration = require('../db/migrate');
 migration.runMigrations = async () => ({ applied: 0 });
 
-const knowledgeBase = require('../services/knowledge-base');
+const ragService = require('../services/rag-system');
 const { knowledgeSourceRepository } = require('../services/knowledge-source-repository');
 knowledgeSourceRepository.list = async () => [{
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -57,19 +57,22 @@ test('admin source API returns list and stats from the repository', async (t) =>
   assert.equal(stats.addedThisMonth, 1);
 });
 
-test('admin search preview awaits semantic retrieval results', async (t) => {
-  const originalSearch = knowledgeBase.searchKnowledge;
-  knowledgeBase.searchKnowledge = async () => [{
-    title: 'レッスン1',
-    url: 'https://example.com/lesson-1',
-    score: 0.82,
-    answer: 'レッスン1開始前の準備です。',
-    classification: 'レッスン',
-    category: 'VTuberの基本',
-    metadata: { lessonNumber: 1 }
-  }];
+test('admin answer preview returns the generated answer and its semantic sources', async (t) => {
+  const originalPreview = ragService.generateKnowledgeOnlyResponsePreview;
+  ragService.generateKnowledgeOnlyResponsePreview = async () => ({
+    answer: '配信前に、必要な機材と提出物をご準備ください。',
+    knowledgeResults: [{
+      title: 'レッスン1',
+      url: 'https://example.com/lesson-1',
+      score: 0.82,
+      answer: 'レッスン1開始前の準備です。',
+      classification: 'レッスン',
+      category: 'VTuberの基本',
+      metadata: { lessonNumber: 1 }
+    }]
+  });
   t.after(() => {
-    knowledgeBase.searchKnowledge = originalSearch;
+    ragService.generateKnowledgeOnlyResponsePreview = originalPreview;
   });
 
   const app = express();
@@ -93,6 +96,7 @@ test('admin search preview awaits semantic retrieval results', async (t) => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
+  assert.equal(body.answer, '配信前に、必要な機材と提出物をご準備ください。');
   assert.equal(body.results[0].title, 'レッスン1');
   assert.equal(body.results[0].lessonNumber, 1);
   assert.equal(body.results[0].score, 0.82);

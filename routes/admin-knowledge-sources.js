@@ -3,7 +3,7 @@ const { runMigrations } = require('../db/migrate');
 const { knowledgeSourceRepository } = require('../services/knowledge-source-repository');
 const { importKnowledgeSourcesFromSpreadsheet } = require('../services/knowledge-source-importer');
 const { requestKnowledgeRefresh, getRefreshState } = require('../services/knowledge-refresh-queue');
-const knowledgeBase = require('../services/knowledge-base');
+const ragService = require('../services/rag-system');
 const { validateSourceInput, isUuid } = require('../utils/source-validation');
 const logger = require('../utils/logger');
 
@@ -125,10 +125,11 @@ router.post('/actions/test-search', async (req, res, next) => {
     if (!query) return res.status(400).json({ error: '質問を入力してください' });
     if (query.length > 500) return res.status(400).json({ error: '質問は500文字以内で入力してください' });
 
-    const results = await knowledgeBase.searchKnowledge(query, { maxResults: 5 });
+    const preview = await ragService.generateKnowledgeOnlyResponsePreview(query);
     res.json({
       query,
-      results: results.map((item) => ({
+      answer: preview.answer,
+      results: preview.knowledgeResults.map((item) => ({
         title: item.title || item.source,
         url: item.url,
         score: item.score,

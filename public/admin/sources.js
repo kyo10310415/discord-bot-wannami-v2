@@ -303,25 +303,42 @@
     const query = elements.testQuery.value.trim();
     if (!query) return;
     const button = elements.testForm.querySelector('button');
+    const originalButtonText = button.textContent;
     button.disabled = true;
+    button.textContent = '回答を生成中…';
     elements.testResults.hidden = false;
-    elements.testResults.textContent = '検索しています…';
+    elements.testResults.textContent = 'ソースを検索し、実際の回答を生成しています…';
     try {
       const response = await api('/actions/test-search', { method: 'POST', body: JSON.stringify({ query }) });
-      if (!response.results.length) {
-        elements.testResults.innerHTML = '<p>関連するソースが見つかりませんでした。</p>';
-      } else {
-        elements.testResults.innerHTML = response.results.map((result) => `
+      const sourceResults = response.results.length
+        ? response.results.map((result) => `
           <article class="result-card">
             <span class="result-score">${Math.min(100, Math.round(result.score * 100))}%</span>
             <div><strong>${escapeHtml(result.title)}</strong><p>${escapeHtml(result.preview)}</p></div>
           </article>
-        `).join('');
-      }
+        `).join('')
+        : '<p class="no-source-message">この回答で使用されたソースはありません。</p>';
+
+      elements.testResults.innerHTML = `
+        <section class="answer-preview" aria-label="生成された回答">
+          <div class="answer-preview-header">
+            <strong>生成された回答</strong>
+            <small>Discordに送信される回答のプレビュー</small>
+          </div>
+          <div class="answer-preview-body">${escapeHtml(response.answer)}</div>
+        </section>
+        <section class="source-preview" aria-label="使用されたソース">
+          <div class="source-preview-header">
+            <strong>使用されたソース</strong>
+            <span>${response.results.length}件</span>
+          </div>
+          ${sourceResults}
+        </section>`;
     } catch (error) {
       elements.testResults.innerHTML = `<p style="color:#ad3c3c">${escapeHtml(error.message)}</p>`;
     } finally {
       button.disabled = false;
+      button.textContent = originalButtonText;
     }
   }
 

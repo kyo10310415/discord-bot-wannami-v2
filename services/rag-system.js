@@ -737,7 +737,12 @@ ${userQuery}
   }
 
   // ✨ v2.12.5: YouTube企画提案機能対応版（参照資料統合）
-  async generateKnowledgeOnlyResponse(userQuery, context = {}) {
+  async generateKnowledgeOnlyResponse(userQuery, context = {}, internalOptions = {}) {
+    const includeRetrievalTrace = internalOptions.includeRetrievalTrace === true;
+    const formatResponse = (answer, knowledgeResults = []) => includeRetrievalTrace
+      ? { answer, knowledgeResults }
+      : answer;
+
     try {
       logger.ai('知識ベース限定応答生成開始（v2.12.5 - YouTube企画提案対応版）');
 
@@ -768,7 +773,7 @@ ${userQuery}
       const greetingResponse = detectGreeting(userQuery);
       if (greetingResponse) {
         logger.info('✅ 挨拶パターン検出 → 挨拶応答を返します');
-        return greetingResponse;
+        return formatResponse(greetingResponse);
       }
 
       // 🔍 検索オプションを構築
@@ -796,7 +801,7 @@ ${userQuery}
       // 検索結果0件の場合は即座にリターン
       if (knowledgeResults.length === 0) {
         logger.warn('⚠️ 知識ベースに情報なし → 即座に「情報なし」メッセージを返す');
-        return `🤖 **わなみです！**
+        return formatResponse(`🤖 **わなみです！**
 
 申し訳ございません。「${userQuery}」に関する情報が知識ベースに見つかりませんでした😅
 
@@ -813,7 +818,7 @@ ${userQuery}
 • デザインとブランディング
 
 ---
-📚 *知識ベースに情報がありませんでした*`;
+📚 *知識ベースに情報がありませんでした*`);
       }
 
       // 参照資料を明確にマークアップ
@@ -1248,12 +1253,16 @@ ${imageUrls.length === 0 ? '7. 🚨 画像が添付されていないため、�
 
       logger.info('✅ 知識ベース限定応答生成完了（v2.12.1 - 画像対応版）');
       
-      return aiResponse;
+      return formatResponse(aiResponse, knowledgeResults);
 
     } catch (error) {
       logger.errorDetail('知識ベース限定応答エラー:', error);
-      return '申し訳ございません。現在知識ベースにアクセスできません。しばらく待ってから再度お試しください。';
+      return formatResponse('申し訳ございません。現在知識ベースにアクセスできません。しばらく待ってから再度お試しください。');
     }
+  }
+
+  async generateKnowledgeOnlyResponsePreview(userQuery, context = {}) {
+    return this.generateKnowledgeOnlyResponse(userQuery, context, { includeRetrievalTrace: true });
   }
 
   _sleep(ms) {
@@ -1284,6 +1293,10 @@ async function generateKnowledgeOnlyResponse(userQuery, context = {}) {
   return await ragSystem.generateKnowledgeOnlyResponse(userQuery, context);
 }
 
+async function generateKnowledgeOnlyResponsePreview(userQuery, context = {}) {
+  return await ragSystem.generateKnowledgeOnlyResponsePreview(userQuery, context);
+}
+
 async function generateMissionResponse(userQuery, imageUrls = [], context = {}) {
   return await ragSystem.generateMissionResponse(userQuery, imageUrls, context);
 }
@@ -1292,6 +1305,7 @@ module.exports = {
   ragSystem,
   initializeRAG,
   generateKnowledgeOnlyResponse,
+  generateKnowledgeOnlyResponsePreview,
   generateMissionResponse,
   initializeRAGSystem: initializeRAG
 };
