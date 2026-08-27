@@ -119,23 +119,28 @@ router.post('/actions/import-spreadsheet', async (req, res, next) => {
   }
 });
 
-router.post('/actions/test-search', async (req, res) => {
-  const query = String(req.body?.query || '').trim();
-  if (!query) return res.status(400).json({ error: '質問を入力してください' });
-  if (query.length > 500) return res.status(400).json({ error: '質問は500文字以内で入力してください' });
+router.post('/actions/test-search', async (req, res, next) => {
+  try {
+    const query = String(req.body?.query || '').trim();
+    if (!query) return res.status(400).json({ error: '質問を入力してください' });
+    if (query.length > 500) return res.status(400).json({ error: '質問は500文字以内で入力してください' });
 
-  const results = knowledgeBase.searchKnowledge(query, { maxResults: 5, topK: 5 });
-  res.json({
-    query,
-    results: results.map((item) => ({
-      title: item.title || item.source,
-      url: item.url,
-      score: item.score,
-      preview: item.answer || String(item.content || '').slice(0, 500),
-      classification: item.classification || '',
-      category: item.category || ''
-    }))
-  });
+    const results = await knowledgeBase.searchKnowledge(query, { maxResults: 5 });
+    res.json({
+      query,
+      results: results.map((item) => ({
+        title: item.title || item.source,
+        url: item.url,
+        score: item.score,
+        preview: item.answer || String(item.content || '').slice(0, 500),
+        classification: item.classification || '',
+        category: item.category || '',
+        lessonNumber: item.metadata?.lessonNumber ?? null
+      }))
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 router.use((error, req, res, next) => {
