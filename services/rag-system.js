@@ -11,6 +11,7 @@ const knowledgeBase = require('./knowledge-base');
 const { generateAIResponse } = require('./openai-service');
 const { LIMITS } = require('../utils/constants');
 const { urlContentLoader } = require('./url-content-loader');
+const { AI_RESPONSE_FAILURES } = require('../utils/ai-response-status');
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 🎭 わなみさんのキャラクター設定（共通）
@@ -714,7 +715,7 @@ ${userQuery}
 
     } catch (error) {
       logger.errorDetail('❌ ミッション提出応答エラー:', error);
-      return '申し訳ございません。現在ミッション評価システムにアクセスできません。しばらく待ってから再度お試しください。';
+      return AI_RESPONSE_FAILURES.MISSION_UNAVAILABLE;
     }
   }
 
@@ -1258,7 +1259,7 @@ ${imageUrls.length === 0 ? '7. 🚨 画像が添付されていないため、�
     } catch (error) {
       logger.errorDetail('知識ベース限定応答エラー:', error);
       if (includeRetrievalTrace) throw error;
-      return formatResponse('申し訳ございません。現在知識ベースにアクセスできません。しばらく待ってから再度お試しください。');
+      return formatResponse(AI_RESPONSE_FAILURES.KNOWLEDGE_UNAVAILABLE);
     }
   }
 
