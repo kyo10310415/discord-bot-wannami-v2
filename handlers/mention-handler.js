@@ -60,6 +60,7 @@
 const { PermissionsBitField, ButtonBuilder, ButtonStyle, ActionRowBuilder } = require('discord.js');
 const { HIDDEN_KEYWORDS } = require('../config/hidden-keywords');
 const { youtubeAnalyzer } = require('../services/youtube-analyzer');
+const { getAIResponseStatus } = require('../utils/ai-response-status');
 
 // === YouTube URL検出関数 ===
 function extractYouTubeUrl(text) {
@@ -1136,6 +1137,11 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     
     try {
       if (qaLoggerService && typeof qaLoggerService.logQA === 'function') {
+        const responseStatus = getAIResponseStatus(responseText);
+        if (responseStatus === '失敗') {
+          console.warn('⚠️ [QA-LOG] AIの共通エラー応答を検出 → 回答ステータスを「失敗」で記録');
+        }
+
         // ✅ 修正版: フィールド名を qa-logger.js に合わせる
         const qaData = {
           userId: message.author.id,
@@ -1149,7 +1155,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           responseLength: responseText.length,
           processingTime: processingTime,
           questionType: waitingType || '通常質問',
-          responseStatus: '成功',                        // ✅ 追加
+          responseStatus: responseStatus,
           hasImage: imageUrls.length > 0,
           messageId: message.id
         };
