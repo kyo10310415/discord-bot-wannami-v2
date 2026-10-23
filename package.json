@@ -30,7 +30,7 @@
     "html-to-text": "^9.0.5",
     "jsonwebtoken": "^9.0.3",
     "multer": "^1.4.5-lts.1",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.6.0",
     "node-fetch": "^3.3.2",
     "openai": "^4.56.0",
     "pdf-parse": "^1.1.1",

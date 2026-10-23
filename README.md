@@ -542,3 +542,9 @@ Renderで`NODE_VERSION`を明示している場合も22.23.4以上の22系へそ
 既存manifestの範囲を変えず、lock内のproxy-addrを2.0.8、follow-redirectsを1.16.1、undiciを6.29.1/7.30.1へ更新しました。npm production auditのCritical/Highは0件、Moderateは8件残ります。Google APIs/node-cron等のメジャー更新が必要な残余は、この変更に含めていません。スコアだけで本Botの攻撃経路が成立すると判定したものではありません。
 Node22.23.4でnpm ci --ignore-scripts、35回帰テスト、index.js構文・差分確認を実施。実Bot/AI/DB/通知は実行していません。
 根拠: https://github.com/advisories/GHSA-q3jh-wrc6-jgq8 、https://github.com/advisories/GHSA-jqcg-44mw-7w3h 、https://github.com/advisories/GHSA-3wwx-pv8p-q78v 。
+
+### node-cron v4への移行
+
+node-cronを4.6.0へ更新し、知識更新の停止状態での作成は`createTask`と既存の`start()`で維持します。週次通知の自動開始、UTC火曜9時（日本時間18時）、知識更新のAsia/Tokyo月曜3時、停止操作は維持します。[公式移行ガイド](https://www.nodecron.com/migrating-from-v3.html)に従い、廃止された`scheduled: false`だけを置き換えました。必要なNode20以上は既存のNode22設定が満たします。
+
+隔離環境の38テスト（時計を固定したスケジュール契約3件を含む）と構文確認が成功しました。ジョブ本体・外部通信は実行していません。production auditはCritical/High 0件、Moderate 4件で、Google APIs側のuuidに関する残余は別途対応が必要です。v4は遅延計算方式に変わり、イベントループ停止中の実運用時刻精度まではローカルテストで保証していません。
