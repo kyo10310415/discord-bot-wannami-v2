@@ -19,11 +19,10 @@ class KnowledgeScheduler {
       // 毎週月曜日午前3時（日本時間）に実行
       // cron形式: 秒 分 時 日 月 曜日
       // 0 0 3 * * 1 = 毎週月曜日の午前3時
-      this.cronJob = cron.schedule('0 0 3 * * 1', async () => {
+      this.cronJob = cron.createTask('0 0 3 * * 1', async () => {
         await this.performScheduledUpdate();
       }, {
-        timezone: 'Asia/Tokyo',
-        scheduled: false
+        timezone: 'Asia/Tokyo'
       });
 
       this.cronJob.start();
