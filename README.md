@@ -554,3 +554,11 @@ node-cronを4.6.0へ更新し、知識更新の停止状態での作成は`creat
 googleapisを150.0.1に固定し、lockfileではgoogleapis-common 8系、google-auth-library 10系、gaxios 7系の安定版へ更新しました。uuidは依存ツリーから除去され、production auditの既知脆弱性は0件です。他の直接依存やアプリの処理は変更していません。
 
 公式の[auth10移行差分](https://github.com/googleapis/google-auth-library-nodejs/releases/tag/v10.0.0)と[gaxios7移行差分](https://github.com/googleapis/gaxios/releases/tag/v7.0.0)を確認し、Node22・CommonJS・既存のGoogleAuth経由の呼び出しを維持しました。41テストには、実ライブラリを使用して最終通信層だけを置き換えるSheets/Drive/Docs読み取り、Sheets追記、403時のAuthorization秘匿確認が含まれます。本番の認証情報・通信・データは使用していません。サービスアカウントの実署名・トークン更新・実際の共有権限は本番側で別途確認が必要です。
+
+### 開発用の自動再起動
+
+`npm run dev`はNode22標準の`node --watch index.js`を使用します。修正版のないbraces依存（[CVE-2026-93687](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)）を持つ開発用nodemonを削除しました。本番の`npm start`・依存パッケージ・環境変数の読み込み処理は変更していません。
+
+[Nodeのwatchモード](https://nodejs.org/download/release/v22.23.0/docs/api/cli.html#--watch)はエントリーポイントと読み込み済みのモジュールを監視します。nodemonのディレクトリ全体の拡張子監視とは異なり、未読込ファイル・動的にファイルとして読むデータの変更では自動再起動されません。その場合は開発コマンドを停止して再実行してください。nodemonの対話的な`rs`も使用しません。独自のnodemon設定はリポジトリ内にありませんでした。
+
+通信を行わない隔離fixtureで起動・読み込み先ファイル変更による再起動・プロセスツリー停止を確認しました。Node22.23.4で41テスト成功、全依存/本番依存ともauditは0件です。実Botは起動していません。
