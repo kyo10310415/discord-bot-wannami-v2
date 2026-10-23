@@ -527,3 +527,13 @@ VTuber育成スクール
 
 - GitHub: https://github.com/kyo10310415/discord-bot-wannami-v2
 - Issues: https://github.com/kyo10310415/discord-bot-wannami-v2/issues
+
+## セキュリティ保守: Node.js実行環境（SEC-033）
+
+`.node-version`は22.23.4、`package.json`とlockfileのenginesは`>=22.23.4 <23`です。サポート終了の20系から、[2026-10-21のNode.js公式セキュリティ修正版](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)へ更新します。依存パッケージ・DBスキーマ・Botの応答や定期処理は変更していません。
+
+Renderで`NODE_VERSION`を明示している場合も22.23.4以上の22系へそろえ、配備ログで実際の版を確認してください。既存のstart commandは`npm start`です。本体はDiscord接続に加えHTTPサーバー（`/healthz`）を持つため、Renderの既存Web Service設定とヘルスチェックを維持してください。配備自体に通常のBot再接続・既存起動処理が伴います。手動のQA生成・ナレッジ更新・通知ジョブは更新確認のために実行しないでください。
+
+隔離環境では`npm ci --ignore-scripts`を使用し、Node22.23.4で`npm test`（35件）と`node --check index.js`を確認しました。lockfileのinstall script対象はmacOS向けoptional `fsevents`のみで、Linux向けnative依存は検出しませんでした。実Discord/Slack/Google/AI/DB接続は未試験です。別script `message-bot`の参照先`discord-message-bot.js`が既存リポジトリに存在しないことは、この更新とは別の既存制約です。
+
+既存production依存の監査警告（11件: Critical1/High2/Moderate8）とSEC-012の過去の認証情報漏洩はこのNode更新だけでは解消しません。所有者による失効・再発行・利用履歴確認と、別途の依存更新が必要です。
