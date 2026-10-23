@@ -537,3 +537,8 @@ Renderで`NODE_VERSION`を明示している場合も22.23.4以上の22系へそ
 隔離環境では`npm ci --ignore-scripts`を使用し、Node22.23.4で`npm test`（35件）と`node --check index.js`を確認しました。lockfileのinstall script対象はmacOS向けoptional `fsevents`のみで、Linux向けnative依存は検出しませんでした。実Discord/Slack/Google/AI/DB接続は未試験です。別script `message-bot`の参照先`discord-message-bot.js`が既存リポジトリに存在しないことは、この更新とは別の既存制約です。
 
 既存production依存の監査警告（11件: Critical1/High2/Moderate8）とSEC-012の過去の認証情報漏洩はこのNode更新だけでは解消しません。所有者による失効・再発行・利用履歴確認と、別途の依存更新が必要です。
+
+### 推移依存の修正版（追加監査）
+既存manifestの範囲を変えず、lock内のproxy-addrを2.0.8、follow-redirectsを1.16.1、undiciを6.29.1/7.30.1へ更新しました。npm production auditのCritical/Highは0件、Moderateは8件残ります。Google APIs/node-cron等のメジャー更新が必要な残余は、この変更に含めていません。スコアだけで本Botの攻撃経路が成立すると判定したものではありません。
+Node22.23.4でnpm ci --ignore-scripts、35回帰テスト、index.js構文・差分確認を実施。実Bot/AI/DB/通知は実行していません。
+根拠: https://github.com/advisories/GHSA-q3jh-wrc6-jgq8 、https://github.com/advisories/GHSA-jqcg-44mw-7w3h 、https://github.com/advisories/GHSA-3wwx-pv8p-q78v 。
