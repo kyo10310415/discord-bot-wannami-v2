@@ -548,3 +548,9 @@ Node22.23.4でnpm ci --ignore-scripts、35回帰テスト、index.js構文・差
 node-cronを4.6.0へ更新し、知識更新の停止状態での作成は`createTask`と既存の`start()`で維持します。週次通知の自動開始、UTC火曜9時（日本時間18時）、知識更新のAsia/Tokyo月曜3時、停止操作は維持します。[公式移行ガイド](https://www.nodecron.com/migrating-from-v3.html)に従い、廃止された`scheduled: false`だけを置き換えました。必要なNode20以上は既存のNode22設定が満たします。
 
 隔離環境の38テスト（時計を固定したスケジュール契約3件を含む）と構文確認が成功しました。ジョブ本体・外部通信は実行していません。production auditはCritical/High 0件、Moderate 4件で、Google APIs側のuuidに関する残余は別途対応が必要です。v4は遅延計算方式に変わり、イベントループ停止中の実運用時刻精度まではローカルテストで保証していません。
+
+### Google API依存の更新
+
+googleapisを150.0.1に固定し、lockfileではgoogleapis-common 8系、google-auth-library 10系、gaxios 7系の安定版へ更新しました。uuidは依存ツリーから除去され、production auditの既知脆弱性は0件です。他の直接依存やアプリの処理は変更していません。
+
+公式の[auth10移行差分](https://github.com/googleapis/google-auth-library-nodejs/releases/tag/v10.0.0)と[gaxios7移行差分](https://github.com/googleapis/gaxios/releases/tag/v7.0.0)を確認し、Node22・CommonJS・既存のGoogleAuth経由の呼び出しを維持しました。41テストには、実ライブラリを使用して最終通信層だけを置き換えるSheets/Drive/Docs読み取り、Sheets追記、403時のAuthorization秘匿確認が含まれます。本番の認証情報・通信・データは使用していません。サービスアカウントの実署名・トークン更新・実際の共有権限は本番側で別途確認が必要です。
