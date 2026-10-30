@@ -566,3 +566,5 @@ googleapisを150.0.1に固定し、lockfileではgoogleapis-common 8系、google
 ## SSO log privacy regression
 
 `node --test test/sso-log-privacy.test.js` exercises the actual SSO middleware with synthetic signed tokens and isolated responses. Authentication claims, redirects and cookie handling are retained; success and failure logs contain only fixed messages, without usernames, roles, tokens or exception text. Logs retained from older deployments are not removed by this change.
+
+Multer was removed as an unused dependency: the frozen tracked application JavaScript/TypeScript contains no import or call site. This removes its unused multipart parsing dependency closure without changing existing API or upload handlers. Existing route, knowledge retrieval, scheduler and Google transport tests remain the acceptance check.
