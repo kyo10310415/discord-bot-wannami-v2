@@ -67,7 +67,7 @@ function extractYouTubeUrl(text) {
   const youtubeRegex = /https?:\/\/(www\.)?(youtube\.com\/(channel\/|c\/|@|user\/)|youtu\.be\/)[\w\-@]+/gi;
   const matches = text.match(youtubeRegex);
   if (matches && matches.length > 0) {
-    console.log("メッセージ処理イベント");
+    console.log("📺 [YOUTUBE] YouTube URL検出（詳細非表示）");
     return matches[0];
   }
   return null;
@@ -87,10 +87,10 @@ function extractImageUrls(message) {
     const url = attachment.url || attachment.proxyURL;
     if (url) {
       const isImage = imageExtensions.some(ext => url.toLowerCase().includes(ext));
-      console.log("メッセージ処理イベント");
+      console.log("📎 添付（詳細非表示）");
       if (isImage) {
         imageUrls.push(url);
-        console.log("メッセージ処理イベント");
+        console.log("✅ 画像追加（詳細非表示）");
       }
     }
   });
@@ -100,19 +100,19 @@ function extractImageUrls(message) {
     console.log(`🎨 埋め込み[${index}]タイプ: ${embed.data?.type || 'unknown'}`);
     
     if (embed.image?.url) {
-      console.log("メッセージ処理イベント");
+      console.log("🖼️ embed.image.url発見（詳細非表示）");
       imageUrls.push(embed.image.url);
     }
     if (embed.thumbnail?.url) {
-      console.log("メッセージ処理イベント");
+      console.log("🖼️ embed.thumbnail.url発見（詳細非表示）");
       imageUrls.push(embed.thumbnail.url);
     }
     if (embed.data?.image?.url) {
-      console.log("メッセージ処理イベント");
+      console.log("🖼️ embed.data.image.url発見（詳細非表示）");
       imageUrls.push(embed.data.image.url);
     }
     if (embed.data?.thumbnail?.url) {
-      console.log("メッセージ処理イベント");
+      console.log("🖼️ embed.data.thumbnail.url発見（詳細非表示）");
       imageUrls.push(embed.data.thumbnail.url);
     }
   });
@@ -143,14 +143,14 @@ function isUserWaitingForQuestion(userId, interactionStates) {
 function clearWaitingQuestion(userId, interactionStates) {
   if (interactionStates && interactionStates.has(userId)) {
     interactionStates.delete(userId);
-    console.log("メッセージ処理イベント");
+    console.log("✅ [STATE] 待機状態クリア（詳細非表示）");
   }
 }
 
 // === 🎁 隠しキーワード検出関数 ===
 function checkHiddenKeyword(questionText, waitingType) {
   console.log(`🔍 [HIDDEN-FUNC] 検出関数開始`);
-  console.log("メッセージ処理イベント");
+  console.log("📝 [HIDDEN-FUNC] 入力テキスト（詳細非表示）");
   console.log(`🎯 [HIDDEN-FUNC] コンテキスト: "${waitingType}"`);
   console.log(`📚 [HIDDEN-FUNC] 登録キーワード数: ${HIDDEN_KEYWORDS.length}`);
   
@@ -163,9 +163,9 @@ function checkHiddenKeyword(questionText, waitingType) {
     const normalizedQuestion = questionText.toLowerCase().replace(/\s+/g, '');
     const normalizedKeyword = hidden.keyword.toLowerCase().replace(/\s+/g, '');
     
-    console.log("メッセージ処理イベント");
+    console.log("📝 正規化後の質問（詳細非表示）");
     console.log(`  🔑 正規化後のキーワード: "${normalizedKeyword}"`);
-    console.log("メッセージ処理イベント");
+    console.log("🔍 includes結果（詳細非表示）");
     
     if (normalizedQuestion.includes(normalizedKeyword)) {
       console.log(`  ✅ キーワード一致！`);
@@ -309,7 +309,7 @@ async function handleMessage(message, client) {
     // 5. @everyone / @here メンションを除外
     if (message.mentions.everyone) {
       console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
-      console.log("メッセージ処理イベント");
+      console.log("送信者（詳細非表示）");
       return;
     }
 
@@ -321,8 +321,8 @@ async function handleMessage(message, client) {
     const botMentionedViaRole = message.mentions.roles.some(r => botRoleIds.includes(r.id));
     const botMentioned = botMentionedDirect || botMentionedViaRole;
 
-    console.log("メッセージ処理イベント");
-    console.log("メッセージ処理イベント");
+    console.log("👤 送信者（詳細非表示）");
+    console.log("📝 メッセージ内容（詳細非表示）");
     console.log(`🤖 ユーザーメンション: ${botMentionedDirect ? 'あり ✅' : 'なし ❌'} / ロールメンション: ${botMentionedViaRole ? 'あり ✅' : 'なし ❌'}`);
 
     if (!botMentioned) {
@@ -352,7 +352,7 @@ async function handleMessage(message, client) {
     }
     questionText = questionText.trim();
 
-    console.log("メッセージ処理イベント");
+    console.log("📝 抽出されたコンテンツ（詳細非表示）");
 
     // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
@@ -375,7 +375,7 @@ async function handleMessage(message, client) {
           components: buttons,
           allowedMentions: { repliedUser: false }
         });
-        console.log("メッセージ処理イベント");
+        console.log("✅ [EMPTY-MENTION] 空メンション応答送信完了 messageId（詳細非表示）");
       } catch (error) {
         console.error("❌ [EMPTY-MENTION] 空メンション応答送信失敗:");
         console.error("❌ [EMPTY-MENTION] details:");
@@ -385,7 +385,7 @@ async function handleMessage(message, client) {
           const fallback = await message.channel.send({
             content: '⚠️ ボタン付きメッセージの送信に失敗しました。まずはテキストで質問を送ってください。'
           });
-          console.log("メッセージ処理イベント");
+          console.log("✅ [EMPTY-MENTION] フォールバック送信成功 messageId（詳細非表示）");
         } catch (e2) {
           console.error("❌ [EMPTY-MENTION] フォールバック送信も失敗:");
           console.error("❌ [EMPTY-MENTION] fallback details:");
@@ -422,7 +422,7 @@ async function handleMessage(message, client) {
     if (imageUrls.length > 0) {
       console.log('📸 検出された画像URL:');
       imageUrls.forEach((url, i) => {
-        console.log("メッセージ処理イベント");
+        console.log("メンション応答（詳細非表示）");
       });
     }
 
@@ -469,7 +469,7 @@ async function handleMessage(message, client) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🧠 [AI] 応答生成開始（v15.5.14）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log("メッセージ処理イベント");
+    console.log("📝 質問（詳細非表示）");
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
     console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
 
@@ -480,7 +480,7 @@ async function handleMessage(message, client) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
         console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
-        console.log("メッセージ処理イベント");
+        console.log("📝 [DEBUG] 引数1 questionText（詳細非表示）");
         console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
         response = await RAGSystem.generateMissionResponse(
@@ -503,13 +503,13 @@ async function handleMessage(message, client) {
         
         // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
-        console.log("メッセージ処理イベント");
+        console.log("🔍 [DEBUG] YouTube URL検出結果（詳細非表示）");
         
         let youtubeContext = null;
         
         if (youtubeUrl && waitingType === 'youtube_planning') {
           console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
-          console.log("メッセージ処理イベント");
+          console.log("📺 [YOUTUBE] 分析対象URL（詳細非表示）");
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
@@ -529,15 +529,15 @@ async function handleMessage(message, client) {
             console.log('📺 [YOUTUBE] analyzeChannel() を実行中...');
             const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
             console.log('📺 [YOUTUBE] analyzeChannel() 完了');
-            console.log("メッセージ処理イベント");
+            console.log("メンション応答（詳細非表示）");
             
             if (analysis.success) {
-              console.log("メッセージ処理イベント");
+              console.log("✅ [YOUTUBE] 分析成功（詳細非表示）");
               youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
               console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
               console.log(`📊 [YOUTUBE] コンテキスト長: ${youtubeContext?.length || 0}文字`);
             } else {
-              console.warn("メッセージ処理イベント");
+              console.warn("⚠️ [YOUTUBE] 分析失敗（詳細非表示）");
               // エラーメッセージをユーザーに通知
               await message.reply(`⚠️ ${analysis.error}`);
               stopTypingIndicator(typingInterval);
@@ -555,7 +555,7 @@ async function handleMessage(message, client) {
           console.log('💡 [YOUTUBE] YouTube企画提案を利用するには「YouTubeの企画相談」ボタンを押してください');
         } else if (!youtubeUrl && waitingType === 'youtube_planning') {
           console.log('⚠️ [YOUTUBE] YouTube企画相談モードですが、YouTube URLが検出されませんでした');
-          console.log("メッセージ処理イベント");
+          console.log("📝 [YOUTUBE] 入力テキスト（詳細非表示）");
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
@@ -733,7 +733,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     // 5. @everyone / @here メンションを除外
     if (message.mentions.everyone) {
       console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
-      console.log("メッセージ処理イベント");
+      console.log("送信者（詳細非表示）");
       return;
     }
 
@@ -745,8 +745,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     const botMentionedViaRole = message.mentions.roles.some(r => botRoleIdsRef.includes(r.id));
     const botMentioned = botMentionedDirect || botMentionedViaRole;
 
-    console.log("メッセージ処理イベント");
-    console.log("メッセージ処理イベント");
+    console.log("👤 送信者（詳細非表示）");
+    console.log("📝 メッセージ内容（詳細非表示）");
     console.log(`🤖 ユーザーメンション: ${botMentionedDirect ? 'あり ✅' : 'なし ❌'} / ロールメンション: ${botMentionedViaRole ? 'あり ✅' : 'なし ❌'}`);
 
     if (!botMentioned) {
@@ -778,7 +778,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
     questionText = questionText.trim();
 
-    console.log("メッセージ処理イベント");
+    console.log("📝 抽出されたコンテンツ（詳細非表示）");
 
     // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
@@ -801,7 +801,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           components: buttons,
           allowedMentions: { repliedUser: false }
         });
-        console.log("メッセージ処理イベント");
+        console.log("✅ [EMPTY-MENTION] 空メンション応答送信完了 messageId（詳細非表示）");
       } catch (error) {
         console.error("❌ [EMPTY-MENTION] 空メンション応答送信失敗:");
         console.error("❌ [EMPTY-MENTION] details:");
@@ -811,7 +811,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           const fallback = await message.channel.send({
             content: '⚠️ ボタン付きメッセージの送信に失敗しました。まずはテキストで質問を送ってください。'
           });
-          console.log("メッセージ処理イベント");
+          console.log("✅ [EMPTY-MENTION] フォールバック送信成功 messageId（詳細非表示）");
         } catch (e2) {
           console.error("❌ [EMPTY-MENTION] フォールバック送信も失敗:");
           console.error("❌ [EMPTY-MENTION] fallback details:");
@@ -848,7 +848,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     if (imageUrls.length > 0) {
       console.log('📸 検出された画像URL:');
       imageUrls.forEach((url, i) => {
-        console.log("メッセージ処理イベント");
+        console.log("メンション応答（詳細非表示）");
       });
     }
 
@@ -881,7 +881,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     // === 🎁 隠しキーワード検出 ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🔍 [HIDDEN] 隠しキーワードチェック開始');
-    console.log("メッセージ処理イベント");
+    console.log("📝 [HIDDEN] 検査対象テキスト（詳細非表示）");
     console.log(`🎯 [HIDDEN] コンテキスト: ${waitingType || 'なし'}`);
     
     const hiddenKeywordResult = checkHiddenKeyword(questionText, waitingType);
@@ -916,7 +916,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.14）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log("メッセージ処理イベント");
+    console.log("📝 質問（詳細非表示）");
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
     console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
 
@@ -927,7 +927,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
         console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
-        console.log("メッセージ処理イベント");
+        console.log("📝 [DEBUG] 引数1 questionText（詳細非表示）");
         console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
         responseText = await RAGSystem.generateMissionResponse(
@@ -950,13 +950,13 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         
         // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
-        console.log("メッセージ処理イベント");
+        console.log("🔍 [DEBUG] YouTube URL検出結果（詳細非表示）");
         
         let youtubeContext = null;
         
         if (youtubeUrl && waitingType === 'youtube_planning') {
           console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
-          console.log("メッセージ処理イベント");
+          console.log("📺 [YOUTUBE] 分析対象URL（詳細非表示）");
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
@@ -976,15 +976,15 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
             console.log('📺 [YOUTUBE] analyzeChannel() を実行中...');
             const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
             console.log('📺 [YOUTUBE] analyzeChannel() 完了');
-            console.log("メッセージ処理イベント");
+            console.log("メンション応答（詳細非表示）");
             
             if (analysis.success) {
-              console.log("メッセージ処理イベント");
+              console.log("✅ [YOUTUBE] 分析成功（詳細非表示）");
               youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
               console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
               console.log(`📊 [YOUTUBE] コンテキスト長: ${youtubeContext?.length || 0}文字`);
             } else {
-              console.warn("メッセージ処理イベント");
+              console.warn("⚠️ [YOUTUBE] 分析失敗（詳細非表示）");
               // エラーメッセージをユーザーに通知
               await message.reply(`⚠️ ${analysis.error}`);
               stopTypingIndicator(typingInterval);
@@ -1002,7 +1002,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           console.log('💡 [YOUTUBE] YouTube企画提案を利用するには「YouTubeの企画相談」ボタンを押してください');
         } else if (!youtubeUrl && waitingType === 'youtube_planning') {
           console.log('⚠️ [YOUTUBE] YouTube企画相談モードですが、YouTube URLが検出されませんでした');
-          console.log("メッセージ処理イベント");
+          console.log("📝 [YOUTUBE] 入力テキスト（詳細非表示）");
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
@@ -1137,9 +1137,9 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         };
         
         console.log('📊 [DEBUG] Q&A記録データ:');
-        console.log("メッセージ処理イベント");
-        console.log("メッセージ処理イベント");
-        console.log("メッセージ処理イベント");
+        console.log("ユーザー（詳細非表示）");
+        console.log("チャンネル（詳細非表示）");
+        console.log("サーバー（詳細非表示）");
         console.log(`  質問長: ${qaData.question.length}文字`);
         console.log(`  回答長: ${qaData.responseLength}文字`);
         console.log(`  処理時間: ${qaData.processingTime}ms`);

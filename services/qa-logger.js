@@ -36,7 +36,7 @@ class QALoggerService {
     }
 
     this.spreadsheetId = spreadsheetId;
-    console.log("メッセージ処理イベント");
+    console.log("📊 [QA-LOGGER] スプレッドシートID（詳細非表示）");
 
     try {
       // Google Sheets API認証
@@ -163,9 +163,9 @@ class QALoggerService {
 
       // デバッグログ
       console.log('📊 [DEBUG] 記録データ:');
-      console.log("メッセージ処理イベント");
-      console.log("メッセージ処理イベント");
-      console.log("メッセージ処理イベント");
+      console.log("ユーザー（詳細非表示）");
+      console.log("チャンネル（詳細非表示）");
+      console.log("サーバー（詳細非表示）");
       console.log(`  質問長: ${question?.length || 0}文字`);
       console.log(`  回答長: ${responseLength || response?.length || 0}文字`);
       console.log(`  処理時間: ${processingTime || 'N/A'}ms`);
@@ -200,7 +200,7 @@ class QALoggerService {
       });
 
       console.log('✅ [QA-LOGGER] スプレッドシート書き込み成功');
-      console.log("メッセージ処理イベント");
+      console.log("📊 記録ID（詳細非表示）");
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       return true;
