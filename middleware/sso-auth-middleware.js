@@ -43,7 +43,7 @@ function ssoAuthMiddleware(req, res, next) {
       return res.redirect(DASHBOARD_URL);
     }
 
-    console.log(`✅ SSO 認証成功: ${decoded.username} (${decoded.role})`);
+    console.log('✅ SSO 認証成功');
 
     // ユーザー情報をrequestに追加
     req.user = {
@@ -68,7 +68,7 @@ function ssoAuthMiddleware(req, res, next) {
 
     next();
   } catch (error) {
-    console.error('❌ SSO トークン検証エラー:', error.message);
+    console.error('❌ SSO トークン検証エラー');
     
     // トークンが期限切れの場合、Cookieをクリア
     res.clearCookie('wannav_sso');

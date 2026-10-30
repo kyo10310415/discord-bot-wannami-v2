@@ -562,3 +562,7 @@ googleapisを150.0.1に固定し、lockfileではgoogleapis-common 8系、google
 [Nodeのwatchモード](https://nodejs.org/download/release/v22.23.0/docs/api/cli.html#--watch)はエントリーポイントと読み込み済みのモジュールを監視します。nodemonのディレクトリ全体の拡張子監視とは異なり、未読込ファイル・動的にファイルとして読むデータの変更では自動再起動されません。その場合は開発コマンドを停止して再実行してください。nodemonの対話的な`rs`も使用しません。独自のnodemon設定はリポジトリ内にありませんでした。
 
 通信を行わない隔離fixtureで起動・読み込み先ファイル変更による再起動・プロセスツリー停止を確認しました。Node22.23.4で41テスト成功、全依存/本番依存ともauditは0件です。実Botは起動していません。
+
+## SSO log privacy regression
+
+`node --test test/sso-log-privacy.test.js` exercises the actual SSO middleware with synthetic signed tokens and isolated responses. Authentication claims, redirects and cookie handling are retained; success and failure logs contain only fixed messages, without usernames, roles, tokens or exception text. Logs retained from older deployments are not removed by this change.
