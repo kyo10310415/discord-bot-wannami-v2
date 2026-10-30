@@ -36,7 +36,7 @@ class QALoggerService {
     }
 
     this.spreadsheetId = spreadsheetId;
-    console.log(`📊 [QA-LOGGER] スプレッドシートID: ${spreadsheetId.substring(0, 20)}...`);
+    console.log("メッセージ処理イベント");
 
     try {
       // Google Sheets API認証
@@ -75,7 +75,7 @@ class QALoggerService {
       return true;
 
     } catch (error) {
-      console.error('❌ [QA-LOGGER] 初期化失敗:', error.message);
+      console.error("❌ [QA-LOGGER] 初期化失敗:");
       throw error;
     }
   }
@@ -125,7 +125,7 @@ class QALoggerService {
         console.log('✅ [QA-LOGGER] ヘッダー行確認完了');
       }
     } catch (error) {
-      console.warn('⚠️ [QA-LOGGER] ヘッダー確認/作成失敗（記録は続行）:', error.message);
+      console.warn("⚠️ [QA-LOGGER] ヘッダー確認/作成失敗（記録は続行）:");
     }
   }
 
@@ -163,9 +163,9 @@ class QALoggerService {
 
       // デバッグログ
       console.log('📊 [DEBUG] 記録データ:');
-      console.log(`  ユーザー: ${username} (${userId})`);
-      console.log(`  チャンネル: ${channelName} (${channelId})`);
-      console.log(`  サーバー: ${guildName} (${guildId || 'N/A'})`);
+      console.log("メッセージ処理イベント");
+      console.log("メッセージ処理イベント");
+      console.log("メッセージ処理イベント");
       console.log(`  質問長: ${question?.length || 0}文字`);
       console.log(`  回答長: ${responseLength || response?.length || 0}文字`);
       console.log(`  処理時間: ${processingTime || 'N/A'}ms`);
@@ -200,14 +200,14 @@ class QALoggerService {
       });
 
       console.log('✅ [QA-LOGGER] スプレッドシート書き込み成功');
-      console.log(`📊 記録ID: ${messageId}`);
+      console.log("メッセージ処理イベント");
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
       return true;
 
     } catch (error) {
-      console.error('❌ [QA-LOGGER] 記録失敗:', error.message);
-      console.error('❌ [QA-LOGGER] スタックトレース:', error.stack);
+      console.error("❌ [QA-LOGGER] 記録失敗:");
+      console.error("❌ [QA-LOGGER] スタックトレース:");
       
       // エラーでも処理は継続（Bot動作に影響を与えない）
       return false;
@@ -244,7 +244,7 @@ class QALoggerService {
       };
 
     } catch (error) {
-      console.error('❌ [QA-LOGGER] 統計取得失敗:', error.message);
+      console.error("❌ [QA-LOGGER] 統計取得失敗:");
       return {
         initialized: true,
         error: error.message

@@ -215,7 +215,7 @@ client.once('ready', async () => {
         await qaLoggerService.initialize(env.QA_SPREADSHEET_ID);
         logger.success('✅ Q&A記録サービス初期化完了');
       } catch (error) {
-        logger.error('❌ Q&A記録サービス初期化失敗:', error.message);
+        logger.error('❌ Q&A記録サービス初期化失敗');
         logger.warn('⚠️ Q&A記録機能は無効です');
       }
     } else {

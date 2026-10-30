@@ -67,7 +67,7 @@ function extractYouTubeUrl(text) {
   const youtubeRegex = /https?:\/\/(www\.)?(youtube\.com\/(channel\/|c\/|@|user\/)|youtu\.be\/)[\w\-@]+/gi;
   const matches = text.match(youtubeRegex);
   if (matches && matches.length > 0) {
-    console.log(`📺 [YOUTUBE] YouTube URL検出: ${matches[0]}`);
+    console.log("メッセージ処理イベント");
     return matches[0];
   }
   return null;
@@ -87,10 +87,10 @@ function extractImageUrls(message) {
     const url = attachment.url || attachment.proxyURL;
     if (url) {
       const isImage = imageExtensions.some(ext => url.toLowerCase().includes(ext));
-      console.log(`📎 添付: ${url.substring(0, 80)}... (画像: ${isImage})`);
+      console.log("メッセージ処理イベント");
       if (isImage) {
         imageUrls.push(url);
-        console.log(`✅ 画像追加: ${url}`);
+        console.log("メッセージ処理イベント");
       }
     }
   });
@@ -100,19 +100,19 @@ function extractImageUrls(message) {
     console.log(`🎨 埋め込み[${index}]タイプ: ${embed.data?.type || 'unknown'}`);
     
     if (embed.image?.url) {
-      console.log(`🖼️ embed.image.url発見: ${embed.image.url}`);
+      console.log("メッセージ処理イベント");
       imageUrls.push(embed.image.url);
     }
     if (embed.thumbnail?.url) {
-      console.log(`🖼️ embed.thumbnail.url発見: ${embed.thumbnail.url}`);
+      console.log("メッセージ処理イベント");
       imageUrls.push(embed.thumbnail.url);
     }
     if (embed.data?.image?.url) {
-      console.log(`🖼️ embed.data.image.url発見: ${embed.data.image.url}`);
+      console.log("メッセージ処理イベント");
       imageUrls.push(embed.data.image.url);
     }
     if (embed.data?.thumbnail?.url) {
-      console.log(`🖼️ embed.data.thumbnail.url発見: ${embed.data.thumbnail.url}`);
+      console.log("メッセージ処理イベント");
       imageUrls.push(embed.data.thumbnail.url);
     }
   });
@@ -143,14 +143,14 @@ function isUserWaitingForQuestion(userId, interactionStates) {
 function clearWaitingQuestion(userId, interactionStates) {
   if (interactionStates && interactionStates.has(userId)) {
     interactionStates.delete(userId);
-    console.log(`✅ [STATE] 待機状態クリア: ${userId}`);
+    console.log("メッセージ処理イベント");
   }
 }
 
 // === 🎁 隠しキーワード検出関数 ===
 function checkHiddenKeyword(questionText, waitingType) {
   console.log(`🔍 [HIDDEN-FUNC] 検出関数開始`);
-  console.log(`📝 [HIDDEN-FUNC] 入力テキスト: "${questionText}"`);
+  console.log("メッセージ処理イベント");
   console.log(`🎯 [HIDDEN-FUNC] コンテキスト: "${waitingType}"`);
   console.log(`📚 [HIDDEN-FUNC] 登録キーワード数: ${HIDDEN_KEYWORDS.length}`);
   
@@ -163,9 +163,9 @@ function checkHiddenKeyword(questionText, waitingType) {
     const normalizedQuestion = questionText.toLowerCase().replace(/\s+/g, '');
     const normalizedKeyword = hidden.keyword.toLowerCase().replace(/\s+/g, '');
     
-    console.log(`  📝 正規化後の質問: "${normalizedQuestion}"`);
+    console.log("メッセージ処理イベント");
     console.log(`  🔑 正規化後のキーワード: "${normalizedKeyword}"`);
-    console.log(`  🔍 includes結果: ${normalizedQuestion.includes(normalizedKeyword)}`);
+    console.log("メッセージ処理イベント");
     
     if (normalizedQuestion.includes(normalizedKeyword)) {
       console.log(`  ✅ キーワード一致！`);
@@ -204,13 +204,13 @@ function startTypingIndicator(channel) {
   
   // 初回送信
   channel.sendTyping().catch(err => {
-    console.error('⚠️ [TYPING] 送信エラー:', err.message);
+    console.error("⚠️ [TYPING] 送信エラー:");
   });
   
   // 15秒ごとに自動更新（Discordの仕様：10秒で消えるため）
   const typingInterval = setInterval(() => {
     channel.sendTyping().catch(err => {
-      console.error('⚠️ [TYPING] 更新エラー:', err.message);
+      console.error("⚠️ [TYPING] 更新エラー:");
     });
   }, 8000); // 8秒ごとに更新（余裕を持たせる）
   
@@ -309,7 +309,7 @@ async function handleMessage(message, client) {
     // 5. @everyone / @here メンションを除外
     if (message.mentions.everyone) {
       console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
-      console.log(`   送信者: ${message.author.username} (ID: ${message.author.id})`);
+      console.log("メッセージ処理イベント");
       return;
     }
 
@@ -321,8 +321,8 @@ async function handleMessage(message, client) {
     const botMentionedViaRole = message.mentions.roles.some(r => botRoleIds.includes(r.id));
     const botMentioned = botMentionedDirect || botMentionedViaRole;
 
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
-    console.log(`📝 メッセージ内容: "${message.content}"`);
+    console.log("メッセージ処理イベント");
+    console.log("メッセージ処理イベント");
     console.log(`🤖 ユーザーメンション: ${botMentionedDirect ? 'あり ✅' : 'なし ❌'} / ロールメンション: ${botMentionedViaRole ? 'あり ✅' : 'なし ❌'}`);
 
     if (!botMentioned) {
@@ -352,7 +352,7 @@ async function handleMessage(message, client) {
     }
     questionText = questionText.trim();
 
-    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
+    console.log("メッセージ処理イベント");
 
     // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
@@ -375,32 +375,20 @@ async function handleMessage(message, client) {
           components: buttons,
           allowedMentions: { repliedUser: false }
         });
-        console.log(`✅ [EMPTY-MENTION] 空メンション応答送信完了 messageId=${botReply?.id || 'unknown'}`);
+        console.log("メッセージ処理イベント");
       } catch (error) {
-        console.error('❌ [EMPTY-MENTION] 空メンション応答送信失敗:', error);
-        console.error('❌ [EMPTY-MENTION] details:', {
-          name: error?.name,
-          message: error?.message,
-          code: error?.code,
-          status: error?.status,
-          rawError: error?.rawError
-        });
+        console.error("❌ [EMPTY-MENTION] 空メンション応答送信失敗:");
+        console.error("❌ [EMPTY-MENTION] details:");
 
         // 🔥 保険：ボタン無しでも送る（ここすら出ないなら「送信自体が死んでる」）
         try {
           const fallback = await message.channel.send({
             content: '⚠️ ボタン付きメッセージの送信に失敗しました。まずはテキストで質問を送ってください。'
           });
-          console.log(`✅ [EMPTY-MENTION] フォールバック送信成功 messageId=${fallback?.id || 'unknown'}`);
+          console.log("メッセージ処理イベント");
         } catch (e2) {
-          console.error('❌ [EMPTY-MENTION] フォールバック送信も失敗:', e2);
-          console.error('❌ [EMPTY-MENTION] fallback details:', {
-            name: e2?.name,
-            message: e2?.message,
-            code: e2?.code,
-            status: e2?.status,
-            rawError: e2?.rawError
-          });
+          console.error("❌ [EMPTY-MENTION] フォールバック送信も失敗:");
+          console.error("❌ [EMPTY-MENTION] fallback details:");
         }
       }
       // ✅ 追加ここまで
@@ -434,7 +422,7 @@ async function handleMessage(message, client) {
     if (imageUrls.length > 0) {
       console.log('📸 検出された画像URL:');
       imageUrls.forEach((url, i) => {
-        console.log(`  ${i + 1}. ${url}`);
+        console.log("メッセージ処理イベント");
       });
     }
 
@@ -457,8 +445,8 @@ async function handleMessage(message, client) {
       console.log(`📦 [REQUIRE] generateKnowledgeOnlyResponseの型: ${typeof RAGSystem?.generateKnowledgeOnlyResponse}`);
       console.log(`📦 [REQUIRE] generateMissionResponseの型: ${typeof RAGSystem?.generateMissionResponse}`);
     } catch (requireError) {
-      console.error('❌ [REQUIRE] エラー発生:', requireError);
-      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
+      console.error("❌ [REQUIRE] エラー発生:");
+      console.error("❌ [REQUIRE] スタックトレース:");
       stopTypingIndicator(typingInterval);
       await message.reply('システムエラー: RAGシステムの読み込みに失敗しました。');
       return;
@@ -481,7 +469,7 @@ async function handleMessage(message, client) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🧠 [AI] 応答生成開始（v15.5.14）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📝 質問: "${questionText}"`);
+    console.log("メッセージ処理イベント");
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
     console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
 
@@ -492,7 +480,7 @@ async function handleMessage(message, client) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
         console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
-        console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
+        console.log("メッセージ処理イベント");
         console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
         response = await RAGSystem.generateMissionResponse(
@@ -515,13 +503,13 @@ async function handleMessage(message, client) {
         
         // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
-        console.log(`🔍 [DEBUG] YouTube URL検出結果: ${youtubeUrl || 'なし'}`);
+        console.log("メッセージ処理イベント");
         
         let youtubeContext = null;
         
         if (youtubeUrl && waitingType === 'youtube_planning') {
           console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
-          console.log(`📺 [YOUTUBE] 分析対象URL: ${youtubeUrl}`);
+          console.log("メッセージ処理イベント");
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
@@ -541,23 +529,23 @@ async function handleMessage(message, client) {
             console.log('📺 [YOUTUBE] analyzeChannel() を実行中...');
             const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
             console.log('📺 [YOUTUBE] analyzeChannel() 完了');
-            console.log(`📺 [YOUTUBE] 分析結果:`, JSON.stringify(analysis, null, 2));
+            console.log("メッセージ処理イベント");
             
             if (analysis.success) {
-              console.log(`✅ [YOUTUBE] 分析成功: ${analysis.channel.name}`);
+              console.log("メッセージ処理イベント");
               youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
               console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
               console.log(`📊 [YOUTUBE] コンテキスト長: ${youtubeContext?.length || 0}文字`);
             } else {
-              console.warn(`⚠️ [YOUTUBE] 分析失敗: ${analysis.error}`);
+              console.warn("メッセージ処理イベント");
               // エラーメッセージをユーザーに通知
               await message.reply(`⚠️ ${analysis.error}`);
               stopTypingIndicator(typingInterval);
               return;
             }
           } catch (ytError) {
-            console.error('❌ [YOUTUBE] チャンネル分析エラー:', ytError.message);
-            console.error('❌ [YOUTUBE] スタックトレース:', ytError.stack);
+            console.error("❌ [YOUTUBE] チャンネル分析エラー:");
+            console.error("❌ [YOUTUBE] スタックトレース:");
             await message.reply('⚠️ YouTubeチャンネルの分析中にエラーが発生しました。URLをご確認ください。');
             stopTypingIndicator(typingInterval);
             return;
@@ -567,7 +555,7 @@ async function handleMessage(message, client) {
           console.log('💡 [YOUTUBE] YouTube企画提案を利用するには「YouTubeの企画相談」ボタンを押してください');
         } else if (!youtubeUrl && waitingType === 'youtube_planning') {
           console.log('⚠️ [YOUTUBE] YouTube企画相談モードですが、YouTube URLが検出されませんでした');
-          console.log(`📝 [YOUTUBE] 入力テキスト: "${questionText}"`);
+          console.log("メッセージ処理イベント");
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
@@ -646,8 +634,8 @@ async function handleMessage(message, client) {
       console.log('✅ [DISCORD] 送信完了');
 
     } catch (ragError) {
-      console.error('❌ [RAG] エラー発生:', ragError);
-      console.error('❌ [RAG] スタックトレース:', ragError.stack);
+      console.error("❌ [RAG] エラー発生:");
+      console.error("❌ [RAG] スタックトレース:");
       stopTypingIndicator(typingInterval);
       await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
       return;
@@ -679,7 +667,7 @@ async function handleMessage(message, client) {
         console.log('✅ [BUTTON] ボタン追加完了');
 
       } catch (buttonError) {
-        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
+        console.error("⚠️ [BUTTON] ボタン追加失敗:");
       }
     } else {
       console.log('⚠️ [BUTTON] スキップ（botReplyなし or ハンドラー未登録）');
@@ -690,16 +678,16 @@ async function handleMessage(message, client) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
-    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
-    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
-    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
+    console.error("❌❌❌ [CRITICAL] 予期しないエラー:");
+    console.error("❌❌❌ [CRITICAL] スタックトレース:");
+    console.error("❌❌❌ [CRITICAL] エラー詳細:");
     
     stopTypingIndicator(typingInterval);
     
     try {
       await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
     } catch (replyError) {
-      console.error('❌ 返信送信にも失敗:', replyError);
+      console.error("❌ 返信送信にも失敗:");
     }
   }
 }
@@ -745,7 +733,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     // 5. @everyone / @here メンションを除外
     if (message.mentions.everyone) {
       console.log('🔕 [@EVERYONE] @everyone/@here メンション検出 → スキップ');
-      console.log(`   送信者: ${message.author.username} (ID: ${message.author.id})`);
+      console.log("メッセージ処理イベント");
       return;
     }
 
@@ -757,8 +745,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     const botMentionedViaRole = message.mentions.roles.some(r => botRoleIdsRef.includes(r.id));
     const botMentioned = botMentionedDirect || botMentionedViaRole;
 
-    console.log(`👤 送信者: ${message.author.tag} (ID: ${message.author.id}, Bot: ${message.author.bot})`);
-    console.log(`📝 メッセージ内容: "${message.content}"`);
+    console.log("メッセージ処理イベント");
+    console.log("メッセージ処理イベント");
     console.log(`🤖 ユーザーメンション: ${botMentionedDirect ? 'あり ✅' : 'なし ❌'} / ロールメンション: ${botMentionedViaRole ? 'あり ✅' : 'なし ❌'}`);
 
     if (!botMentioned) {
@@ -790,7 +778,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     }
     questionText = questionText.trim();
 
-    console.log(`📝 抽出されたコンテンツ: "${questionText}"`);
+    console.log("メッセージ処理イベント");
 
     // === 空メンション時の特別処理（クラシックスタイル） ===
     if (!questionText) {
@@ -813,32 +801,20 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           components: buttons,
           allowedMentions: { repliedUser: false }
         });
-        console.log(`✅ [EMPTY-MENTION] 空メンション応答送信完了 messageId=${botReply?.id || 'unknown'}`);
+        console.log("メッセージ処理イベント");
       } catch (error) {
-        console.error('❌ [EMPTY-MENTION] 空メンション応答送信失敗:', error);
-        console.error('❌ [EMPTY-MENTION] details:', {
-          name: error?.name,
-          message: error?.message,
-          code: error?.code,
-          status: error?.status,
-          rawError: error?.rawError
-        });
+        console.error("❌ [EMPTY-MENTION] 空メンション応答送信失敗:");
+        console.error("❌ [EMPTY-MENTION] details:");
 
         // 🔥 保険：ボタン無しでも送る
         try {
           const fallback = await message.channel.send({
             content: '⚠️ ボタン付きメッセージの送信に失敗しました。まずはテキストで質問を送ってください。'
           });
-          console.log(`✅ [EMPTY-MENTION] フォールバック送信成功 messageId=${fallback?.id || 'unknown'}`);
+          console.log("メッセージ処理イベント");
         } catch (e2) {
-          console.error('❌ [EMPTY-MENTION] フォールバック送信も失敗:', e2);
-          console.error('❌ [EMPTY-MENTION] fallback details:', {
-            name: e2?.name,
-            message: e2?.message,
-            code: e2?.code,
-            status: e2?.status,
-            rawError: e2?.rawError
-          });
+          console.error("❌ [EMPTY-MENTION] フォールバック送信も失敗:");
+          console.error("❌ [EMPTY-MENTION] fallback details:");
         }
       }
       // ✅ 追加ここまで
@@ -872,7 +848,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     if (imageUrls.length > 0) {
       console.log('📸 検出された画像URL:');
       imageUrls.forEach((url, i) => {
-        console.log(`  ${i + 1}. ${url}`);
+        console.log("メッセージ処理イベント");
       });
     }
 
@@ -893,8 +869,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       console.log(`📦 [REQUIRE] generateMissionResponse型: ${typeof RAGSystem?.generateMissionResponse}`);
       
     } catch (requireError) {
-      console.error('❌ [REQUIRE] エラー発生:', requireError);
-      console.error('❌ [REQUIRE] スタックトレース:', requireError.stack);
+      console.error("❌ [REQUIRE] エラー発生:");
+      console.error("❌ [REQUIRE] スタックトレース:");
       stopTypingIndicator(typingInterval);
       await message.reply('システムエラー: モジュールの読み込みに失敗しました。');
       return;
@@ -905,7 +881,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     // === 🎁 隠しキーワード検出 ===
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🔍 [HIDDEN] 隠しキーワードチェック開始');
-    console.log(`📝 [HIDDEN] 検査対象テキスト: "${questionText}"`);
+    console.log("メッセージ処理イベント");
     console.log(`🎯 [HIDDEN] コンテキスト: ${waitingType || 'なし'}`);
     
     const hiddenKeywordResult = checkHiddenKeyword(questionText, waitingType);
@@ -940,7 +916,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('🧠 [AI] 応答生成開始（Q&A記録版 v15.5.14）');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log(`📝 質問: "${questionText}"`);
+    console.log("メッセージ処理イベント");
     console.log(`🖼️ 画像: ${imageUrls.length}件`);
     console.log(`🔍 待機状態: ${waitingType || 'なし'}`);
 
@@ -951,7 +927,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         // ミッション提出処理
         console.log('🎯 [AI] ミッション提出処理開始:', waitingType);
         console.log('🔄 [RAG] generateMissionResponse 呼び出し中...');
-        console.log(`📝 [DEBUG] 引数1 questionText: "${questionText}"`);
+        console.log("メッセージ処理イベント");
         console.log(`🖼️ [DEBUG] 引数2 imageUrls: ${imageUrls.length}件`);
         
         responseText = await RAGSystem.generateMissionResponse(
@@ -974,13 +950,13 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         
         // YouTube URL検出とチャンネル分析（youtube_planningボタンを押したときのみ）
         const youtubeUrl = extractYouTubeUrl(questionText);
-        console.log(`🔍 [DEBUG] YouTube URL検出結果: ${youtubeUrl || 'なし'}`);
+        console.log("メッセージ処理イベント");
         
         let youtubeContext = null;
         
         if (youtubeUrl && waitingType === 'youtube_planning') {
           console.log('📺 [YOUTUBE] チャンネル分析開始（YouTube企画相談モード）...');
-          console.log(`📺 [YOUTUBE] 分析対象URL: ${youtubeUrl}`);
+          console.log("メッセージ処理イベント");
           try {
             // YouTube API初期化
             if (!youtubeAnalyzer.initialized) {
@@ -1000,23 +976,23 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
             console.log('📺 [YOUTUBE] analyzeChannel() を実行中...');
             const analysis = await youtubeAnalyzer.analyzeChannel(youtubeUrl);
             console.log('📺 [YOUTUBE] analyzeChannel() 完了');
-            console.log(`📺 [YOUTUBE] 分析結果:`, JSON.stringify(analysis, null, 2));
+            console.log("メッセージ処理イベント");
             
             if (analysis.success) {
-              console.log(`✅ [YOUTUBE] 分析成功: ${analysis.channel.name}`);
+              console.log("メッセージ処理イベント");
               youtubeContext = youtubeAnalyzer.buildPlanningContext(analysis, questionText);
               console.log('📊 [YOUTUBE] 企画提案用コンテキストを生成しました');
               console.log(`📊 [YOUTUBE] コンテキスト長: ${youtubeContext?.length || 0}文字`);
             } else {
-              console.warn(`⚠️ [YOUTUBE] 分析失敗: ${analysis.error}`);
+              console.warn("メッセージ処理イベント");
               // エラーメッセージをユーザーに通知
               await message.reply(`⚠️ ${analysis.error}`);
               stopTypingIndicator(typingInterval);
               return;
             }
           } catch (ytError) {
-            console.error('❌ [YOUTUBE] チャンネル分析エラー:', ytError.message);
-            console.error('❌ [YOUTUBE] スタックトレース:', ytError.stack);
+            console.error("❌ [YOUTUBE] チャンネル分析エラー:");
+            console.error("❌ [YOUTUBE] スタックトレース:");
             await message.reply('⚠️ YouTubeチャンネルの分析中にエラーが発生しました。URLをご確認ください。');
             stopTypingIndicator(typingInterval);
             return;
@@ -1026,7 +1002,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
           console.log('💡 [YOUTUBE] YouTube企画提案を利用するには「YouTubeの企画相談」ボタンを押してください');
         } else if (!youtubeUrl && waitingType === 'youtube_planning') {
           console.log('⚠️ [YOUTUBE] YouTube企画相談モードですが、YouTube URLが検出されませんでした');
-          console.log(`📝 [YOUTUBE] 入力テキスト: "${questionText}"`);
+          console.log("メッセージ処理イベント");
         }
         
         console.log('🔄 [RAG] generateKnowledgeOnlyResponse 呼び出し中...');
@@ -1120,8 +1096,8 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
       console.log('✅ [DISCORD] 送信完了');
 
     } catch (ragError) {
-      console.error('❌ [RAG] エラー発生:', ragError);
-      console.error('❌ [RAG] スタックトレース:', ragError.stack);
+      console.error("❌ [RAG] エラー発生:");
+      console.error("❌ [RAG] スタックトレース:");
       stopTypingIndicator(typingInterval);
       await message.reply('エラーが発生しました。しばらくしてから再度お試しください。');
       return;
@@ -1161,9 +1137,9 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         };
         
         console.log('📊 [DEBUG] Q&A記録データ:');
-        console.log(`  ユーザー: ${qaData.username}`);
-        console.log(`  チャンネル: ${qaData.channelName}`);
-        console.log(`  サーバー: ${qaData.guildName} (${qaData.guildId})`);
+        console.log("メッセージ処理イベント");
+        console.log("メッセージ処理イベント");
+        console.log("メッセージ処理イベント");
         console.log(`  質問長: ${qaData.question.length}文字`);
         console.log(`  回答長: ${qaData.responseLength}文字`);
         console.log(`  処理時間: ${qaData.processingTime}ms`);
@@ -1176,7 +1152,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         console.log('⚠️ [QA-LOG] スキップ（qaLoggerService未初期化）');
       }
     } catch (logError) {
-      console.error('⚠️ [QA-LOG] 記録失敗（処理は続行）:', logError);
+      console.error("⚠️ [QA-LOG] 記録失敗（処理は続行）:");
     }
 
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -1208,7 +1184,7 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
         console.log('✅ [BUTTON] ボタン追加完了');
 
       } catch (buttonError) {
-        console.error('⚠️ [BUTTON] ボタン追加失敗:', buttonError);
+        console.error("⚠️ [BUTTON] ボタン追加失敗:");
       }
     }
 
@@ -1217,16 +1193,16 @@ async function handleMessageWithQALogging(message, client, qaLoggerService) {
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   } catch (error) {
-    console.error('❌❌❌ [CRITICAL] 予期しないエラー:', error);
-    console.error('❌❌❌ [CRITICAL] スタックトレース:', error.stack);
-    console.error('❌❌❌ [CRITICAL] エラー詳細:', JSON.stringify(error, null, 2));
+    console.error("❌❌❌ [CRITICAL] 予期しないエラー:");
+    console.error("❌❌❌ [CRITICAL] スタックトレース:");
+    console.error("❌❌❌ [CRITICAL] エラー詳細:");
     
     stopTypingIndicator(typingInterval);
     
     try {
       await message.reply('予期しないエラーが発生しました。管理者に連絡してください。');
     } catch (replyError) {
-      console.error('❌ 返信送信にも失敗:', replyError);
+      console.error("❌ 返信送信にも失敗:");
     }
   }
 }
